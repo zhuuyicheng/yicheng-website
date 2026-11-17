@@ -92,18 +92,23 @@ nothing reaches for a global singleton. On the frontend, the Next.js app is the 
 
 ## 3. Monorepo Layout
 
-Items marked `(P2)`…`(P5)` arrive in that phase; everything else exists after Phase 1.
+Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after Phase 1.
 
 ```
 .
 ├── .github/workflows/ci.yml              (P2) format, lint, typecheck, unit + integration tests
+├── .github/workflows/deploy.yml          (P6) build images → approve → migrate → deploy → smoke test
+├── .vscode/extensions.json               recommended extensions (PostgreSQL, Redis, ESLint, Prettier)
+├── .dockerignore                         (P6)
 ├── .nvmrc                                Node 24 LTS
 ├── .env.example                          documented env vars (copy to .env)
 ├── .prettierrc.json / .prettierignore
 ├── CLAUDE.md                             contributor / agent guide
 ├── DESIGN.md                             this document
 ├── ROADMAP.md                            phases, branches, progress checklists
-├── docs/                                 how-to guides (running, testing, CI)
+├── docs/                                 how-to guides (testing, CI, content & cache, data viewers)
+│   └── sql/                              read-only queries to run from the VS Code PostgreSQL extension
+├── deploy/                               (P6) compose.prod.yml + Caddyfile for the production host
 ├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests
 ├── eslint.config.mjs                     one flat config for the whole repo
 ├── package.json                          npm workspaces + repo-wide scripts
@@ -111,6 +116,7 @@ Items marked `(P2)`…`(P5)` arrive in that phase; everything else exists after 
 ├── apps/
 │   ├── api/
 │   │   ├── package.json
+│   │   ├── Dockerfile                    (P6) one image: api, worker, migrate, seed commands
 │   │   ├── tsconfig.json                 typecheck (src + test)
 │   │   ├── tsconfig.build.json           emit (src → dist)
 │   │   ├── vitest.config.ts              "unit" and "integration" projects
@@ -131,13 +137,15 @@ Items marked `(P2)`…`(P5)` arrive in that phase; everything else exists after 
 │   │   │   │   └── system.routes.ts      (P5) /metrics, system status
 │   │   │   ├── controllers/
 │   │   │   │   ├── health.controller.ts
+│   │   │   │   ├── parse-request.ts              (P2) Zod-validates params/query/body → 400
 │   │   │   │   ├── content.controller.ts         (P2)
 │   │   │   │   ├── events.controller.ts          (P3)
 │   │   │   │   ├── contact.controller.ts         (P4)
 │   │   │   │   └── system.controller.ts          (P5)
 │   │   │   ├── services/
 │   │   │   │   ├── health.service.ts
-│   │   │   │   ├── content.service.ts            (P2) cache-aside + single-flight
+│   │   │   │   ├── cache-aside.ts                (P2) generic cache-aside + single-flight + TTL jitter
+│   │   │   │   ├── content.service.ts            (P2) profile/projects reads, publish (seed)
 │   │   │   │   ├── telemetry.service.ts          (P3) validation, hashing, enqueue
 │   │   │   │   ├── contact.service.ts            (P4)
 │   │   │   │   ├── rate-limiter.service.ts       (P4)
@@ -159,7 +167,7 @@ Items marked `(P2)`…`(P5)` arrive in that phase; everything else exists after 
 │   │   │   │   └── lua/                          (P3/P4) Lua scripts as TS string constants
 │   │   │   ├── views/
 │   │   │   │   ├── error.view.ts         { error: { code, message, requestId } }
-│   │   │   │   ├── content.view.ts       (P2)
+│   │   │   │   ├── content.view.ts       (P2) { data } bodies for profile/projects
 │   │   │   │   └── system-status.view.ts (P5)
 │   │   │   ├── workers/                  (P3/P4) background loops started by worker.ts
 │   │   │   │   ├── telemetry-flusher.worker.ts   (P3)
@@ -191,6 +199,7 @@ Items marked `(P2)`…`(P5)` arrive in that phase; everything else exists after 
 │   │       └── integration/              real Postgres + Redis (docker compose)
 │   └── web/
 │       ├── package.json, next.config.ts, postcss.config.mjs, tsconfig.json
+│       ├── Dockerfile                    (P6) Next.js standalone server
 │       └── src/
 │           ├── app/                      routes: layout.tsx, page.tsx, (P5) projects/, status/
 │           ├── components/               (P5) presentational React components
@@ -262,6 +271,8 @@ Docker Compose additionally reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRE
   A failure rolls back that file and stops the run.
 - Applied files are verified by checksum. **Editing an applied migration is an error**; write
   a new migration instead. A recorded version whose file is missing is also an error.
+- Migrations must be **backward compatible** with the code that is already running, because a
+  deploy applies them before the new version starts (expand → contract, see §14.4).
 - `CREATE INDEX CONCURRENTLY` is not supported (it cannot run inside a transaction).
 - `gen_random_uuid()` is built into Postgres 13+, so no extension is needed.
 - `updated_at` is set explicitly by repository `UPDATE` statements (no triggers).
@@ -603,7 +614,8 @@ Failure reasons are **logged** (with `requestId`), never returned; they can cont
 `GET /api/v1/projects` → `200 { "data": [ProjectSummary] }`, ordered by featured, then `sort_order`.
 `ProjectSummary = { slug, title, summary, techStack[], repoUrl|null, liveUrl|null, featured }`
 
-`GET /api/v1/projects/:slug` → `200 { "data": Project }` (`ProjectSummary` + `description`), or `404`.
+`GET /api/v1/projects/:slug` → `200 { "data": Project }` (`ProjectSummary` + `description`), `404` if
+no such project, or `400 VALIDATION_ERROR` if the slug is malformed (`^[a-z0-9]+(-[a-z0-9]+)*$`, ≤ 100).
 
 All three set `X-Cache: hit | miss`.
 
@@ -691,14 +703,25 @@ durations (Prometheus histograms are cumulative, not rolling). Values are per AP
 
 ### 8.1 Module A: Content (cache-aside)
 
+The generic algorithm lives in `services/cache-aside.ts`; `content.service.ts` only says which
+key, schema and repository query to use.
+
 1. `GET cache:v1:<key>` → hit: parse + validate with the model's Zod schema → return.
 2. Miss: load from Postgres → `SET <key> <json> EX <ttl ± 10 %>` → return.
 3. **Single-flight**: concurrent misses for the same key in one process share one DB query,
    preventing a stampede when a hot key expires. TTL jitter prevents synchronized expiry.
+   A failed load is not remembered: the next request tries again.
 4. Redis error on read or write → serve from Postgres, log `warn` + `cache_errors_total{operation}`.
-5. Corrupt entry (bad JSON / schema mismatch) → treat as miss, `DEL` it, log + metric.
-6. `npm run content:seed` validates `content/portfolio.json`, upserts it in one transaction,
-   then deletes and re-warms the cache keys. There is no admin HTTP endpoint.
+5. Corrupt entry (bad JSON / schema mismatch) → treat as miss (log + `operation="decode"`); the
+   freshly loaded value overwrites it.
+6. "Not found" (`null`) is **not cached**, so newly published content appears immediately.
+7. `npm run content:seed` validates `content/portfolio.json` (all problems listed, nothing
+   written on error) and, in one transaction, upserts the profile, replaces all experiences
+   (their ids change per seed), upserts projects by slug and deletes projects no longer in the
+   file. It then deletes every content cache key (`SCAN` for `cache:v1:project:*`) and warms
+   the cache through the normal read path. If clearing the cache fails, the command exits `1`
+   (Postgres is already updated; cached copies may be stale until their TTL). There is no admin
+   HTTP endpoint.
 
 ### 8.2 Module B: Telemetry pipeline
 
@@ -900,5 +923,86 @@ See [docs/CI.md](docs/CI.md).
 | 3     | `feat/telemetry-pipeline`    | Module B: event ingestion, Redis buffer, batch flusher worker, DLQ, SIGTERM test      |
 | 4     | `feat/contact-rate-limiter`  | Module C: Lua sliding-window limiter, contact endpoint, notification worker + backoff |
 | 5     | `feat/metrics-and-dashboard` | Module D: `/metrics`, system status API, Next.js portfolio + live dashboard           |
+| 6     | `feat/continuous-delivery`   | Docker images, GHCR, deploy workflow with approval gate, smoke test, rollback (§14)   |
 
 Detailed checklists and current status: [ROADMAP.md](ROADMAP.md).
+
+---
+
+## 14. Deployment & Continuous Delivery (Phase 6)
+
+- **Continuous delivery**: every commit on `main` is automatically built, tested and packaged
+  into a release that _can_ go to production with one click of approval.
+- **Continuous deployment**: the same pipeline without the approval click.
+
+We start with delivery (a required reviewer on a GitHub `production` Environment) and remove the
+gate once releases are routine.
+
+### 14.1 Already deploy-ready (decisions from Phases 1–5)
+
+| Property                                         | Why it matters for deployment                                   |
+| ------------------------------------------------ | --------------------------------------------------------------- |
+| All config from env vars, validated at startup   | The same image runs everywhere; bad config fails before serving |
+| Migrations are a separate CLI, never run on boot | Run once per release as a step, not by every container          |
+| `/health` checks real dependencies               | Container healthcheck and post-deploy smoke test                |
+| Graceful shutdown with a deadline                | Stopping the old version lets in-flight requests finish         |
+| Worker is a separate process                     | Restarted independently of the API                              |
+| CI on every PR and on `main`                     | Only tested commits become releases                             |
+
+### 14.2 Artifacts
+
+- `apps/api/Dockerfile`, multi-stage: install → `tsc` build → small runtime image with
+  production dependencies only, running as the non-root `node` user. One image, several
+  commands: `node dist/main.js` (API), `node dist/worker.js`, `node dist/cli/migrate.js`,
+  `node dist/cli/seed-content.js`. It contains `migrations/` and `content/`.
+- `apps/web/Dockerfile`: Next.js `output: 'standalone'` server.
+- Images go to GitHub Container Registry, tagged with the **git commit SHA**
+  (`ghcr.io/<owner>/portfolio-api:<sha>`). Every release is traceable to a commit, and a
+  rollback is "deploy the previous SHA".
+- CI builds both images on every PR, so a broken Dockerfile fails before merge.
+
+### 14.3 Pipeline (`.github/workflows/deploy.yml`)
+
+```
+merge to main ─► CI green ─► build + push images (tag = SHA)
+                              │
+                              ▼
+               deploy job  [environment: production → waits for your approval]
+                 1. migrate          node dist/cli/migrate.js   (backward compatible, §14.4)
+                 2. seed content     node dist/cli/seed-content.js (idempotent)
+                 3. roll out         stop old worker → start new api, worker, web
+                 4. smoke test       GET /health = 200, GET /api/v1/projects = 200
+                 5. on failure       redeploy the previous SHA, mark the job failed
+```
+
+### 14.4 Rules this imposes on every phase
+
+- **Expand → contract migrations.** Between steps 1 and 3 the _old_ code runs against the
+  _new_ schema. So a migration may add tables, nullable columns or columns with defaults, but
+  must not drop or rename anything the running version reads. A rename becomes: add the new
+  column → backfill → release code using it → drop the old column in a later release.
+- **No secrets in images or Git.** Production values (`IP_HASH_SECRET`, `METRICS_TOKEN`,
+  `DISCORD_WEBHOOK_URL`, database passwords) live in GitHub Environment secrets and an env
+  file on the host.
+- **One worker at a time** (§8.4): the rollout stops the old worker before starting the new one.
+- **Redis is a datastore, not only a cache**: production Redis must keep AOF persistence and
+  the `volatile-lru` policy. This rules out hosted plans that disable persistence or force
+  `allkeys-lru` (which would evict queued events).
+- Production settings: `NODE_ENV=production`, `TRUST_PROXY=true`, `CORS_ORIGINS=https://<domain>`,
+  `METRICS_TOKEN` set.
+
+### 14.5 Hosting (decided at the start of Phase 6)
+
+**Default: one small Linux VPS** running `deploy/compose.prod.yml` (Postgres, Redis, API,
+worker, web, and Caddy for automatic HTTPS). It mirrors local development, keeps Redis
+configuration under our control, and costs a few dollars a month. The deploy job connects over
+SSH (key stored as an Environment secret) and runs `docker compose pull` + `up -d` with the new
+tag. A restart causes a few seconds of downtime, which is acceptable for a portfolio; two API
+replicas behind Caddy (zero downtime) is a stretch goal.
+
+Alternative: a container platform plus managed Postgres/Redis. Less server upkeep, higher cost,
+and the Redis constraints in §14.4 must be checked. The images and pipeline are the same either
+way; only step 3 changes.
+
+Operations included in Phase 6: nightly `pg_dump` backups copied off the host, with a restore
+that has actually been tested.

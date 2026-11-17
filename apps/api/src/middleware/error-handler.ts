@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { AppError, ErrorCode } from '../errors/app-error.js';
-import { renderError, type ErrorResponseBody, type ValidationIssue } from '../views/error.view.js';
+import { AppError, ErrorCode, type ValidationIssue } from '../errors/app-error.js';
+import { renderError, type ErrorResponseBody } from '../views/error.view.js';
 
 export const GENERIC_ERROR_MESSAGE = 'An unexpected error occurred';
 
@@ -38,7 +38,7 @@ export function toErrorResponse(error: unknown, requestId: string): ErrorRespons
   if (error instanceof AppError) {
     return {
       statusCode: error.statusCode,
-      body: renderError(error.code, error.message, requestId),
+      body: renderError(error.code, error.message, requestId, error.details),
     };
   }
 

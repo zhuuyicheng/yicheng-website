@@ -12,6 +12,7 @@ export interface AppConfig {
   log: { level: LogLevel; pretty: boolean };
   postgres: { url: string; poolMax: number };
   redis: { url: string };
+  cache: { ttlSeconds: number };
   shutdown: { timeoutMs: number };
 }
 
@@ -32,6 +33,7 @@ const envSchema = z.object({
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
   REDIS_URL: requiredUrl(/^rediss?$/, 'redis://'),
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(10_000),
+  CACHE_TTL_SECONDS: z.coerce.number().int().min(1).max(86_400).default(300),
 });
 
 export class ConfigError extends Error {
@@ -66,6 +68,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     log: { level: vars.LOG_LEVEL, pretty: vars.NODE_ENV === 'development' },
     postgres: { url: vars.DATABASE_URL, poolMax: vars.DATABASE_POOL_MAX },
     redis: { url: vars.REDIS_URL },
+    cache: { ttlSeconds: vars.CACHE_TTL_SECONDS },
     shutdown: { timeoutMs: vars.SHUTDOWN_TIMEOUT_MS },
   };
 }

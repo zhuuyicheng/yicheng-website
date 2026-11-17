@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import type { Logger } from './logger.js';
+import type { Metrics } from './metrics.js';
 
 export type { Pool as PostgresPool } from 'pg';
 
@@ -10,7 +11,11 @@ export interface PostgresOptions {
   applicationName: string;
 }
 
-export function createPostgresPool(options: PostgresOptions, logger: Logger): Pool {
+export function createPostgresPool(
+  options: PostgresOptions,
+  logger: Logger,
+  metrics: Metrics,
+): Pool {
   const pool = new Pool({
     connectionString: options.url,
     max: options.poolMax,
@@ -24,6 +29,7 @@ export function createPostgresPool(options: PostgresOptions, logger: Logger): Po
   // pg emits that as an 'error' event on the pool, which crashes the process if unhandled.
   pool.on('error', (err) => {
     logger.error({ err }, 'postgres idle client error');
+    metrics.postgresPoolErrors.inc();
   });
 
   return pool;

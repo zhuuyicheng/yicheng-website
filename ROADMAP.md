@@ -6,10 +6,11 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | Phase | Branch                       | Module | Status         |
 | ----- | ---------------------------- | ------ | -------------- |
 | 1     | `main` (initial scaffold)    | —      | ✅ Done        |
-| 2     | `feat/portfolio-cache-api`   | A      | ⏳ Next        |
+| 2     | `feat/portfolio-cache-api`   | A      | 🔍 In review   |
 | 3     | `feat/telemetry-pipeline`    | B      | ⬜ Not started |
 | 4     | `feat/contact-rate-limiter`  | C      | ⬜ Not started |
 | 5     | `feat/metrics-and-dashboard` | D      | ⬜ Not started |
+| 6     | `feat/continuous-delivery`   | —      | ⬜ Not started |
 
 ---
 
@@ -29,21 +30,25 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 - [x] Next.js 16 + Tailwind 4 placeholder page
 - [x] Tests: 32 unit + 12 integration (incl. real-process SIGTERM test)
 
-## Phase 2: Portfolio content API + cache (`feat/portfolio-cache-api`)
+## Phase 2: Portfolio content API + cache (`feat/portfolio-cache-api`) 🔍
 
-- [ ] **CI first**: `.github/workflows/ci.yml` (format, lint, typecheck, unit + integration
+- [x] **CI first**: `.github/workflows/ci.yml` (format, lint, typecheck, unit + integration
       tests against Postgres/Redis service containers) — see [docs/CI.md](docs/CI.md)
-- [ ] Migration `0001_portfolio_content.sql` (profile, experiences, projects)
-- [ ] `content/portfolio.json` + `npm run content:seed` (upsert, then invalidate + warm cache)
-- [ ] Model + repository + cache store + service + controller + view + routes for:
-  - [ ] `GET /api/v1/profile`
-  - [ ] `GET /api/v1/projects`
-  - [ ] `GET /api/v1/projects/:slug`
-- [ ] Redis cache-aside with TTL jitter, single-flight, `X-Cache: hit|miss` header
-- [ ] Redis failure → Postgres fallback (log + metric)
-- [ ] `infra/metrics.ts` prom-client registry: `cache_requests_total`, `cache_errors_total`,
+- [x] Migration `0001_portfolio_content.sql` (profile, experiences, projects)
+- [x] `content/portfolio.json` + `npm run content:seed` (upsert, then invalidate + warm cache)
+- [x] Model + repository + cache store + service + controller + view + routes for:
+  - [x] `GET /api/v1/profile`
+  - [x] `GET /api/v1/projects`
+  - [x] `GET /api/v1/projects/:slug`
+- [x] Redis cache-aside with TTL jitter, single-flight, `X-Cache: hit|miss` header
+- [x] Redis failure → Postgres fallback (log + metric)
+- [x] `infra/metrics.ts` prom-client registry: `cache_requests_total`, `cache_errors_total`,
       plus metrics for existing Redis reconnects / Postgres pool errors
-- [ ] Unit tests (content service with fakes) + integration tests (real cache round trip)
+- [x] Unit tests (cache-aside, content service, content file schema) + integration tests
+      (real cache round trip, Redis-down fallback, seed CLI) — 55 unit + 22 integration total
+- [x] Data-viewer guide: [docs/DATA-TOOLS.md](docs/DATA-TOOLS.md) (VS Code PostgreSQL + Redis)
+- [x] PR #1 merged: CI workflow only (green on PR and on `main`)
+- [ ] Feature commit pushed, PR #2 opened, CI green, merged into `main`
 
 ## Phase 3: Telemetry pipeline (`feat/telemetry-pipeline`)
 
@@ -55,6 +60,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 - [ ] Worker graceful shutdown drains the buffer
 - [ ] Integration tests: ingest → flush, crash recovery (no duplicates), DLQ, buffer cap,
       **worker SIGTERM graceful shutdown**
+- [ ] DATA-TOOLS.md §7: watching the buffer drain into `analytics_events`
 
 ## Phase 4: Contact API + rate limiter (`feat/contact-rate-limiter`)
 
@@ -65,6 +71,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 - [ ] Notifiers: `log` (dev) and `discord`
 - [ ] Reconciler for messages whose enqueue failed
 - [ ] Tests: 20 concurrent requests admit exactly 3; retry/backoff/DLQ against a stub webhook
+- [ ] DATA-TOOLS.md §7: watching rate-limit sorted sets and the job queues
 
 ## Phase 5: Metrics & dashboard (`feat/metrics-and-dashboard`)
 
@@ -75,3 +82,19 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 - [ ] `packages/shared` API contract schemas
 - [ ] Next.js portfolio pages (profile, projects, contact form) + page-view beacon
 - [ ] Live system telemetry dashboard
+
+## Phase 6: Continuous delivery (`feat/continuous-delivery`)
+
+Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
+
+- [ ] Decide hosting + domain (default: one VPS running Docker Compose with Caddy for HTTPS)
+- [ ] `apps/api/Dockerfile` (multi-stage, non-root; one image for api/worker/migrate/seed),
+      `apps/web/Dockerfile` (Next.js standalone), `.dockerignore`
+- [ ] CI: build both images on every PR (a broken Dockerfile fails before merge)
+- [ ] On merge to `main`: push images to GHCR tagged with the git SHA
+- [ ] `deploy/compose.prod.yml` + `Caddyfile`; production env file kept on the host only
+- [ ] `.github/workflows/deploy.yml`: migrate → seed → roll out → smoke test → auto-rollback,
+      behind a `production` GitHub Environment with a required reviewer (continuous **delivery**)
+- [ ] Nightly `pg_dump` backups off the host + a tested restore
+- [ ] `docs/CD.md`: how to release, approve, roll back, read deploy logs
+- [ ] Later: remove the approval gate (continuous **deployment**) once releases are routine

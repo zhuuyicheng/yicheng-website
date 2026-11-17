@@ -1,0 +1,30 @@
+{
+  "profile": {
+    "fullName": "Your Name",
+    "headline": "Backend Engineer",
+    "summary": "Replace this with a short introduction. Edit apps/api/content/portfolio.json, then run `npm run content:seed`.",
+    "location": "City, Country",
+    "links": [{ "label": "GitHub", "url": "https://github.com/zhuuyicheng" }]
+  },
+  "experiences": [
+    {
+      "company": "Example Company",
+      "role": "Software Engineer",
+      "startDate": "2024-01-01",
+      "endDate": null,
+      "highlights": ["Replace with something you built and the impact it had."]
+    }
+  ],
+  "projects": [
+    {
+      "slug": "portfolio-telemetry-platform",
+      "title": "Portfolio & Live Telemetry Platform",
+      "summary": "This website: a TypeScript backend with Redis caching, async event ingestion, rate limiting and live observability.",
+      "description": "A Fastify API in a layered MVC structure backed by PostgreSQL and Redis. Content is served cache-aside with single-flight loading and TTL jitter; telemetry events are buffered in Redis and flushed in batches by a worker; the contact form is protected by an atomic Lua sliding-window rate limiter. Every retry and fallback is logged and counted in Prometheus metrics.",
+      "techStack": ["TypeScript", "Node.js", "Fastify", "PostgreSQL", "Redis", "Next.js"],
+      "repoUrl": "https://github.com/zhuuyicheng/yicheng-website",
+      "liveUrl": null,
+      "featured": true
+    }
+  ]
+}

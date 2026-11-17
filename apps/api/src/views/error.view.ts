@@ -1,9 +1,4 @@
-import type { ErrorCode } from '../errors/app-error.js';
-
-export interface ValidationIssue {
-  path: string;
-  message: string;
-}
+import type { ErrorCode, ValidationIssue } from '../errors/app-error.js';
 
 /** The single error response shape used by every endpoint. See DESIGN.md §7.1. */
 export interface ErrorResponseBody {

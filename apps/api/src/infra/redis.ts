@@ -1,5 +1,6 @@
 import { Redis } from 'ioredis';
 import type { Logger } from './logger.js';
+import type { Metrics } from './metrics.js';
 
 export type { Redis } from 'ioredis';
 
@@ -11,7 +12,7 @@ export interface RedisOptions {
 
 const MAX_RECONNECT_DELAY_MS = 2_000;
 
-export function createRedisClient(options: RedisOptions, logger: Logger): Redis {
+export function createRedisClient(options: RedisOptions, logger: Logger, metrics: Metrics): Redis {
   const redis = new Redis(options.url, {
     connectionName: options.connectionName,
     // Connect explicitly at startup (see connectRedis) so an unreachable Redis fails fast.
@@ -22,7 +23,8 @@ export function createRedisClient(options: RedisOptions, logger: Logger): Redis 
     maxRetriesPerRequest: 1,
     retryStrategy: (attempt) => {
       const delayMs = Math.min(attempt * 200, MAX_RECONNECT_DELAY_MS);
-      logger.warn({ attempt, delayMs }, 'redis reconnecting');
+      logger.warn({ attempt, delayMs, client: options.connectionName }, 'redis reconnecting');
+      metrics.redisReconnects.inc({ client: options.connectionName });
       return delayMs;
     },
   });

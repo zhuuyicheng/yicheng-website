@@ -110,6 +110,10 @@ docker compose exec redis redis-cli -n 1
 
 Swap `portfolio_test` → `portfolio` and `-n 1` → `-n 0` to look at development data instead.
 
+Prefer clicking to typing? The VS Code PostgreSQL and Redis extensions show the same data as
+tables and key trees: see [DATA-TOOLS.md](DATA-TOOLS.md) (connections `portfolio (tests)` and
+`portfolio (tests, DB 1)`).
+
 ---
 
 ## 6. Troubleshooting

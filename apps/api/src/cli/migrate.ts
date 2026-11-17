@@ -4,6 +4,7 @@
  */
 import { loadConfigOrExit } from '../config/env.js';
 import { createLogger } from '../infra/logger.js';
+import { createMetrics } from '../infra/metrics.js';
 import { createPostgresPool } from '../infra/postgres.js';
 import { DEFAULT_MIGRATIONS_DIRECTORY, runMigrations } from '../db/migrator.js';
 
@@ -12,6 +13,7 @@ const logger = createLogger(config);
 const pool = createPostgresPool(
   { url: config.postgres.url, poolMax: 1, applicationName: 'portfolio-migrator' },
   logger,
+  createMetrics(),
 );
 
 try {
