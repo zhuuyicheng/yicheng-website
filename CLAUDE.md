@@ -6,7 +6,7 @@ section before changing behaviour, and update it in the same change when a desig
 ## Environment
 
 - Node **24 LTS** (`nvm use` reads `.nvmrc`), npm workspaces, Docker for Postgres 16 + Redis 7.
-- First run: `cp .env.example .env && npm install && npm run infra:up && npm run db:migrate`
+- First run: `cp .env.example .env && npm install && npm run infra:up && npm run db:migrate && npm run content:seed`
 
 ## Commands (run from repo root)
 
@@ -15,6 +15,7 @@ section before changing behaviour, and update it in the same change when a desig
 | Start Postgres + Redis (waits for healthchecks) | `npm run infra:up` / `npm run infra:down`                        |
 | Dev servers                                     | `npm run dev:api` (port 4000), `npm run dev:web` (port 3000)     |
 | Apply migrations                                | `npm run db:migrate`                                             |
+| Publish `apps/api/content/portfolio.json`       | `npm run content:seed`                                           |
 | Lint / fix                                      | `npm run lint` / `npm run lint:fix`                              |
 | Typecheck                                       | `npm run typecheck`                                              |
 | Format                                          | `npm run format` / `npm run format:check`                        |
@@ -44,7 +45,8 @@ section before changing behaviour, and update it in the same change when a desig
   structured log **and** increment a metric (`infra/metrics.ts` from Phase 2). Never write an
   empty `catch`.
 - **Migrations**: new numbered file in `apps/api/migrations/`; never edit an applied one
-  (checksums are verified). Migrations run via CLI, never on app boot.
+  (checksums are verified). Migrations run via CLI, never on app boot. They must be
+  **backward compatible** with the previously deployed code (expand → contract, DESIGN.md §14.4).
 
 ## TypeScript & style
 
@@ -75,5 +77,7 @@ Phases and live progress checklists: [ROADMAP.md](ROADMAP.md). Tick items there 
 3. `feat/telemetry-pipeline`: event ingestion, Redis buffer, batch flusher worker, DLQ
 4. `feat/contact-rate-limiter`: Lua sliding-window limiter, contact API, notification worker
 5. `feat/metrics-and-dashboard`: `/metrics`, system status API, Next.js portfolio + dashboard
+6. `feat/continuous-delivery`: Docker images, GHCR, deploy workflow with approval gate, rollback
 
 One phase per branch → pull request → CI green → merge. Stop for review between phases.
+Each phase adds a "what to watch" section to `docs/DATA-TOOLS.md` (Postgres/Redis VS Code views).

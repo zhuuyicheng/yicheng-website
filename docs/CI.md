@@ -1,6 +1,6 @@
 # Continuous Integration (GitHub Actions)
 
-CI is the first deliverable of Phase 2. This guide explains what it does and how to use it.
+CI was added at the start of Phase 2. This guide explains what it does and how to use it.
 
 ---
 
@@ -18,7 +18,8 @@ Because the repository is public, GitHub Actions minutes are free.
 
 ## 2. The workflow file
 
-GitHub looks for YAML files in `.github/workflows/`. Ours will be `.github/workflows/ci.yml`:
+GitHub looks for YAML files in `.github/workflows/`. Ours is
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
 ```yaml
 name: CI
@@ -32,6 +33,10 @@ on:
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+# Least privilege: the job only needs to read the repository.
+permissions:
+  contents: read
 
 jobs:
   check:

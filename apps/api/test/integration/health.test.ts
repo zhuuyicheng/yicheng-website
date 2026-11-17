@@ -85,6 +85,7 @@ describe('GET /health with an unreachable dependency', () => {
     const deadRedis = createRedisClient(
       { url: UNREACHABLE_REDIS_URL, connectionName: 'dead-redis' },
       deps.logger,
+      deps.metrics,
     );
     const app = buildApp({ ...deps, redis: deadRedis });
 
@@ -106,6 +107,7 @@ describe('GET /health with an unreachable dependency', () => {
     const deadPostgres = createPostgresPool(
       { url: UNREACHABLE_POSTGRES_URL, poolMax: 1, applicationName: 'dead-postgres' },
       deps.logger,
+      deps.metrics,
     );
     const app = buildApp({ ...deps, postgres: deadPostgres });
 

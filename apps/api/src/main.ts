@@ -6,18 +6,25 @@ import { buildApp } from './app.js';
 import { loadConfigOrExit } from './config/env.js';
 import { createGracefulShutdown, registerProcessHandlers } from './lifecycle/graceful-shutdown.js';
 import { createLogger } from './infra/logger.js';
+import { createMetrics } from './infra/metrics.js';
 import { createPostgresPool, pingPostgres } from './infra/postgres.js';
 import { closeRedis, connectRedis, createRedisClient } from './infra/redis.js';
 
 const config = loadConfigOrExit();
 const logger = createLogger(config);
+const metrics = createMetrics({ collectProcessMetrics: true });
 
 const postgres = createPostgresPool(
   { url: config.postgres.url, poolMax: config.postgres.poolMax, applicationName: 'portfolio-api' },
   logger,
+  metrics,
 );
-const redis = createRedisClient({ url: config.redis.url, connectionName: 'portfolio-api' }, logger);
-const app = buildApp({ logger, postgres, redis });
+const redis = createRedisClient(
+  { url: config.redis.url, connectionName: 'portfolio-api' },
+  logger,
+  metrics,
+);
+const app = buildApp({ config, logger, metrics, postgres, redis });
 
 // Order matters: stop taking requests first, then release what those requests were using.
 const gracefulShutdown = createGracefulShutdown({

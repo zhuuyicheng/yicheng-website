@@ -1,11 +1,13 @@
 import { loadConfig, type AppConfig } from '../../src/config/env.js';
 import { createLogger, type Logger } from '../../src/infra/logger.js';
+import { createMetrics, type Metrics } from '../../src/infra/metrics.js';
 import { createPostgresPool, type PostgresPool } from '../../src/infra/postgres.js';
 import { closeRedis, connectRedis, createRedisClient, type Redis } from '../../src/infra/redis.js';
 
 export interface TestDependencies {
   config: AppConfig;
   logger: Logger;
+  metrics: Metrics;
   postgres: PostgresPool;
   redis: Redis;
   close: () => Promise<void>;
@@ -15,19 +17,24 @@ export interface TestDependencies {
 export async function createTestDependencies(): Promise<TestDependencies> {
   const config = loadConfig();
   const logger = createLogger(config);
+  // A fresh registry per test file, so counter assertions start from zero.
+  const metrics = createMetrics();
   const postgres = createPostgresPool(
     { url: config.postgres.url, poolMax: 2, applicationName: 'portfolio-api-test' },
     logger,
+    metrics,
   );
   const redis = createRedisClient(
     { url: config.redis.url, connectionName: 'portfolio-api-test' },
     logger,
+    metrics,
   );
   await connectRedis(redis);
 
   return {
     config,
     logger,
+    metrics,
     postgres,
     redis,
     close: async () => {

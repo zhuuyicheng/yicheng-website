@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "ms-ossdata.vscode-pgsql",
+    "redis.redis-for-vscode",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode"
+  ]
+}

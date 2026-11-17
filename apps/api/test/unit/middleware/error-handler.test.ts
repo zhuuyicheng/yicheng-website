@@ -18,6 +18,15 @@ describe('toErrorResponse', () => {
     });
   });
 
+  it('includes the field details of a VALIDATION_ERROR AppError', () => {
+    const details = [{ path: 'slug', message: 'is invalid' }];
+    const error = new AppError(ErrorCode.VALIDATION_ERROR, 'Request validation failed', {
+      details,
+    });
+
+    expect(toErrorResponse(error, 'req-5').body.error.details).toEqual(details);
+  });
+
   it('maps schema validation failures to VALIDATION_ERROR with field details', () => {
     const error = Object.assign(new Error('body/email must match format "email"'), {
       validation: [{ instancePath: '/contact/email', message: 'must match format "email"' }],

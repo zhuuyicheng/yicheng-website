@@ -26,15 +26,22 @@ describe('loadConfig', () => {
       log: { level: 'info', pretty: true },
       postgres: { url: REQUIRED_ENV.DATABASE_URL, poolMax: 10 },
       redis: { url: REQUIRED_ENV.REDIS_URL },
+      cache: { ttlSeconds: 300 },
       shutdown: { timeoutMs: 10_000 },
     });
   });
 
   it('coerces numeric variables from strings', () => {
-    const config = loadConfig({ ...REQUIRED_ENV, API_PORT: '8080', DATABASE_POOL_MAX: '3' });
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      API_PORT: '8080',
+      DATABASE_POOL_MAX: '3',
+      CACHE_TTL_SECONDS: '60',
+    });
 
     expect(config.server.port).toBe(8080);
     expect(config.postgres.poolMax).toBe(3);
+    expect(config.cache.ttlSeconds).toBe(60);
   });
 
   it('treats empty values as unset instead of coercing them to 0', () => {
@@ -66,11 +73,13 @@ describe('loadConfig', () => {
       ...REQUIRED_ENV,
       API_PORT: '70000',
       LOG_LEVEL: 'verbose',
+      CACHE_TTL_SECONDS: '0',
     });
 
-    expect(error.problems).toHaveLength(2);
+    expect(error.problems).toHaveLength(3);
     expect(error.problems[0]).toMatch(/^API_PORT:/);
     expect(error.problems[1]).toMatch(/^LOG_LEVEL:/);
+    expect(error.problems[2]).toMatch(/^CACHE_TTL_SECONDS:/);
   });
 
   it('never includes variable values in the error message', () => {
