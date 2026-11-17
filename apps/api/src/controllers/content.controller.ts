@@ -1,36 +1,35 @@
-import type { FastifyReply, FastifyRequest } from 'fastify';
-import { projectParamsSchema } from '../models/content.model.js';
-import type { ContentService } from '../services/content.service.js';
+import type { FastifyInstance } from 'fastify';
+import { projectParamsSchema } from '../schema/content.schema.js';
+import type { ContentManager } from '../services/content.manager.js';
 import { renderProfile, renderProject, renderProjectList } from '../views/content.view.js';
 import { parseRequest } from './parse-request.js';
+
+const API_V1 = '/api/v1';
 
 /** Tells clients (and you, in curl) whether the response came from Redis. */
 export const CACHE_HEADER = 'x-cache';
 
-type Handler = (request: FastifyRequest, reply: FastifyReply) => Promise<FastifyReply>;
+/**
+ * Portfolio content endpoints. See DESIGN.md §7.4. Each endpoint validates its input, calls
+ * one manager method, and renders a view.
+ */
+export function registerContentController(
+  app: FastifyInstance,
+  contentManager: ContentManager,
+): void {
+  app.get(`${API_V1}/profile`, async (request, reply) => {
+    const { value, cache } = await contentManager.getProfile(request.log);
+    return reply.header(CACHE_HEADER, cache).send(renderProfile(value));
+  });
 
-export interface ContentController {
-  getProfile: Handler;
-  listProjects: Handler;
-  getProject: Handler;
-}
+  app.get(`${API_V1}/projects`, async (request, reply) => {
+    const { value, cache } = await contentManager.listProjects(request.log);
+    return reply.header(CACHE_HEADER, cache).send(renderProjectList(value));
+  });
 
-export function createContentController(contentService: ContentService): ContentController {
-  return {
-    async getProfile(request, reply) {
-      const { value, cache } = await contentService.getProfile(request.log);
-      return reply.header(CACHE_HEADER, cache).send(renderProfile(value));
-    },
-
-    async listProjects(request, reply) {
-      const { value, cache } = await contentService.listProjects(request.log);
-      return reply.header(CACHE_HEADER, cache).send(renderProjectList(value));
-    },
-
-    async getProject(request, reply) {
-      const { slug } = parseRequest(projectParamsSchema, request.params);
-      const { value, cache } = await contentService.getProject(slug, request.log);
-      return reply.header(CACHE_HEADER, cache).send(renderProject(value));
-    },
-  };
+  app.get(`${API_V1}/projects/:slug`, async (request, reply) => {
+    const { slug } = parseRequest(projectParamsSchema, request.params);
+    const { value, cache } = await contentManager.getProject(slug, request.log);
+    return reply.header(CACHE_HEADER, cache).send(renderProject(value));
+  });
 }

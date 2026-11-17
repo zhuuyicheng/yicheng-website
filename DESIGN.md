@@ -62,31 +62,34 @@ flowchart LR
 The API and worker share one codebase but run as separate processes, so a slow webhook or
 flush never competes with request latency.
 
-### 2.2 MVC layering (API)
+### 2.2 Layering (API)
 
 A request flows through the layers in one direction:
 
 ```
-route ──► controller ──► service ──► repository / store ──► Postgres / Redis
- (URL)     (HTTP in/out)  (business     (data access)
-                           rules)
-                 │
-                 └──► view (shapes the JSON response)
+controller ──────► manager ──────► DAL ──────► Postgres / Redis
+(endpoint +        (business       (data        rows typed by dao/
+ validation)        rules)          access)     mapped to schema/ types
+     │
+     └──► view (shapes the JSON response)
 ```
 
-| Layer         | Folder                    | MVC role   | Responsibility                                                                              |
-| ------------- | ------------------------- | ---------- | ------------------------------------------------------------------------------------------- |
-| Routes        | `src/routes/`             | —          | The URL table: method + path + schema → controller function. No logic.                      |
-| Controllers   | `src/controllers/`        | Controller | Read the request, call **one** service method, choose the status code, render a view.       |
-| Services      | `src/services/`           | —          | Business rules (cache-aside, hashing, retry classification). No HTTP objects, no SQL.       |
-| Models        | `src/models/`             | Model      | Domain types and Zod validation schemas.                                                    |
-| Repositories  | `src/repositories/`       | Model      | The only code that talks to datastores: SQL in `*.repository.ts`, Redis in `*.store.ts`.    |
-| Views         | `src/views/`              | View       | Turn models into response bodies (`{ data }` / `{ error }`, camelCase, no internal fields). |
-| Cross-cutting | `middleware/`, `errors/`… | —          | Request ids, error handling, config, logging, lifecycle.                                    |
+| Layer         | Folder                    | Files             | Responsibility                                                                                                  |
+| ------------- | ------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------- |
+| Controllers   | `src/controllers/`        | `*.controller.ts` | Declare endpoints (method + path), validate input, call **one** manager method, pick the status, render a view. |
+| Managers      | `src/services/`           | `*.manager.ts`    | Business rules (cache-aside, hashing, retry classification). No HTTP objects, no SQL.                           |
+| DAL           | `src/dal/`                | `*.dal.ts`        | The only code that talks to datastores (SQL or Redis); maps DAO rows to schema types.                           |
+| DAO           | `src/dao/`                | `*.dao.ts`        | Row types: one interface per table, column for column (`snake_case`).                                           |
+| Schema        | `src/schema/`             | `*.schema.ts`     | The contract: Zod schemas + types for API responses, requests and input files (`camelCase`).                    |
+| Views         | `src/views/`              | `*.view.ts`       | Turn schema types into response bodies (`{ data }` / `{ error }`, no internal fields).                          |
+| Cross-cutting | `middleware/`, `errors/`… | —                 | Request ids, error handling, config, logging, lifecycle.                                                        |
 
-Services depend on repository **interfaces**, which makes them unit-testable with fakes. The
-composition roots (`main.ts`, `worker.ts`) create infrastructure clients and pass them down;
-nothing reaches for a global singleton. On the frontend, the Next.js app is the user-facing view.
+Why DAO and schema are separate: the database and the API change for different reasons. A
+column rename touches a DAO row type and one mapping function in the DAL; the API (and its
+cache entries) stay unchanged. Managers depend on DAL **interfaces**, which makes them
+unit-testable with fakes. The composition roots (`main.ts`, `worker.ts`) create infrastructure
+clients and pass them down; nothing reaches for a global singleton. On the frontend, the
+Next.js app is the user-facing view.
 
 ---
 
@@ -123,48 +126,47 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   ├── content/portfolio.json        (P2) source of truth for portfolio content
 │   │   ├── migrations/                   NNNN_snake_case_name.sql, applied in order
 │   │   │   ├── 0001_portfolio_content.sql        (P2)
-│   │   │   ├── 0002_analytics_events.sql         (P3)
-│   │   │   └── 0003_contact_messages.sql         (P4)
+│   │   │   ├── 0002_education.sql                (P2)
+│   │   │   ├── 0003_analytics_events.sql         (P3)
+│   │   │   └── 0004_contact_messages.sql         (P4)
 │   │   ├── src/
 │   │   │   ├── main.ts                   API composition root + process lifecycle
 │   │   │   ├── worker.ts                 (P3) worker composition root
-│   │   │   ├── app.ts                    buildApp(): wires services → controllers → routes
-│   │   │   ├── routes/
-│   │   │   │   ├── health.routes.ts      GET /health
-│   │   │   │   ├── content.routes.ts     (P2) profile, projects
-│   │   │   │   ├── events.routes.ts      (P3) telemetry ingestion
-│   │   │   │   ├── contact.routes.ts     (P4)
-│   │   │   │   └── system.routes.ts      (P5) /metrics, system status
-│   │   │   ├── controllers/
-│   │   │   │   ├── health.controller.ts
+│   │   │   ├── app.ts                    buildApp(): wires DAL → managers → controllers
+│   │   │   ├── controllers/              endpoints (method + path) + input validation
+│   │   │   │   ├── health.controller.ts          GET /health, (P6) GET /health/live
 │   │   │   │   ├── parse-request.ts              (P2) Zod-validates params/query/body → 400
-│   │   │   │   ├── content.controller.ts         (P2)
-│   │   │   │   ├── events.controller.ts          (P3)
+│   │   │   │   ├── content.controller.ts         (P2) profile, projects
+│   │   │   │   ├── events.controller.ts          (P3) telemetry ingestion
 │   │   │   │   ├── contact.controller.ts         (P4)
-│   │   │   │   └── system.controller.ts          (P5)
-│   │   │   ├── services/
-│   │   │   │   ├── health.service.ts
-│   │   │   │   ├── cache-aside.ts                (P2) generic cache-aside + single-flight + TTL jitter
-│   │   │   │   ├── content.service.ts            (P2) profile/projects reads, publish (seed)
-│   │   │   │   ├── telemetry.service.ts          (P3) validation, hashing, enqueue
-│   │   │   │   ├── contact.service.ts            (P4)
-│   │   │   │   ├── rate-limiter.service.ts       (P4)
-│   │   │   │   └── system-status.service.ts      (P5)
-│   │   │   ├── models/
-│   │   │   │   ├── health.model.ts
-│   │   │   │   ├── content.model.ts              (P2)
-│   │   │   │   ├── analytics-event.model.ts      (P3)
-│   │   │   │   ├── contact-message.model.ts      (P4)
-│   │   │   │   └── notification-job.model.ts     (P4)
-│   │   │   ├── repositories/
-│   │   │   │   ├── content.repository.ts         (P2) SQL
-│   │   │   │   ├── content-cache.store.ts        (P2) Redis
-│   │   │   │   ├── analytics-event.repository.ts (P3)
-│   │   │   │   ├── event-buffer.store.ts         (P3)
-│   │   │   │   ├── contact-message.repository.ts (P4)
-│   │   │   │   ├── rate-limit.store.ts           (P4)
-│   │   │   │   ├── notification-queue.store.ts   (P4)
+│   │   │   │   └── system.controller.ts          (P5) /metrics, system status
+│   │   │   ├── services/                 business rules ("managers")
+│   │   │   │   ├── health.manager.ts
+│   │   │   │   ├── cache-aside.manager.ts        (P2) generic cache-aside + single-flight + TTL jitter
+│   │   │   │   ├── content.manager.ts            (P2) profile/projects reads, publish (seed)
+│   │   │   │   ├── telemetry.manager.ts          (P3) validation, hashing, enqueue
+│   │   │   │   ├── contact.manager.ts            (P4)
+│   │   │   │   ├── rate-limiter.manager.ts       (P4)
+│   │   │   │   └── system-status.manager.ts      (P5)
+│   │   │   ├── dal/                      the only datastore code
+│   │   │   │   ├── content.dal.ts                (P2) Postgres
+│   │   │   │   ├── content-cache.dal.ts          (P2) Redis
+│   │   │   │   ├── analytics-event.dal.ts        (P3) Postgres
+│   │   │   │   ├── event-buffer.dal.ts           (P3) Redis
+│   │   │   │   ├── contact-message.dal.ts        (P4) Postgres
+│   │   │   │   ├── rate-limit.dal.ts             (P4) Redis
+│   │   │   │   ├── notification-queue.dal.ts     (P4) Redis
 │   │   │   │   └── lua/                          (P3/P4) Lua scripts as TS string constants
+│   │   │   ├── dao/                      row types, one per table
+│   │   │   │   ├── content.dao.ts                (P2) profile, experiences, education, projects
+│   │   │   │   ├── analytics-event.dao.ts        (P3)
+│   │   │   │   └── contact-message.dao.ts        (P4)
+│   │   │   ├── schema/                   API + input contract: Zod schemas and their types
+│   │   │   │   ├── health.schema.ts
+│   │   │   │   ├── content.schema.ts             (P2) responses + content/portfolio.json
+│   │   │   │   ├── analytics-event.schema.ts     (P3)
+│   │   │   │   ├── contact-message.schema.ts     (P4)
+│   │   │   │   └── notification-job.schema.ts    (P4)
 │   │   │   ├── views/
 │   │   │   │   ├── error.view.ts         { error: { code, message, requestId } }
 │   │   │   │   ├── content.view.ts       (P2) { data } bodies for profile/projects
@@ -275,7 +277,7 @@ Docker Compose additionally reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRE
   deploy applies them before the new version starts (expand → contract, see §14.4).
 - `CREATE INDEX CONCURRENTLY` is not supported (it cannot run inside a transaction).
 - `gen_random_uuid()` is built into Postgres 13+, so no extension is needed.
-- `updated_at` is set explicitly by repository `UPDATE` statements (no triggers).
+- `updated_at` is set explicitly by the DAL's `UPDATE` statements (no triggers).
 - Status columns use `TEXT` + `CHECK` rather than Postgres `ENUM`, which cannot drop or
   rename values without a type rebuild.
 
@@ -323,7 +325,27 @@ CREATE TABLE projects (
 CREATE INDEX projects_display_order_idx ON projects (featured DESC, sort_order);
 ```
 
-### 5.3 `0002_analytics_events.sql` (Phase 3)
+### 5.2b `0002_education.sql` (Phase 2)
+
+Added after 0001 had been applied, so it is a separate, additive migration.
+
+```sql
+CREATE TABLE education (
+  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution    TEXT        NOT NULL,
+  qualification  TEXT        NOT NULL,
+  start_date     DATE        NOT NULL,
+  end_date       DATE,                                 -- NULL = still studying
+  highlights     TEXT[]      NOT NULL DEFAULT '{}',    -- honours, scholarships, grades
+  sort_order     INTEGER     NOT NULL DEFAULT 0,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT education_dates_ordered CHECK (end_date IS NULL OR end_date >= start_date)
+);
+CREATE INDEX education_display_order_idx ON education (sort_order, start_date DESC);
+```
+
+### 5.3 `0003_analytics_events.sql` (Phase 3)
 
 ```sql
 CREATE TABLE analytics_events (
@@ -346,7 +368,7 @@ CREATE INDEX analytics_events_received_at_brin ON analytics_events USING BRIN (r
 CREATE INDEX analytics_events_path_received_at_idx ON analytics_events (path, received_at DESC);
 ```
 
-### 5.4 `0003_contact_messages.sql` (Phase 4)
+### 5.4 `0004_contact_messages.sql` (Phase 4)
 
 ```sql
 CREATE TABLE contact_messages (
@@ -385,7 +407,7 @@ CREATE INDEX contact_messages_created_at_idx ON contact_messages (created_at DES
 
 | Key                             | Type                     | TTL                       | Phase | Purpose                                                   |
 | ------------------------------- | ------------------------ | ------------------------- | ----- | --------------------------------------------------------- |
-| `cache:v1:profile`              | STRING (JSON)            | `CACHE_TTL_SECONDS` ±10 % | 2     | Profile + experiences response                            |
+| `cache:v2:profile`              | STRING (JSON)            | `CACHE_TTL_SECONDS` ±10 % | 2     | Profile + experiences + education response                |
 | `cache:v1:projects`             | STRING (JSON)            | same                      | 2     | Project list response                                     |
 | `cache:v1:project:{slug}`       | STRING (JSON)            | same                      | 2     | Single project                                            |
 | `telemetry:salt:{YYYY-MM-DD}`   | STRING (hex)             | 48 h                      | 3     | Daily visitor-hash salt (UTC date); created with `SET NX` |
@@ -398,8 +420,10 @@ CREATE INDEX contact_messages_created_at_idx ON contact_messages (created_at DES
 | `jobs:notifications:delayed`    | ZSET (score = run-at ms) | none                      | 4     | Jobs waiting for their backoff delay                      |
 | `jobs:notifications:dlq`        | LIST (JSON)              | none                      | 4     | Permanently failed jobs                                   |
 
-The `v1` in cache keys is a **shape version**: changing a cached response shape bumps it, so
-old entries are never read again and simply expire.
+The `v1`/`v2` in cache keys is a **shape version**: changing a cached response shape bumps it,
+so old entries are never read again and simply expire. It also keeps a deploy safe: while old
+and new code run side by side, each reads and writes its own key instead of overwriting the
+other's entries. The profile is at `v2` since `education` was added.
 
 ### 6.3 Server configuration (docker-compose)
 
@@ -555,7 +579,11 @@ retry scheduling and dead-lettering each run as a `MULTI` that also performs
 ### 7.3 `GET /health` (Phase 1)
 
 Readiness check: verifies Postgres (`SELECT 1`) and Redis (`PING`) in parallel, each bounded
-by a 2 s timeout. Not wrapped in `{ data }` because load balancers consume it directly.
+by a 2 s timeout. Used by deploys, monitoring and the smoke test. Not wrapped in `{ data }`
+because tools consume it directly.
+
+**`GET /health/live` (Phase 6)**: liveness check for the load balancer. `200 {"status":"ok"}`
+whenever the process can answer; checks no dependencies, on purpose (§14.5 explains why).
 
 `200 OK`
 
@@ -602,6 +630,16 @@ Failure reasons are **logged** (with `requestId`), never returned; they can cont
         "role": "…",
         "startDate": "2023-01-01",
         "endDate": null,
+        "highlights": ["…"]
+      }
+    ],
+    "education": [
+      {
+        "id": "uuid",
+        "institution": "…",
+        "qualification": "…",
+        "startDate": "2022-01-01",
+        "endDate": "2026-05-31",
         "highlights": ["…"]
       }
     ]
@@ -671,6 +709,7 @@ Rate-limit headers on **every** response from this route: `X-RateLimit-Limit: 3`
 {
   "data": {
     "generatedAt": "2026-11-17T12:00:00.000Z",
+    "instance": "api-1",
     "uptimeSeconds": 86400,
     "dependencies": {
       "postgres": { "status": "up", "latencyMs": 2 },
@@ -695,7 +734,9 @@ Rate-limit headers on **every** response from this route: `X-RateLimit-Limit: 3`
 ```
 
 Rolling percentiles come from an in-process ring buffer of the last 5 minutes of request
-durations (Prometheus histograms are cumulative, not rolling). Values are per API instance.
+durations (Prometheus histograms are cumulative, not rolling). Values are per API instance;
+`instance` (the container hostname) says which one answered, because with two replicas
+(§14.5) consecutive polls can reach different instances.
 
 ---
 
@@ -703,10 +744,10 @@ durations (Prometheus histograms are cumulative, not rolling). Values are per AP
 
 ### 8.1 Module A: Content (cache-aside)
 
-The generic algorithm lives in `services/cache-aside.ts`; `content.service.ts` only says which
-key, schema and repository query to use.
+The generic algorithm lives in `services/cache-aside.manager.ts`; `content.manager.ts` only says
+which key, schema and DAL query to use.
 
-1. `GET cache:v1:<key>` → hit: parse + validate with the model's Zod schema → return.
+1. `GET cache:vN:<key>` → hit: parse + validate with its Zod schema (`schema/`) → return.
 2. Miss: load from Postgres → `SET <key> <json> EX <ttl ± 10 %>` → return.
 3. **Single-flight**: concurrent misses for the same key in one process share one DB query,
    preventing a stampede when a hot key expires. TTL jitter prevents synchronized expiry.
@@ -717,8 +758,9 @@ key, schema and repository query to use.
 6. "Not found" (`null`) is **not cached**, so newly published content appears immediately.
 7. `npm run content:seed` validates `content/portfolio.json` (all problems listed, nothing
    written on error) and, in one transaction, upserts the profile, replaces all experiences
-   (their ids change per seed), upserts projects by slug and deletes projects no longer in the
-   file. It then deletes every content cache key (`SCAN` for `cache:v1:project:*`) and warms
+   and education entries (their ids change per seed), upserts projects by slug and deletes
+   projects no longer in the file. It then deletes every content cache key (`SCAN` for
+   `cache:v1:project:*`) and warms
    the cache through the normal read path. If clearing the cache fails, the command exits `1`
    (Postgres is already updated; cached copies may be stale until their TTL). There is no admin
    HTTP endpoint.
@@ -833,6 +875,8 @@ retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics
 | Postgres drops at runtime                  | Idle-client pool errors are caught (they would otherwise crash the process); 5 s connect timeout, 10 s statement timeout   | `error` log, `postgres_pool_errors_total`                     |
 | `/health` while a dependency is down       | `503` + per-dependency status; each check ≤ 2 s                                                                            | `warn` log                                                    |
 | Redis down → content                       | Served from Postgres                                                                                                       | `cache_errors_total`                                          |
+| Postgres down → content                    | Cached entries still served; cache misses return `503 SERVICE_UNAVAILABLE` (Phase 3 fix; currently `500`)                  | `error` log                                                   |
+| One API replica down (P6)                  | Caddy's health check removes it within 5 s; meanwhile `lb_try_duration` retries refused connections on the other replica   | Caddy log, container restart count                            |
 | Redis down → ingestion                     | `503` (no in-process fallback buffer; it would be lost on crash)                                                           | `telemetry_events_rejected_total{reason="redis_unavailable"}` |
 | Redis down → contact                       | `503` (fail closed)                                                                                                        | `rate_limit_errors_total`                                     |
 | Postgres down → flusher                    | Events stay in Redis; retry with capped backoff; ingestion continues until buffer cap                                      | `telemetry_flush_failures_total{kind="transient"}`            |
@@ -875,8 +919,9 @@ Anything not drained is still safe in Redis (AOF) and is picked up on the next s
 **Unit tests** (`apps/api/test/unit`, mirrors `src/` folders, no I/O, run in parallel):
 
 - Env parsing, request ids, error handler mapping, graceful shutdown orchestration (fake
-  steps and a fake `exit`), health service.
-- (P2) Content service: hit, miss, Redis error fallback, corrupt entry, single-flight.
+  steps and a fake `exit`), health manager.
+- (P2) Cache-aside and content managers: hit, miss, Redis error fallback, corrupt entry,
+  single-flight.
 - (P3) Flusher: error classification, backoff schedule, DLQ routing, full-batch draining.
 - (P4) Backoff/jitter bounds, notifier HTTP-status classification.
 - (P5) Rolling percentile tracker.
@@ -916,14 +961,14 @@ See [docs/CI.md](docs/CI.md).
 
 ## 13. Roadmap
 
-| Phase | Branch                       | Scope                                                                                 |
-| ----- | ---------------------------- | ------------------------------------------------------------------------------------- |
-| 1     | `main` (initial scaffold)    | Monorepo, Docker infra, config, logging, migrator, graceful shutdown, `/health`       |
-| 2     | `feat/portfolio-cache-api`   | CI workflow; Module A: profile/projects endpoints, Redis cache-aside, cache metrics   |
-| 3     | `feat/telemetry-pipeline`    | Module B: event ingestion, Redis buffer, batch flusher worker, DLQ, SIGTERM test      |
-| 4     | `feat/contact-rate-limiter`  | Module C: Lua sliding-window limiter, contact endpoint, notification worker + backoff |
-| 5     | `feat/metrics-and-dashboard` | Module D: `/metrics`, system status API, Next.js portfolio + live dashboard           |
-| 6     | `feat/continuous-delivery`   | Docker images, GHCR, deploy workflow with approval gate, smoke test, rollback (§14)   |
+| Phase | Branch                       | Scope                                                                                                                     |
+| ----- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 1     | `main` (initial scaffold)    | Monorepo, Docker infra, config, logging, migrator, graceful shutdown, `/health`                                           |
+| 2     | `feat/portfolio-cache-api`   | CI workflow; Module A: profile/projects endpoints, Redis cache-aside, cache metrics                                       |
+| 3     | `feat/telemetry-pipeline`    | Module B: event ingestion, Redis buffer, batch flusher worker, DLQ, SIGTERM test                                          |
+| 4     | `feat/contact-rate-limiter`  | Module C: Lua sliding-window limiter, contact endpoint, notification worker + backoff                                     |
+| 5     | `feat/metrics-and-dashboard` | Module D: `/metrics`, system status API, Next.js portfolio + live dashboard                                               |
+| 6     | `feat/continuous-delivery`   | Docker images, GHCR, deploy with approval gate, two API replicas behind Caddy, rolling update, smoke test, rollback (§14) |
 
 Detailed checklists and current status: [ROADMAP.md](ROADMAP.md).
 
@@ -970,7 +1015,7 @@ merge to main ─► CI green ─► build + push images (tag = SHA)
                deploy job  [environment: production → waits for your approval]
                  1. migrate          node dist/cli/migrate.js   (backward compatible, §14.4)
                  2. seed content     node dist/cli/seed-content.js (idempotent)
-                 3. roll out         stop old worker → start new api, worker, web
+                 3. roll out         worker → api-1 → api-2 → web, one at a time (§14.5)
                  4. smoke test       GET /health = 200, GET /api/v1/projects = 200
                  5. on failure       redeploy the previous SHA, mark the job failed
 ```
@@ -993,16 +1038,85 @@ merge to main ─► CI green ─► build + push images (tag = SHA)
 
 ### 14.5 Hosting (decided at the start of Phase 6)
 
-**Default: one small Linux VPS** running `deploy/compose.prod.yml` (Postgres, Redis, API,
-worker, web, and Caddy for automatic HTTPS). It mirrors local development, keeps Redis
-configuration under our control, and costs a few dollars a month. The deploy job connects over
-SSH (key stored as an Environment secret) and runs `docker compose pull` + `up -d` with the new
-tag. A restart causes a few seconds of downtime, which is acceptable for a portfolio; two API
-replicas behind Caddy (zero downtime) is a stretch goal.
+**Default: one small Linux VPS** running `deploy/compose.prod.yml` (Postgres, Redis, **two API
+replicas**, worker, web, and Caddy for automatic HTTPS and load balancing). It mirrors local
+development, keeps Redis configuration under our control, and costs a few dollars a month. The
+deploy job connects over SSH (key stored as an Environment secret), pulls the new tag and runs
+the rolling update below.
 
 Alternative: a container platform plus managed Postgres/Redis. Less server upkeep, higher cost,
 and the Redis constraints in §14.4 must be checked. The images and pipeline are the same either
 way; only step 3 changes.
+
+#### Load balancing: two API replicas behind Caddy
+
+```
+                 browser / web server
+                         │ HTTPS
+                         ▼
+                 ┌───────────────┐
+                 │     Caddy     │  TLS, round robin, health checks (GET /health/live every 5 s)
+                 └───┬───────┬───┘
+                     ▼       ▼
+                  api-1     api-2      same image, same env, separate containers
+                     │       │
+                     └───┬───┘
+                Postgres + Redis       all shared state lives here
+```
+
+```
+# deploy/Caddyfile (API part)
+api.<domain> {
+	reverse_proxy api-1:4000 api-2:4000 {
+		lb_policy       round_robin
+		lb_try_duration 5s           # a replica refuses the connection → retry on the other
+		health_uri      /health/live
+		health_interval 5s
+	}
+}
+```
+
+`API_BASE_URL` (the web server's calls) also points at Caddy, so those calls are balanced too.
+The worker and web stay single instances.
+
+**Why replicas need no code changes.** A replica keeps nothing important in its own memory:
+
+| State                                     | Lives in                     | With two replicas                                                 |
+| ----------------------------------------- | ---------------------------- | ----------------------------------------------------------------- |
+| Cache entries                             | Redis                        | Shared; a hit on one replica is a hit on both                     |
+| Rate-limit windows (P4)                   | Redis, one atomic Lua script | Shared; two replicas cannot both admit the request over the limit |
+| Telemetry salt (P3)                       | Redis `SET NX`               | Whoever creates it first wins; both use the same salt             |
+| Single-flight (§8.1)                      | Per process                  | At most one Postgres query per key **per replica**: harmless      |
+| Metrics, rolling percentiles, status (P5) | Per process                  | Each replica reports its own numbers (see below)                  |
+
+Per-process numbers: Prometheus scrapes each replica directly (`api-1:4000`, `api-2:4000`),
+never through Caddy, which would hand it a random replica each time. `GET /api/v1/system/status`
+includes `instance` (§7.7), so the dashboard shows which replica answered.
+
+**The load balancer must not use `/health`.** `/health` returns `503` when Redis is down, on
+both replicas at once. Caddy would then remove both and answer every request with an error, even
+though content is still served from Postgres: a degraded dependency would become a full outage.
+A load balancer's health check should detect failures of **one** replica (crashed, hung,
+still starting); a shared dependency failing affects both equally, so removing a replica cannot
+help. Hence `GET /health/live` (§7.3): `200` whenever the process can answer, no dependency
+checks. `/health` stays the readiness check for deploys, monitoring and the smoke test.
+
+**Rolling update (zero downtime for the API).** Compose recreates every replica of one service
+at once, so the replicas are two named services (`api-1`, `api-2`) and the deploy replaces them
+one at a time:
+
+```
+1. stop old worker → start new worker                     (one worker at a time, §8.4)
+2. replace api-1    SIGTERM → graceful shutdown finishes in-flight requests;
+                    Caddy sends new requests to api-2 meanwhile
+3. wait until the new api-1 answers GET /health = 200     (directly, not through Caddy)
+4. replace api-2, wait the same way
+5. replace web                                            (a few seconds of downtime for pages)
+```
+
+Between steps 2 and 4, old and new code serve requests side by side. That is exactly why cache
+keys carry a shape version (§6.2) and migrations are expand → contract (§14.4). If a wait in
+step 3 or 4 times out, the job redeploys the previous SHA the same way and fails.
 
 Operations included in Phase 6: nightly `pg_dump` backups copied off the host, with a restore
 that has actually been tested.

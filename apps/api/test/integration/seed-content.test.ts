@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { CONTENT_CACHE_KEYS } from '../../src/repositories/content-cache.store.js';
+import { CONTENT_CACHE_KEYS } from '../../src/dal/content-cache.dal.js';
 import { createTestDependencies, type TestDependencies } from '../helpers/test-dependencies.js';
 import { integrationTestEnv } from './test-env.js';
 

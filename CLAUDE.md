@@ -24,20 +24,22 @@ section before changing behaviour, and update it in the same change when a desig
 | Single file                                     | `npm run test -w @portfolio/api -- test/unit/config/env.test.ts` |
 | Everything CI runs                              | `npm run check`                                                  |
 
-## Architecture rules (MVC, see DESIGN.md §2.2)
+## Architecture rules (see DESIGN.md §2.2)
 
-- **Request flow**: `routes/ → controllers/ → services/ → repositories/` with `views/` shaping
+- **Request flow**: `controllers/ → services/ (managers) → dal/` with `views/` shaping
   responses. One file per resource per layer, named `<resource>.<layer>.ts`
-  (e.g. `content.controller.ts`, `content.service.ts`, `content.repository.ts`).
-  - `routes/`: URL table only (method, path, schema → controller function).
-  - `controllers/`: read the request, call **one** service method, pick the status code,
-    render a view. No business rules, no SQL, no Redis.
-  - `services/`: business rules. No Fastify request/reply objects, no SQL.
-  - `models/`: domain types + Zod schemas.
-  - `repositories/`: the only datastore code. SQL in `*.repository.ts`, Redis in `*.store.ts`.
+  (e.g. `content.controller.ts`, `content.manager.ts`, `content.dal.ts`).
+  - `controllers/`: `register<Resource>Controller(app, manager)` declares the endpoints
+    (method + path), validates input with `parseRequest`, calls **one** manager method, picks
+    the status code, renders a view. No business rules, no SQL, no Redis.
+  - `services/*.manager.ts`: business rules. No Fastify request/reply objects, no SQL.
+  - `dal/*.dal.ts`: the only datastore code (Postgres or Redis; say which in the file
+    comment). Reads return `schema/` types, mapped from `dao/` rows.
+  - `dao/*.dao.ts`: row types, one interface per table, column for column (`snake_case`).
+  - `schema/*.schema.ts`: Zod schemas + types for responses, requests and input files.
   - `views/`: build response bodies (`{ data }`, `{ error }`); never leak internal fields.
 - **Composition root**: `src/main.ts` (and `src/worker.ts` from Phase 3) build infra clients;
-  `src/app.ts` wires services → controllers → routes. No module-level singletons.
+  `src/app.ts` wires DAL → managers → controllers. No module-level singletons.
 - **Errors**: throw `AppError` (`src/errors/app-error.ts`) for expected failures. The error
   handler renders `{ error: { code, message, requestId } }` via `views/error.view.ts`.
 - **Success responses** are `{ data: ... }` (except `/health` and `/metrics`).

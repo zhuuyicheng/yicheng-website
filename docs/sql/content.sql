@@ -17,6 +17,11 @@ SELECT company, role, start_date, end_date, sort_order
   FROM experiences
  ORDER BY sort_order, start_date DESC;
 
+-- Education in display order (part of GET /api/v1/profile).
+SELECT institution, qualification, start_date, end_date, highlights
+  FROM education
+ ORDER BY sort_order, start_date DESC;
+
 -- The profile (always exactly one row once seeded).
 SELECT full_name, headline, location, jsonb_pretty(links) AS links, updated_at
   FROM profile;

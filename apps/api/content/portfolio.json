@@ -1,18 +1,70 @@
 {
   "profile": {
-    "fullName": "Your Name",
-    "headline": "Backend Engineer",
-    "summary": "Replace this with a short introduction. Edit apps/api/content/portfolio.json, then run `npm run content:seed`.",
-    "location": "City, Country",
-    "links": [{ "label": "GitHub", "url": "https://github.com/zhuuyicheng" }]
+    "fullName": "Zhu Yicheng",
+    "headline": "Software Engineer · Backend Systems, APIs & Test Automation",
+    "summary": "Software engineer in Singapore and NUS Computer Science graduate. I build backend services and APIs in TypeScript/Node.js and Java/Spring Boot, and I care about what keeps them reliable in production: meaningful metrics and alerting, thorough automated tests, and documented root-cause analysis. This website is itself one of my projects: a TypeScript backend with Redis caching, asynchronous event ingestion and live observability.",
+    "location": "Singapore",
+    "links": [
+      {
+        "label": "GitHub",
+        "url": "https://github.com/zhuuyicheng"
+      },
+      {
+        "label": "LinkedIn",
+        "url": "https://www.linkedin.com/in/yichengzhu01"
+      }
+    ]
   },
   "experiences": [
     {
-      "company": "Example Company",
+      "company": "Reolink",
       "role": "Software Engineer",
-      "startDate": "2024-01-01",
-      "endDate": null,
-      "highlights": ["Replace with something you built and the impact it had."]
+      "startDate": "2026-07-01",
+      "endDate": "2026-10-31",
+      "highlights": [
+        "Developed the backend and API layer (16 endpoints) for a server-driven App Store / Google Play review-invitation system in TypeScript/Node.js, replacing hard-coded app rules with admin-configured campaigns and a maker-checker approval workflow; shipped to production in Aug 2026.",
+        "Designed and built business metrics for a software-release platform in Java/Spring Boot, with root-cause miss reasons and growth-based alerting that made a silent failure class alertable.",
+        "Grew a 27K-line device platform's unit tests from 7 to 1,005 cases (79 suites) in two weeks, uncovering 9 production defects, such as a cache-key mismatch and a stalled background job, each documented with root cause and fix."
+      ]
+    },
+    {
+      "company": "TikTok",
+      "role": "Software Development Engineer in Test Intern",
+      "startDate": "2025-07-01",
+      "endDate": "2025-12-31",
+      "highlights": [
+        "Led testing for the Superfan/Treasure Box rollout, validating end-to-end financial logic including multi-stage revenue clearing, creator commission splitting, and settlement balance handling.",
+        "Designed comprehensive test strategies for the ToB Merchant Onboarding SDK using boundary value analysis and equivalence partitioning; verified API payloads against database records to uncover critical logic flaws in contract lifecycles.",
+        "Engineered robust automation frameworks by refactoring Pytest suites to support parallel execution.",
+        "Automated validation for TTOP subscription settlements to verify third-party developer payout adjustments, ensuring accurate reconciliation of channel reports and variable FX rates."
+      ]
+    },
+    {
+      "company": "Hitachi Rail Ground Transportation Systems",
+      "role": "Software Engineer Intern",
+      "startDate": "2024-05-01",
+      "endDate": "2024-12-31",
+      "highlights": [
+        "Automated software package verification for the North-East Line (NEL) system by developing Groovy scripts within Jenkins CI/CD pipelines, improving testing efficiency.",
+        "Developed a Python comparator tool using Pandas and NumPy to automate validation of equipment aliases and classes against database records, improving data integrity.",
+        "Configured and managed virtual machines across Windows 7, Unix RHEL 5 and several Red Hat Linux versions to test SCADA software compatibility and performance."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "institution": "National University of Singapore (NUS)",
+      "qualification": "Bachelor of Computing (Honours) in Computer Science",
+      "startDate": "2022-01-01",
+      "endDate": "2026-05-31",
+      "highlights": ["Honours (Distinction)", "NUS Merit Scholarship"]
+    },
+    {
+      "institution": "Hwa Chong Institution",
+      "qualification": "GCE A-Levels",
+      "startDate": "2018-01-01",
+      "endDate": "2019-12-31",
+      "highlights": ["Score: 90/90 (5 Distinctions)"]
     }
   ],
   "projects": [
@@ -25,6 +77,26 @@
       "repoUrl": "https://github.com/zhuuyicheng/yicheng-website",
       "liveUrl": null,
       "featured": true
+    },
+    {
+      "slug": "bowling-buddy",
+      "title": "Orbital Bowling Buddy App",
+      "summary": "A mobile app that helps bowlers of every proficiency level track their progress.",
+      "description": "Co-developed during NUS Orbital (May–Aug 2023). Built the key features: an authentication framework, a real-time scoreboard driven by user input, a Performance Tracker, an interactive spare guide, and a ball collection manager. Achieved Apollo level, the second-highest tier of the NUS Orbital programme.",
+      "techStack": ["React Native", "JavaScript", "Python", "Node.js", "Firebase", "Heroku"],
+      "repoUrl": null,
+      "liveUrl": null,
+      "featured": false
+    },
+    {
+      "slug": "brainhack-image-recognition",
+      "title": "Image Detection & Recognition (Brainhack 2022)",
+      "summary": "Trained and refined image detection and recognition models for the Brainhack 2022 competition.",
+      "description": "Competed in Brainhack 2022 (May–Jul 2022) as a developing member, training and refining image detection and recognition models with PyTorch and NumPy across multiple datasets.",
+      "techStack": ["Python", "PyTorch", "NumPy"],
+      "repoUrl": null,
+      "liveUrl": null,
+      "featured": false
     }
   ]
 }

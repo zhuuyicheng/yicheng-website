@@ -8,18 +8,19 @@ import {
   type Profile,
   type Project,
   type ProjectSummary,
-} from '../models/content.model.js';
-import { CONTENT_CACHE_KEYS, type ContentCacheStore } from '../repositories/content-cache.store.js';
-import type { ContentRepository } from '../repositories/content.repository.js';
-import type { CacheAside, Cached } from './cache-aside.js';
+} from '../schema/content.schema.js';
+import { CONTENT_CACHE_KEYS, type ContentCacheDal } from '../dal/content-cache.dal.js';
+import type { ContentDal } from '../dal/content.dal.js';
+import type { CacheAsideManager, Cached } from './cache-aside.manager.js';
 
 export interface PublishSummary {
   experiences: number;
+  education: number;
   projects: number;
   cacheKeysCleared: number;
 }
 
-export interface ContentService {
+export interface ContentManager {
   getProfile: (log: Logger) => Promise<Cached<Profile>>;
   listProjects: (log: Logger) => Promise<Cached<ProjectSummary[]>>;
   getProject: (slug: string, log: Logger) => Promise<Cached<Project>>;
@@ -27,23 +28,23 @@ export interface ContentService {
   publish: (content: PortfolioContent, log: Logger) => Promise<PublishSummary>;
 }
 
-export interface ContentServiceDependencies {
-  repository: ContentRepository;
-  cacheStore: ContentCacheStore;
-  cache: CacheAside;
+export interface ContentManagerDependencies {
+  dal: ContentDal;
+  cacheDal: ContentCacheDal;
+  cache: CacheAsideManager;
 }
 
-export function createContentService(dependencies: ContentServiceDependencies): ContentService {
-  const { repository, cacheStore, cache } = dependencies;
+export function createContentManager(dependencies: ContentManagerDependencies): ContentManager {
+  const { dal, cacheDal, cache } = dependencies;
 
-  const service: ContentService = {
+  const manager: ContentManager = {
     async getProfile(log) {
       const result = await cache.read(
         {
           cacheName: 'profile',
           key: CONTENT_CACHE_KEYS.profile,
           schema: profileSchema,
-          load: repository.findProfile,
+          load: dal.findProfile,
         },
         log,
       );
@@ -56,7 +57,7 @@ export function createContentService(dependencies: ContentServiceDependencies): 
           cacheName: 'projects',
           key: CONTENT_CACHE_KEYS.projects,
           schema: projectListSchema,
-          load: repository.listProjects,
+          load: dal.listProjects,
         },
         log,
       );
@@ -70,7 +71,7 @@ export function createContentService(dependencies: ContentServiceDependencies): 
           cacheName: 'project',
           key: CONTENT_CACHE_KEYS.project(slug),
           schema: projectSchema,
-          load: () => repository.findProjectBySlug(slug),
+          load: () => dal.findProjectBySlug(slug),
         },
         log,
       );
@@ -78,28 +79,29 @@ export function createContentService(dependencies: ContentServiceDependencies): 
     },
 
     async publish(content, log) {
-      await repository.replaceAll(content);
+      await dal.replaceAll(content);
 
       // Postgres is updated, so every cached copy is now stale. A failure here is not
       // swallowed: the seed exits non-zero and says the cache may be stale until its TTL.
-      const cacheKeysCleared = await cacheStore.deleteAllContent();
+      const cacheKeysCleared = await cacheDal.deleteAllContent();
 
       // Warm the cache through the normal read path, so the first visitor gets a hit.
-      await service.getProfile(log);
-      const projects = await service.listProjects(log);
+      await manager.getProfile(log);
+      const projects = await manager.listProjects(log);
       for (const project of projects.value) {
-        await service.getProject(project.slug, log);
+        await manager.getProject(project.slug, log);
       }
 
       return {
         experiences: content.experiences.length,
+        education: content.education.length,
         projects: content.projects.length,
         cacheKeysCleared,
       };
     },
   };
 
-  return service;
+  return manager;
 }
 
 function found<T>(result: Cached<T | null>, notFoundMessage: string): Cached<T> {

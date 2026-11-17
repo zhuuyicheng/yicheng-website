@@ -1,16 +1,16 @@
 import { performance } from 'node:perf_hooks';
 import type { Logger } from '../infra/logger.js';
 import { withTimeout } from '../infra/with-timeout.js';
-import type { DependencyCheck, DependencyHealth, HealthReport } from '../models/health.model.js';
+import type { DependencyCheck, DependencyHealth, HealthReport } from '../schema/health.schema.js';
 
 export const HEALTH_CHECK_TIMEOUT_MS = 2_000;
 
-export interface HealthService {
+export interface HealthManager {
   /** `log` is the caller's (request-scoped) logger, so failures carry the requestId. */
   checkHealth: (log: Logger) => Promise<HealthReport>;
 }
 
-export function createHealthService(dependencies: readonly DependencyCheck[]): HealthService {
+export function createHealthManager(dependencies: readonly DependencyCheck[]): HealthManager {
   return {
     async checkHealth(log) {
       const results = await Promise.all(

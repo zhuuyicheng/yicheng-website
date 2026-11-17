@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { portfolioContentSchema } from '../../../src/models/content.model.js';
+import { portfolioContentSchema } from '../../../src/schema/content.schema.js';
 
 const MINIMAL_CONTENT = {
   profile: { fullName: 'Ada', headline: 'Programmer', summary: 'Hi.' },
@@ -19,6 +19,7 @@ describe('portfolioContentSchema (content/portfolio.json)', () => {
     const content = portfolioContentSchema.parse(MINIMAL_CONTENT);
 
     expect(content.profile).toMatchObject({ location: null, links: [] });
+    expect(content.education).toEqual([]);
     expect(content.experiences[0]).toMatchObject({ endDate: null, highlights: [] });
     expect(content.projects[0]).toMatchObject({
       techStack: [],
@@ -40,6 +41,27 @@ describe('portfolioContentSchema (content/portfolio.json)', () => {
     expect(problems({ ...MINIMAL_CONTENT, experiences: [experience] })).toEqual([
       'experiences.0.endDate: must not be before startDate',
     ]);
+  });
+
+  it('rejects an education entry that ends before it starts', () => {
+    const entry = {
+      institution: 'NUS',
+      qualification: 'BComp',
+      startDate: '2026-05-01',
+      endDate: '2022-01-01',
+    };
+    expect(problems({ ...MINIMAL_CONTENT, education: [entry] })).toEqual([
+      'education.0.endDate: must not be before startDate',
+    ]);
+  });
+
+  it('fills in defaults for education entries', () => {
+    const content = portfolioContentSchema.parse({
+      ...MINIMAL_CONTENT,
+      education: [{ institution: 'NUS', qualification: 'BComp', startDate: '2022-01-01' }],
+    });
+
+    expect(content.education[0]).toMatchObject({ endDate: null, highlights: [] });
   });
 
   it('rejects non-http links and malformed slugs', () => {

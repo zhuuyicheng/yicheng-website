@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { createPostgresPool } from '../../src/infra/postgres.js';
 import { closeRedis, createRedisClient } from '../../src/infra/redis.js';
-import type { HealthReport } from '../../src/models/health.model.js';
+import type { HealthReport } from '../../src/schema/health.schema.js';
 import type { ErrorResponseBody } from '../../src/views/error.view.js';
 import {
   createTestDependencies,

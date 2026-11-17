@@ -2,9 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { closeRedis, createRedisClient } from '../../src/infra/redis.js';
-import type { Profile, Project, ProjectSummary } from '../../src/models/content.model.js';
-import { CONTENT_CACHE_KEYS } from '../../src/repositories/content-cache.store.js';
-import { createContentRepository } from '../../src/repositories/content.repository.js';
+import type { Profile, Project, ProjectSummary } from '../../src/schema/content.schema.js';
+import { CONTENT_CACHE_KEYS } from '../../src/dal/content-cache.dal.js';
+import { createContentDal } from '../../src/dal/content.dal.js';
 import type { DataResponseBody } from '../../src/views/content.view.js';
 import type { ErrorResponseBody } from '../../src/views/error.view.js';
 import { counterValue } from '../helpers/metrics.js';
@@ -32,8 +32,8 @@ describe('content API with live Postgres and Redis', () => {
 
   beforeEach(async () => {
     // Every test starts from the same published content and an empty cache (Redis DB 1 only).
-    await deps.postgres.query('TRUNCATE profile, experiences, projects');
-    await createContentRepository(deps.postgres).replaceAll(SAMPLE_CONTENT);
+    await deps.postgres.query('TRUNCATE profile, experiences, education, projects');
+    await createContentDal(deps.postgres).replaceAll(SAMPLE_CONTENT);
     await deps.redis.flushdb();
   });
 
@@ -51,6 +51,15 @@ describe('content API with live Postgres and Redis', () => {
     expect(profile.experiences.map((experience) => experience.company)).toEqual([
       'Analytical Engine Ltd',
       'Difference Engine Co',
+    ]);
+    expect(profile.education).toEqual([
+      expect.objectContaining({
+        institution: 'University of London',
+        startDate: '1840-01-01',
+        endDate: '1841-12-31',
+        highlights: ['Studied under Augustus De Morgan'],
+      }),
+      expect.objectContaining({ institution: 'Home schooling', endDate: null }),
     ]);
     expect(profile.experiences[1]).toMatchObject({
       startDate: '1840-03-01',
@@ -109,7 +118,7 @@ describe('content API with live Postgres and Redis', () => {
   });
 
   it('returns 404 for the profile when no content has been published', async () => {
-    await deps.postgres.query('TRUNCATE profile, experiences, projects');
+    await deps.postgres.query('TRUNCATE profile, experiences, education, projects');
 
     const response = await app.inject({ method: 'GET', url: '/api/v1/profile' });
 
@@ -133,8 +142,8 @@ describe('content API with Redis down', () => {
 
   beforeAll(async () => {
     deps = await createTestDependencies();
-    await deps.postgres.query('TRUNCATE profile, experiences, projects');
-    await createContentRepository(deps.postgres).replaceAll(SAMPLE_CONTENT);
+    await deps.postgres.query('TRUNCATE profile, experiences, education, projects');
+    await createContentDal(deps.postgres).replaceAll(SAMPLE_CONTENT);
   });
 
   afterAll(async () => {

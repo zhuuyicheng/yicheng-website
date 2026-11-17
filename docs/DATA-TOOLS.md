@@ -22,26 +22,33 @@ Start the datastores first: `npm run infra:up`.
 > only (see `docker-compose.yml`). `localhost` can resolve to the IPv6 address `::1`, where
 > nothing is listening, which shows up as "connection refused".
 
-### 1.1 PostgreSQL: two connections
+### 1.1 PostgreSQL
 
 1. Click the **elephant icon** in the left Activity Bar → **Add Connection** (`+`).
-2. Fill in the form:
+2. Switch to the **Connection String** tab and paste:
 
-   | Field               | Value                              |
-   | ------------------- | ---------------------------------- |
-   | Server name         | `127.0.0.1`                        |
-   | Port                | `5432`                             |
-   | Authentication type | Password                           |
-   | User name           | `portfolio`                        |
-   | Password            | `portfolio` (tick "Save password") |
-   | Database name       | `portfolio`                        |
-   | Profile name        | `portfolio (dev)`                  |
+   ```
+   postgresql://portfolio:portfolio@127.0.0.1:5432/portfolio
+   ```
 
-3. **Connect.** The connection appears in the tree.
-4. Repeat with database `portfolio_test` and profile name `portfolio (tests)`.
+   Read it as `scheme://user:password@host:port/database`. It is the same format as
+   `DATABASE_URL` in `.env`, and the values come from `POSTGRES_USER`, `POSTGRES_PASSWORD` and
+   `POSTGRES_DB` there. They are local-development credentials only.
 
-The values come from `.env` (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`). They are
-local-development credentials only.
+3. Set **Connection name** to `portfolio (dev)`, then **Test Connection** → **Save & Connect**.
+
+Prefer the **Parameters** tab? Use the same values, set **Authentication type** to
+**Password** (not "None"), and tick **Save password**. Port is under **Advanced** and already
+defaults to `5432`.
+
+**Optional second connection, for the tests.** The same server also holds a database called
+`portfolio_test`. Integration tests empty and refill its tables on every run, which is why they
+never touch your real content in `portfolio`. Add it the same way (ending the string with
+`/portfolio_test`, name `portfolio (tests)`) only if you want to see what a test left behind.
+
+> **"password authentication failed"?** The extension keeps retrying a saved connection with
+> the credentials it was first saved with, so fixing the form doesn't help. Delete the
+> connection from the sidebar and add it again.
 
 ### 1.2 Redis: two logical databases
 
@@ -51,20 +58,22 @@ Redis has numbered "logical databases" inside one server. We use **DB 0** for de
 1. Click the **Redis icon** in the Activity Bar → **+ Add Redis database**
    (or "Connect database").
 2. Host `127.0.0.1`, port `6379`, alias `portfolio (dev, DB 0)`. Leave username and password
-   empty (local Redis has none). Database index: `0`.
-3. Add a second one: alias `portfolio (tests, DB 1)`, database index `1` (look for "Select
-   logical database" / "Database index" in the form).
+   empty (local Redis has none). No database setting is needed: Redis uses DB 0 by default.
+3. That one connection is all you need. Redis for VS Code (1.4) has no logical-database option,
+   so every connection it adds shows DB 0, which is where all dev data lives. To peek at the
+   tests' DB 1 (usually empty, because tests clear it when they start), use the terminal:
+   `docker compose exec redis redis-cli -n 1 KEYS '*'`.
 
 ---
 
 ## 2. What lives where
 
-| Phase | PostgreSQL (database `portfolio`)    | Redis (DB 0)                                                         |
-| ----- | ------------------------------------ | -------------------------------------------------------------------- |
-| 1     | `schema_migrations`                  | —                                                                    |
-| 2     | `profile`, `experiences`, `projects` | `cache:v1:profile`, `cache:v1:projects`, `cache:v1:project:<slug>`   |
-| 3     | `analytics_events`                   | `telemetry:events:buffer` / `:inflight` / `:dlq`, `telemetry:salt:*` |
-| 4     | `contact_messages`                   | `ratelimit:contact:<hash>`, `jobs:notifications:*`                   |
+| Phase | PostgreSQL (database `portfolio`)                 | Redis (DB 0)                                                         |
+| ----- | ------------------------------------------------- | -------------------------------------------------------------------- |
+| 1     | `schema_migrations`                               | —                                                                    |
+| 2     | `profile`, `experiences`, `education`, `projects` | `cache:v2:profile`, `cache:v1:projects`, `cache:v1:project:<slug>`   |
+| 3     | `analytics_events`                                | `telemetry:events:buffer` / `:inflight` / `:dlq`, `telemetry:salt:*` |
+| 4     | `contact_messages`                                | `ratelimit:contact:<hash>`, `jobs:notifications:*`                   |
 
 Full key catalog: DESIGN.md §6.2. Tables: DESIGN.md §5.
 
@@ -128,21 +137,25 @@ terminal for `curl`. Run `npm run dev:api` in a fourth terminal.
    value is exactly the `data` array the API returned.
 4. **Second request (hit).** Same `curl` → `x-cache: hit`. `MONITOR` shows only the `get`.
    Postgres was not touched.
-5. **Publish an edit.** Change a project title in `apps/api/content/portfolio.json`, then run
+5. **Publish an edit.** Change a project title in `apps/api/content/portfolio.json`, **save
+   it** (`Ctrl+S`; the seed reads the file from disk, not your editor), then run
    `npm run content:seed`.
-   - Postgres: re-run "Select Top 1000" on `projects`: the new title and a new `updated_at`.
+   - Postgres: re-run "Select Top 1000" on `projects`: the new title. (`updated_at` changes
+     on every seed, even when nothing changed, so the title is the real evidence.)
    - `MONITOR`: a `scan` for `cache:v1:project:*`, one `del` of every content key, then a
      `get` (miss) + `set` pair per key as the seed warms the cache.
-   - Redis view (refresh): all content keys exist again with fresh TTLs and the new title.
+   - Redis view: click ↻ on the database row to reload the key list, then click the key
+     again (the value panel shows what it loaded last time). Fresh TTLs and the new title.
 6. **Corrupt the cache.** Edit the value of `cache:v1:projects` in the Redis view to `oops`,
    then `curl` again: `x-cache: miss`, the API logs `cache operation failed` with
    `operation: "decode"`, and the key holds valid JSON again.
 
 ## 6. Looking at test data
 
-Integration tests use the `portfolio (tests)` connection and `portfolio (tests, DB 1)`.
-After `npm run test:integration` you can inspect what the last test left behind. Tests empty
-these databases freely, so anything you change there will be overwritten.
+Integration tests use the `portfolio_test` database (connection `portfolio (tests)`) and Redis
+DB 1 (`docker compose exec redis redis-cli -n 1 KEYS '*'`). After `npm run test:integration`
+you can inspect what the last test left behind. Tests empty these databases freely, so anything
+you change there will be overwritten.
 
 ## 7. What to watch in later phases
 

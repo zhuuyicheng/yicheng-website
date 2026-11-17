@@ -111,8 +111,8 @@ docker compose exec redis redis-cli -n 1
 Swap `portfolio_test` → `portfolio` and `-n 1` → `-n 0` to look at development data instead.
 
 Prefer clicking to typing? The VS Code PostgreSQL and Redis extensions show the same data as
-tables and key trees: see [DATA-TOOLS.md](DATA-TOOLS.md) (connections `portfolio (tests)` and
-`portfolio (tests, DB 1)`).
+tables and key trees: see [DATA-TOOLS.md](DATA-TOOLS.md) (Postgres connection
+`portfolio (tests)`; the Redis extension only shows DB 0, so use `redis-cli -n 1` for test keys).
 
 ---
 
@@ -131,11 +131,11 @@ tables and key trees: see [DATA-TOOLS.md](DATA-TOOLS.md) (connections `portfolio
 ## 7. Writing a new test
 
 **Unit test**: place it in the folder matching the source file
-(`src/services/foo.service.ts` → `test/unit/services/foo.service.test.ts`):
+(`src/services/foo.manager.ts` → `test/unit/services/foo.manager.test.ts`):
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { slugify } from '../../../src/services/foo.service.js';
+import { slugify } from '../../../src/services/foo.manager.js';
 
 describe('slugify', () => {
   it('lowercases and joins words with dashes', () => {
