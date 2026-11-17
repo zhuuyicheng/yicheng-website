@@ -6,8 +6,8 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | Phase | Branch                       | Module | Status         |
 | ----- | ---------------------------- | ------ | -------------- |
 | 1     | `main` (initial scaffold)    | —      | ✅ Done        |
-| 2     | `feat/portfolio-cache-api`   | A      | 🔍 In review   |
-| 3     | `feat/telemetry-pipeline`    | B      | ⬜ Not started |
+| 2     | `feat/portfolio-cache-api`   | A      | ✅ Done        |
+| 3     | `feat/telemetry-pipeline`    | B      | ⏳ Next        |
 | 4     | `feat/contact-rate-limiter`  | C      | ⬜ Not started |
 | 5     | `feat/metrics-and-dashboard` | D      | ⬜ Not started |
 | 6     | `feat/continuous-delivery`   | —      | ⬜ Not started |
@@ -20,7 +20,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 - [x] Strict `tsconfig.base.json`, ESLint (type-aware) + Prettier
 - [x] `docker-compose.yml`: Postgres 16 + Redis 7, healthchecks, named volumes
 - [x] `.env.example` + fail-fast Zod config loader
-- [x] Fastify app in MVC layout (routes → controllers → services → models/repositories, views)
+- [x] Fastify app in layered layout (since restructured: see Phase 2)
 - [x] Pino structured logging + `x-request-id` correlation
 - [x] Consistent error envelope `{ error: { code, message, requestId } }`
 - [x] `pg` pool + `ioredis` client with fail-fast startup
@@ -30,13 +30,13 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 - [x] Next.js 16 + Tailwind 4 placeholder page
 - [x] Tests: 32 unit + 12 integration (incl. real-process SIGTERM test)
 
-## Phase 2: Portfolio content API + cache (`feat/portfolio-cache-api`) 🔍
+## Phase 2: Portfolio content API + cache (`feat/portfolio-cache-api`) ✅
 
 - [x] **CI first**: `.github/workflows/ci.yml` (format, lint, typecheck, unit + integration
       tests against Postgres/Redis service containers) — see [docs/CI.md](docs/CI.md)
 - [x] Migration `0001_portfolio_content.sql` (profile, experiences, projects)
 - [x] `content/portfolio.json` + `npm run content:seed` (upsert, then invalidate + warm cache)
-- [x] Model + repository + cache store + service + controller + view + routes for:
+- [x] Schema + DAO + DAL (SQL and Redis) + manager + controller + view for:
   - [x] `GET /api/v1/profile`
   - [x] `GET /api/v1/projects`
   - [x] `GET /api/v1/projects/:slug`
@@ -44,15 +44,23 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 - [x] Redis failure → Postgres fallback (log + metric)
 - [x] `infra/metrics.ts` prom-client registry: `cache_requests_total`, `cache_errors_total`,
       plus metrics for existing Redis reconnects / Postgres pool errors
-- [x] Unit tests (cache-aside, content service, content file schema) + integration tests
+- [x] Unit tests (cache-aside, content manager, content file schema) + integration tests
       (real cache round trip, Redis-down fallback, seed CLI) — 55 unit + 22 integration total
 - [x] Data-viewer guide: [docs/DATA-TOOLS.md](docs/DATA-TOOLS.md) (VS Code PostgreSQL + Redis)
 - [x] PR #1 merged: CI workflow only (green on PR and on `main`)
-- [ ] Feature commit pushed, PR #2 opened, CI green, merged into `main`
+- [x] PR #2 merged: feature work (CI green)
+- [x] Real profile, experience and projects filled in from the resume
+- [x] Education section: migration `0002_education.sql`, `education` in `GET /api/v1/profile`
+      (profile cache key bumped to `cache:v2:profile`)
+- [x] Restructured the API layers: `routes/` merged into `controllers/`, `services/*.manager.ts`,
+      `repositories/` → `dal/`, `models/` → `schema/` + new `dao/` row types (DESIGN.md §2.2).
+      Responses and cache entries are byte-for-byte unchanged, so no cache key bump
 
 ## Phase 3: Telemetry pipeline (`feat/telemetry-pipeline`)
 
-- [ ] Migration `0002_analytics_events.sql`
+- [ ] Migration `0003_analytics_events.sql`
+- [ ] Datastore unavailable → `503 SERVICE_UNAVAILABLE`, not `500` (found in the guided tour:
+      Postgres down + cache miss returns 500); reuse the transient-error classifier
 - [ ] `POST /api/v1/events` → validation, daily-salted visitor hash, bounded Redis buffer, `202`
 - [ ] `worker.ts` entrypoint + telemetry batch flusher (claim → bulk insert → ack)
 - [ ] Transient vs permanent error handling; poison events → DLQ
@@ -64,7 +72,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 
 ## Phase 4: Contact API + rate limiter (`feat/contact-rate-limiter`)
 
-- [ ] Migration `0003_contact_messages.sql`
+- [ ] Migration `0004_contact_messages.sql`
 - [ ] Atomic Lua sliding-window rate limiter + `X-RateLimit-*` / `Retry-After` headers
 - [ ] `POST /api/v1/contact` → persist `PENDING`, enqueue notification job, `202`
 - [ ] Notification worker: reliable queue, exponential backoff, DLQ, `SENT`/`FAILED` status
@@ -87,14 +95,21 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 
 Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
 
-- [ ] Decide hosting + domain (default: one VPS running Docker Compose with Caddy for HTTPS)
+- [ ] Decide hosting + domain (default: one VPS running Docker Compose, Caddy for HTTPS and
+      load balancing)
 - [ ] `apps/api/Dockerfile` (multi-stage, non-root; one image for api/worker/migrate/seed),
       `apps/web/Dockerfile` (Next.js standalone), `.dockerignore`
 - [ ] CI: build both images on every PR (a broken Dockerfile fails before merge)
 - [ ] On merge to `main`: push images to GHCR tagged with the git SHA
 - [ ] `deploy/compose.prod.yml` + `Caddyfile`; production env file kept on the host only
-- [ ] `.github/workflows/deploy.yml`: migrate → seed → roll out → smoke test → auto-rollback,
+- [ ] `.github/workflows/deploy.yml`: migrate → seed → rolling update → smoke test → auto-rollback,
       behind a `production` GitHub Environment with a required reviewer (continuous **delivery**)
+- [ ] Load balancing ([DESIGN.md §14.5](DESIGN.md#145-hosting-decided-at-the-start-of-phase-6)):
+  - [ ] Two API replicas (`api-1`, `api-2`) behind Caddy: round robin, active health checks
+  - [ ] `GET /health/live` liveness endpoint for the load balancer (no dependency checks) + tests
+  - [ ] Rolling update: worker → api-1 (wait for `/health` = 200) → api-2 → web
+  - [ ] Per-replica numbers: `instance` in system status; Prometheus scrapes each replica directly
+  - [ ] Prove it: a request loop sees no failures while one replica is stopped, or during a deploy
 - [ ] Nightly `pg_dump` backups off the host + a tested restore
 - [ ] `docs/CD.md`: how to release, approve, roll back, read deploy logs
 - [ ] Later: remove the approval gate (continuous **deployment**) once releases are routine

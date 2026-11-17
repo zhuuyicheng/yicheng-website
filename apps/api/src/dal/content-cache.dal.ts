@@ -1,11 +1,12 @@
 import type { Redis } from '../infra/redis.js';
 
 /**
- * Redis keys for cached content. See DESIGN.md §6.2. `v1` is the shape version: bump it when
- * a cached response shape changes, so old entries are never read and simply expire.
+ * Redis keys for cached content. See DESIGN.md §6.2. `vN` is the shape version: bump it when
+ * a cached response shape changes, so old entries are never read and simply expire. During a
+ * deploy, old and new code then use different keys instead of overwriting each other's entries.
  */
 export const CONTENT_CACHE_KEYS = {
-  profile: 'cache:v1:profile',
+  profile: 'cache:v2:profile', // v2: added `education`
   projects: 'cache:v1:projects',
   project: (slug: string) => `cache:v1:project:${slug}`,
 } as const;
@@ -13,18 +14,18 @@ export const CONTENT_CACHE_KEYS = {
 const PROJECT_KEY_PATTERN = CONTENT_CACHE_KEYS.project('*');
 const SCAN_BATCH_SIZE = 100;
 
-/** Minimal key/value cache used by the cache-aside service. Values are JSON strings. */
-export interface CacheStore {
+/** Minimal key/value cache used by the cache-aside manager. Values are JSON strings. */
+export interface CacheDal {
   get: (key: string) => Promise<string | null>;
   set: (key: string, value: string, ttlSeconds: number) => Promise<void>;
 }
 
-export interface ContentCacheStore extends CacheStore {
+export interface ContentCacheDal extends CacheDal {
   /** Deletes every content cache key (including projects that no longer exist). */
   deleteAllContent: () => Promise<number>;
 }
 
-export function createContentCacheStore(redis: Redis): ContentCacheStore {
+export function createContentCacheDal(redis: Redis): ContentCacheDal {
   return {
     async get(key) {
       return redis.get(key);

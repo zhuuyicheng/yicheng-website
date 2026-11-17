@@ -12,11 +12,11 @@ import { createLogger } from '../infra/logger.js';
 import { createMetrics } from '../infra/metrics.js';
 import { createPostgresPool } from '../infra/postgres.js';
 import { closeRedis, connectRedis, createRedisClient } from '../infra/redis.js';
-import { portfolioContentSchema, type PortfolioContent } from '../models/content.model.js';
-import { createContentCacheStore } from '../repositories/content-cache.store.js';
-import { createContentRepository } from '../repositories/content.repository.js';
-import { createCacheAside } from '../services/cache-aside.js';
-import { createContentService } from '../services/content.service.js';
+import { portfolioContentSchema, type PortfolioContent } from '../schema/content.schema.js';
+import { createContentCacheDal } from '../dal/content-cache.dal.js';
+import { createContentDal } from '../dal/content.dal.js';
+import { createCacheAsideManager } from '../services/cache-aside.manager.js';
+import { createContentManager } from '../services/content.manager.js';
 
 const CONTENT_FILE = path.resolve(import.meta.dirname, '../../content/portfolio.json');
 
@@ -66,14 +66,14 @@ try {
   const content = await readContentFile(CONTENT_FILE);
   await connectRedis(redis);
 
-  const cacheStore = createContentCacheStore(redis);
-  const contentService = createContentService({
-    repository: createContentRepository(postgres),
-    cacheStore,
-    cache: createCacheAside({ store: cacheStore, metrics, ttlSeconds: config.cache.ttlSeconds }),
+  const cacheDal = createContentCacheDal(redis);
+  const contentManager = createContentManager({
+    dal: createContentDal(postgres),
+    cacheDal,
+    cache: createCacheAsideManager({ cacheDal, metrics, ttlSeconds: config.cache.ttlSeconds }),
   });
 
-  const summary = await contentService.publish(content, logger);
+  const summary = await contentManager.publish(content, logger);
   logger.info(summary, 'content published');
 } catch (err) {
   if (err instanceof ContentFileError) {

@@ -33,6 +33,15 @@ export const experienceSchema = z.object({
   highlights: z.array(z.string()),
 });
 
+export const educationSchema = z.object({
+  id: z.string(),
+  institution: z.string(),
+  qualification: z.string(),
+  startDate: z.string(), // YYYY-MM-DD
+  endDate: z.string().nullable(), // null = still studying
+  highlights: z.array(z.string()),
+});
+
 export const profileSchema = z.object({
   fullName: z.string(),
   headline: z.string(),
@@ -40,6 +49,7 @@ export const profileSchema = z.object({
   location: z.string().nullable(),
   links: z.array(linkSchema),
   experiences: z.array(experienceSchema),
+  education: z.array(educationSchema),
 });
 
 export const projectSummarySchema = z.object({
@@ -58,6 +68,7 @@ export const projectSchema = projectSummarySchema.extend({ description: z.string
 
 export type ProfileLink = z.infer<typeof linkSchema>;
 export type Experience = z.infer<typeof experienceSchema>;
+export type Education = z.infer<typeof educationSchema>;
 export type Profile = z.infer<typeof profileSchema>;
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 export type Project = z.infer<typeof projectSchema>;
@@ -71,6 +82,13 @@ const webUrl = z.url({ protocol: /^https?$/ });
 const isoDate = z.iso.date(); // YYYY-MM-DD
 
 const contentLinkSchema = z.object({ label: text(50), url: webUrl });
+
+/** Shared rule for anything with a date range (mirrors the SQL `*_dates_ordered` CHECKs). */
+const datesInOrder = {
+  check: (entry: { startDate: string; endDate: string | null }) =>
+    entry.endDate === null || entry.endDate >= entry.startDate,
+  params: { message: 'must not be before startDate', path: ['endDate'] },
+};
 
 const contentProfileSchema = z.object({
   fullName: text(100),
@@ -88,13 +106,17 @@ const contentExperienceSchema = z
     endDate: isoDate.nullable().default(null),
     highlights: z.array(text(500)).default([]),
   })
-  .refine(
-    (experience) => experience.endDate === null || experience.endDate >= experience.startDate,
-    {
-      message: 'must not be before startDate',
-      path: ['endDate'],
-    },
-  );
+  .refine(datesInOrder.check, datesInOrder.params);
+
+const contentEducationSchema = z
+  .object({
+    institution: text(200),
+    qualification: text(200),
+    startDate: isoDate,
+    endDate: isoDate.nullable().default(null),
+    highlights: z.array(text(500)).default([]),
+  })
+  .refine(datesInOrder.check, datesInOrder.params);
 
 const contentProjectSchema = z.object({
   slug: projectSlugSchema,
@@ -111,6 +133,7 @@ export const portfolioContentSchema = z.object({
   profile: contentProfileSchema,
   // Array order is display order: it becomes `sort_order` in the database.
   experiences: z.array(contentExperienceSchema),
+  education: z.array(contentEducationSchema).default([]),
   projects: z.array(contentProjectSchema).superRefine((projects, context) => {
     const seen = new Set<string>();
     projects.forEach((project, index) => {

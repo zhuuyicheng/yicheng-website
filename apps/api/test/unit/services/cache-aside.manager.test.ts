@@ -2,12 +2,12 @@ import { pino } from 'pino';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { createMetrics, type Metrics } from '../../../src/infra/metrics.js';
-import type { CacheStore } from '../../../src/repositories/content-cache.store.js';
+import type { CacheDal } from '../../../src/dal/content-cache.dal.js';
 import {
-  createCacheAside,
+  createCacheAsideManager,
   ttlWithJitter,
   type CacheAsideRead,
-} from '../../../src/services/cache-aside.js';
+} from '../../../src/services/cache-aside.manager.js';
 import { counterValue } from '../../helpers/metrics.js';
 
 const log = pino({ level: 'silent' });
@@ -22,7 +22,7 @@ function createFakeStore() {
   const ttls = new Map<string, number>();
   const failures = { reads: false, writes: false };
 
-  const store: CacheStore = {
+  const store: CacheDal = {
     get: (key) =>
       failures.reads
         ? Promise.reject(new Error('redis unavailable'))
@@ -42,7 +42,12 @@ function createFakeStore() {
 function setup(random: () => number = () => 0.5) {
   const fake = createFakeStore();
   const metrics: Metrics = createMetrics();
-  const cache = createCacheAside({ store: fake.store, metrics, ttlSeconds: TTL_SECONDS, random });
+  const cache = createCacheAsideManager({
+    cacheDal: fake.store,
+    metrics,
+    ttlSeconds: TTL_SECONDS,
+    random,
+  });
   return { ...fake, metrics, cache };
 }
 

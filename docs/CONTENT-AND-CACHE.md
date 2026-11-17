@@ -11,7 +11,7 @@ Redis sits in the middle, and how to watch it work. Design reference: DESIGN.md 
 apps/api/content/portfolio.json          you edit this file
           │  npm run content:seed
           ▼
-PostgreSQL (profile, experiences, projects)   source of truth
+PostgreSQL (profile, experiences, education, projects)   source of truth
           │  first request (cache miss)
           ▼
 Redis  cache:v1:projects  (expires after ~5 min)   fast copy
@@ -44,16 +44,16 @@ Three extra safeguards, each with a test:
 
 `GET /api/v1/projects/note-g`:
 
-| Step | File                                                                                       | Job                                                        |
-| ---- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| 1    | [routes/content.routes.ts](../apps/api/src/routes/content.routes.ts)                       | URL → controller                                           |
-| 2    | [controllers/content.controller.ts](../apps/api/src/controllers/content.controller.ts)     | validate `slug`, call the service, set `X-Cache`, render   |
-| 3    | [services/content.service.ts](../apps/api/src/services/content.service.ts)                 | "which key, which query"; turns `null` into 404            |
-| 4    | [services/cache-aside.ts](../apps/api/src/services/cache-aside.ts)                         | the hit/miss/fallback/single-flight algorithm              |
-| 5a   | [repositories/content-cache.store.ts](../apps/api/src/repositories/content-cache.store.ts) | Redis `GET` / `SET … EX`                                   |
-| 5b   | [repositories/content.repository.ts](../apps/api/src/repositories/content.repository.ts)   | SQL                                                        |
-| 6    | [views/content.view.ts](../apps/api/src/views/content.view.ts)                             | builds `{ data: … }` with only public fields               |
-| —    | [models/content.model.ts](../apps/api/src/models/content.model.ts)                         | Zod schemas for responses, cache entries and the JSON file |
+| Step | File                                                                                   | Job                                                                                                 |
+| ---- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 1    | [controllers/content.controller.ts](../apps/api/src/controllers/content.controller.ts) | declares `GET /api/v1/projects/:slug`; validates `slug`, calls the manager, sets `X-Cache`, renders |
+| 2    | [services/content.manager.ts](../apps/api/src/services/content.manager.ts)             | "which key, which query"; turns `null` into 404                                                     |
+| 3    | [services/cache-aside.manager.ts](../apps/api/src/services/cache-aside.manager.ts)     | the hit/miss/fallback/single-flight algorithm                                                       |
+| 4a   | [dal/content-cache.dal.ts](../apps/api/src/dal/content-cache.dal.ts)                   | Redis `GET` / `SET … EX`                                                                            |
+| 4b   | [dal/content.dal.ts](../apps/api/src/dal/content.dal.ts)                               | SQL; maps each row to the API shape                                                                 |
+| 5    | [views/content.view.ts](../apps/api/src/views/content.view.ts)                         | builds `{ data: … }` with only public fields                                                        |
+| —    | [dao/content.dao.ts](../apps/api/src/dao/content.dao.ts)                               | row types: what a database row looks like (`snake_case`)                                            |
+| —    | [schema/content.schema.ts](../apps/api/src/schema/content.schema.ts)                   | Zod schemas for responses, cache entries and the JSON file (`camelCase`)                            |
 
 ## 4. Try it yourself
 

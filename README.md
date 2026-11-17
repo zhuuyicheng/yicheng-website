@@ -6,6 +6,7 @@ background jobs with retries and dead-letter queues, and live observability.
 
 - **Design**: [DESIGN.md](DESIGN.md)
 - **Progress**: [ROADMAP.md](ROADMAP.md)
+- **New here? Start with the hands-on [Guided Tour](docs/GUIDED-TOUR.md)**
 - **Guides**: [Testing](docs/TESTING.md) · [CI](docs/CI.md) · [Content & cache](docs/CONTENT-AND-CACHE.md) ·
   [Seeing the data in VS Code](docs/DATA-TOOLS.md)
 
@@ -58,6 +59,6 @@ and don't need to: tables come from migrations and content from `portfolio.json`
 ## Repository layout
 
 ```
-apps/api   Fastify API (MVC: routes → controllers → services → repositories, views)
+apps/api   Fastify API (controllers → managers → DAL, with dao/, schema/, views/)
 apps/web   Next.js + Tailwind frontend
 ```

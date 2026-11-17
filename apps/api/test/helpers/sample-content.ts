@@ -1,4 +1,4 @@
-import type { PortfolioContent } from '../../src/models/content.model.js';
+import type { PortfolioContent } from '../../src/schema/content.schema.js';
 
 /** Small, fixed portfolio used by unit and integration tests (independent of portfolio.json). */
 export const SAMPLE_CONTENT: PortfolioContent = {
@@ -22,6 +22,22 @@ export const SAMPLE_CONTENT: PortfolioContent = {
       role: 'Translator',
       startDate: '1840-03-01',
       endDate: '1841-12-31',
+      highlights: [],
+    },
+  ],
+  education: [
+    {
+      institution: 'University of London',
+      qualification: 'Mathematics (private tuition)',
+      startDate: '1840-01-01',
+      endDate: '1841-12-31',
+      highlights: ['Studied under Augustus De Morgan'],
+    },
+    {
+      institution: 'Home schooling',
+      qualification: 'Mathematics and Science',
+      startDate: '1825-01-01',
+      endDate: null,
       highlights: [],
     },
   ],

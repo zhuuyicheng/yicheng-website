@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseRequest } from '../../../src/controllers/parse-request.js';
 import { AppError } from '../../../src/errors/app-error.js';
-import { projectParamsSchema } from '../../../src/models/content.model.js';
+import { projectParamsSchema } from '../../../src/schema/content.schema.js';
 
 describe('parseRequest', () => {
   it('returns the parsed value when the input is valid', () => {

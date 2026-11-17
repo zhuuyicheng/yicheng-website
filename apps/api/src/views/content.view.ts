@@ -1,4 +1,10 @@
-import type { Experience, Profile, Project, ProjectSummary } from '../models/content.model.js';
+import type {
+  Education,
+  Experience,
+  Profile,
+  Project,
+  ProjectSummary,
+} from '../schema/content.schema.js';
 
 /** Success envelope. See DESIGN.md §7.1. */
 export interface DataResponseBody<T> {
@@ -17,6 +23,7 @@ export function renderProfile(profile: Profile): DataResponseBody<Profile> {
       location: profile.location,
       links: profile.links.map((link) => ({ label: link.label, url: link.url })),
       experiences: profile.experiences.map(toExperience),
+      education: profile.education.map(toEducation),
     },
   };
 }
@@ -37,6 +44,17 @@ function toExperience(experience: Experience): Experience {
     startDate: experience.startDate,
     endDate: experience.endDate,
     highlights: experience.highlights,
+  };
+}
+
+function toEducation(entry: Education): Education {
+  return {
+    id: entry.id,
+    institution: entry.institution,
+    qualification: entry.qualification,
+    startDate: entry.startDate,
+    endDate: entry.endDate,
+    highlights: entry.highlights,
   };
 }
 

@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import type { Logger } from '../infra/logger.js';
 import type { Metrics } from '../infra/metrics.js';
-import type { CacheStore } from '../repositories/content-cache.store.js';
+import type { CacheDal } from '../dal/content-cache.dal.js';
 
 /**
  * Cache-aside ("lazy loading"), see DESIGN.md §8.1:
@@ -31,12 +31,12 @@ export interface CacheAsideRead<T> {
   load: () => Promise<T | null>;
 }
 
-export interface CacheAside {
+export interface CacheAsideManager {
   read: <T>(request: CacheAsideRead<T>, log: Logger) => Promise<Cached<T | null>>;
 }
 
 export interface CacheAsideOptions {
-  store: CacheStore;
+  cacheDal: CacheDal;
   metrics: Metrics;
   ttlSeconds: number;
   /** Injectable for tests; defaults to Math.random. */
@@ -53,8 +53,8 @@ export function ttlWithJitter(baseSeconds: number, random: () => number = Math.r
 
 type Lookup<T> = { found: true; value: T } | { found: false };
 
-export function createCacheAside(options: CacheAsideOptions): CacheAside {
-  const { store, metrics, ttlSeconds, random = Math.random } = options;
+export function createCacheAsideManager(options: CacheAsideOptions): CacheAsideManager {
+  const { cacheDal, metrics, ttlSeconds, random = Math.random } = options;
 
   /**
    * Single-flight: while one request is loading a key from Postgres, concurrent misses for the
@@ -75,7 +75,7 @@ export function createCacheAside(options: CacheAsideOptions): CacheAside {
   async function lookup<T>(request: CacheAsideRead<T>, log: Logger): Promise<Lookup<T>> {
     let raw: string | null;
     try {
-      raw = await store.get(request.key);
+      raw = await cacheDal.get(request.key);
     } catch (err) {
       recordError('read', err, request.key, log);
       return { found: false };
@@ -100,7 +100,7 @@ export function createCacheAside(options: CacheAsideOptions): CacheAside {
     }
 
     try {
-      await store.set(request.key, JSON.stringify(value), ttlWithJitter(ttlSeconds, random));
+      await cacheDal.set(request.key, JSON.stringify(value), ttlWithJitter(ttlSeconds, random));
     } catch (err) {
       recordError('write', err, request.key, log);
     }
@@ -119,12 +119,13 @@ export function createCacheAside(options: CacheAsideOptions): CacheAside {
 
   return {
     async read(request, log) {
+      // redis
       const cached = await lookup(request, log);
       if (cached.found) {
         metrics.cacheRequests.inc({ cache: request.cacheName, result: 'hit' });
         return { value: cached.value, cache: 'hit' };
       }
-
+      // miss → Postgres, then save to Redis
       metrics.cacheRequests.inc({ cache: request.cacheName, result: 'miss' });
       const value = await singleFlight(request.key, () => loadAndStore(request, log));
       return { value, cache: 'miss' };
