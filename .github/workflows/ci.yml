@@ -1,0 +1,52 @@
+# Runs exactly what `npm run check` runs locally. Guide: docs/CI.md
+name: CI
+
+on:
+  push:
+    branches: [main] # every commit that lands on main
+  pull_request: # every PR, whatever the target branch
+
+# A new push to the same branch cancels the previous, now outdated, run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: the job only needs to read the repository.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Disposable Postgres + Redis containers, the CI equivalent of docker-compose.yml.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: portfolio
+          POSTGRES_PASSWORD: portfolio
+          POSTGRES_DB: portfolio
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U portfolio -d portfolio"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v7 # download the repository
+      - uses: actions/setup-node@v7 # install Node (version from .nvmrc)
+        with:
+          node-version-file: .nvmrc
+          cache: npm # reuse downloaded packages between runs
+      - run: npm ci # clean install from package-lock.json
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test # unit + integration (uses the service containers)
