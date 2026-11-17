@@ -1,0 +1,31 @@
+{
+  "name": "@portfolio/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest --project unit",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "db:migrate": "tsx --env-file-if-exists=../../.env src/cli/migrate.ts"
+  },
+  "dependencies": {
+    "fastify": "^5.12.8",
+    "ioredis": "^6.0.0",
+    "pg": "^8.23.1",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
+    "pino-pretty": "^13.2.0",
+    "tsx": "^4.23.15",
+    "vitest": "^5.1.0"
+  }
+}

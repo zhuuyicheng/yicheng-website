@@ -11,6 +11,9 @@ dist/
 build/
 .next/
 out/
+coverage/
+*.tsbuildinfo
+apps/web/next-env.d.ts
 
 # Logs & OS files
 *.log
