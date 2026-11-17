@@ -22,13 +22,29 @@ describe('loadConfig', () => {
 
     expect(config).toEqual({
       nodeEnv: 'development',
-      server: { host: '0.0.0.0', port: 4000 },
+      server: { host: '0.0.0.0', port: 4000, trustProxy: false },
       log: { level: 'info', pretty: true },
       postgres: { url: REQUIRED_ENV.DATABASE_URL, poolMax: 10 },
       redis: { url: REQUIRED_ENV.REDIS_URL },
       cache: { ttlSeconds: 300 },
+      telemetry: { bufferMaxLength: 100_000 },
       shutdown: { timeoutMs: 10_000 },
     });
+  });
+
+  it('parses TRUST_PROXY strictly and the telemetry buffer cap as a number', () => {
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      TRUST_PROXY: 'true',
+      TELEMETRY_BUFFER_MAX_LENGTH: '500',
+    });
+
+    expect(config.server.trustProxy).toBe(true);
+    expect(config.telemetry.bufferMaxLength).toBe(500);
+    // A typo must not silently mean "false".
+    expect(captureConfigError({ ...REQUIRED_ENV, TRUST_PROXY: 'ture' }).problems).toEqual([
+      expect.stringMatching(/^TRUST_PROXY:/),
+    ]);
   });
 
   it('coerces numeric variables from strings', () => {

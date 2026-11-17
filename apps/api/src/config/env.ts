@@ -8,11 +8,13 @@ export type NodeEnv = 'development' | 'test' | 'production';
 /** Typed, structured configuration consumed by the rest of the application. */
 export interface AppConfig {
   nodeEnv: NodeEnv;
-  server: { host: string; port: number };
+  /** `trustProxy`: honour X-Forwarded-For, so `request.ip` is the visitor behind a proxy. */
+  server: { host: string; port: number; trustProxy: boolean };
   log: { level: LogLevel; pretty: boolean };
   postgres: { url: string; poolMax: number };
   redis: { url: string };
   cache: { ttlSeconds: number };
+  telemetry: { bufferMaxLength: number };
   shutdown: { timeoutMs: number };
 }
 
@@ -34,6 +36,9 @@ const envSchema = z.object({
   REDIS_URL: requiredUrl(/^rediss?$/, 'redis://'),
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(10_000),
   CACHE_TTL_SECONDS: z.coerce.number().int().min(1).max(86_400).default(300),
+  // Only "true"/"false" (and 1/0, yes/no, on/off): a typo must fail, not silently mean false.
+  TRUST_PROXY: z.stringbool().default(false),
+  TELEMETRY_BUFFER_MAX_LENGTH: z.coerce.number().int().min(1).max(10_000_000).default(100_000),
 });
 
 export class ConfigError extends Error {
@@ -64,11 +69,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const vars = result.data;
   return {
     nodeEnv: vars.NODE_ENV,
-    server: { host: vars.API_HOST, port: vars.API_PORT },
+    server: { host: vars.API_HOST, port: vars.API_PORT, trustProxy: vars.TRUST_PROXY },
     log: { level: vars.LOG_LEVEL, pretty: vars.NODE_ENV === 'development' },
     postgres: { url: vars.DATABASE_URL, poolMax: vars.DATABASE_POOL_MAX },
     redis: { url: vars.REDIS_URL },
     cache: { ttlSeconds: vars.CACHE_TTL_SECONDS },
+    telemetry: { bufferMaxLength: vars.TELEMETRY_BUFFER_MAX_LENGTH },
     shutdown: { timeoutMs: vars.SHUTDOWN_TIMEOUT_MS },
   };
 }

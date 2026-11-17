@@ -2,9 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { projectParamsSchema } from '../schema/content.schema.js';
 import type { ContentManager } from '../services/content.manager.js';
 import { renderProfile, renderProject, renderProjectList } from '../views/content.view.js';
+import { API_V1 } from './api-v1.js';
 import { parseRequest } from './parse-request.js';
-
-const API_V1 = '/api/v1';
 
 /** Tells clients (and you, in curl) whether the response came from Redis. */
 export const CACHE_HEADER = 'x-cache';

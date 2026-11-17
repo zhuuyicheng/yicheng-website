@@ -58,10 +58,11 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 
 ## Phase 3: Telemetry pipeline (`feat/telemetry-pipeline`)
 
-- [ ] Migration `0003_analytics_events.sql`
-- [ ] Datastore unavailable → `503 SERVICE_UNAVAILABLE`, not `500` (found in the guided tour:
-      Postgres down + cache miss returns 500); reuse the transient-error classifier
-- [ ] `POST /api/v1/events` → validation, daily-salted visitor hash, bounded Redis buffer, `202`
+- [x] Migration `0003_analytics_events.sql` (+ `dao/analytics-event.dao.ts`, request/buffer schemas)
+- [x] Datastore unavailable → `503 SERVICE_UNAVAILABLE`, not `500` (found in the guided tour:
+      Postgres down + cache miss returns 500); `infra/transient-error.ts`, reused by the flusher
+- [x] `POST /api/v1/events` → validation, daily-salted visitor hash, bounded Redis buffer, `202`
+      (`TRUST_PROXY`, `TELEMETRY_BUFFER_MAX_LENGTH`; ingested/rejected metrics)
 - [ ] `worker.ts` entrypoint + telemetry batch flusher (claim → bulk insert → ack)
 - [ ] Transient vs permanent error handling; poison events → DLQ
 - [ ] `npm run dlq:replay`

@@ -12,7 +12,12 @@ export interface Metrics {
   cacheErrors: Counter<'operation'>;
   redisReconnects: Counter<'client'>;
   postgresPoolErrors: Counter;
+  telemetryEventsIngested: Counter<'type'>;
+  telemetryEventsRejected: Counter<'reason'>;
 }
+
+/** Why POST /api/v1/events refused an event (every refusal is a 503). */
+export type TelemetryRejectReason = 'buffer_full' | 'redis_unavailable';
 
 export interface MetricsOptions {
   /** CPU, memory, event-loop lag, ... Only worth collecting in a real process. */
@@ -48,6 +53,18 @@ export function createMetrics(options: MetricsOptions = {}): Metrics {
     postgresPoolErrors: new Counter({
       name: 'postgres_pool_errors_total',
       help: 'Errors emitted by idle Postgres pool clients (e.g. the server restarted).',
+      registers: [registry],
+    }),
+    telemetryEventsIngested: new Counter({
+      name: 'telemetry_events_ingested_total',
+      help: 'Events accepted into the Redis buffer, by event type.',
+      labelNames: ['type'],
+      registers: [registry],
+    }),
+    telemetryEventsRejected: new Counter({
+      name: 'telemetry_events_rejected_total',
+      help: 'Events refused with 503, by reason (buffer_full, redis_unavailable).',
+      labelNames: ['reason'],
       registers: [registry],
     }),
   };

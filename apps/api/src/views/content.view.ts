@@ -5,11 +5,7 @@ import type {
   Project,
   ProjectSummary,
 } from '../schema/content.schema.js';
-
-/** Success envelope. See DESIGN.md §7.1. */
-export interface DataResponseBody<T> {
-  data: T;
-}
+import type { DataResponseBody } from './data.view.js';
 
 // Fields are copied one by one on purpose: a property added to a model (or present in an old
 // cache entry) only reaches clients once it is added here.

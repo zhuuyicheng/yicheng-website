@@ -135,6 +135,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   ├── app.ts                    buildApp(): wires DAL → managers → controllers
 │   │   │   ├── controllers/              endpoints (method + path) + input validation
 │   │   │   │   ├── health.controller.ts          GET /health, (P6) GET /health/live
+│   │   │   │   ├── api-v1.ts                     (P3) the /api/v1 prefix shared by controllers
 │   │   │   │   ├── parse-request.ts              (P2) Zod-validates params/query/body → 400
 │   │   │   │   ├── content.controller.ts         (P2) profile, projects
 │   │   │   │   ├── events.controller.ts          (P3) telemetry ingestion
@@ -153,10 +154,12 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── content-cache.dal.ts          (P2) Redis
 │   │   │   │   ├── analytics-event.dal.ts        (P3) Postgres
 │   │   │   │   ├── event-buffer.dal.ts           (P3) Redis
+│   │   │   │   ├── telemetry-salt.dal.ts         (P3) Redis
 │   │   │   │   ├── contact-message.dal.ts        (P4) Postgres
 │   │   │   │   ├── rate-limit.dal.ts             (P4) Redis
 │   │   │   │   ├── notification-queue.dal.ts     (P4) Redis
 │   │   │   │   └── lua/                          (P3/P4) Lua scripts as TS string constants
+│   │   │   │       └── bounded-enqueue.lua.ts    (P3) + its typed ioredis command
 │   │   │   ├── dao/                      row types, one per table
 │   │   │   │   ├── content.dao.ts                (P2) profile, experiences, education, projects
 │   │   │   │   ├── analytics-event.dao.ts        (P3)
@@ -168,8 +171,10 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── contact-message.schema.ts     (P4)
 │   │   │   │   └── notification-job.schema.ts    (P4)
 │   │   │   ├── views/
+│   │   │   │   ├── data.view.ts          (P3) the { data } envelope type
 │   │   │   │   ├── error.view.ts         { error: { code, message, requestId } }
 │   │   │   │   ├── content.view.ts       (P2) { data } bodies for profile/projects
+│   │   │   │   ├── telemetry.view.ts     (P3) { data: { eventId } }
 │   │   │   │   └── system-status.view.ts (P5)
 │   │   │   ├── workers/                  (P3/P4) background loops started by worker.ts
 │   │   │   │   ├── telemetry-flusher.worker.ts   (P3)
@@ -191,6 +196,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── postgres.ts           pg Pool factory + ping
 │   │   │   │   ├── redis.ts              ioredis factory + ping
 │   │   │   │   ├── with-timeout.ts       bound any promise by a deadline
+│   │   │   │   ├── transient-error.ts    (P3) outage vs bug: 503 in the API, retry vs DLQ in the worker
 │   │   │   │   ├── metrics.ts            (P2) prom-client registry + metric definitions
 │   │   │   │   └── notifiers/            (P4) log + Discord notification senders
 │   │   │   └── lifecycle/
@@ -772,7 +778,8 @@ which key, schema and DAL query to use.
 1. Validate body (§7.5). Normalise `path` (strip query/fragment) and `referrer` (host only).
 2. Get today's salt: in-process memo keyed by UTC date → else `GET` → else `SET NX EX 172800`
    with 32 random bytes, then `GET` (whoever won the race defines the salt).
-3. `visitorHash = sha256(salt + ip + userAgent)`; raw IP/UA are never stored or logged.
+3. `visitorHash = sha256(salt, ip, userAgent joined by newlines)`; the separator keeps the parts
+   unambiguous. Raw IP/UA are never stored or logged.
 4. Build `{ id: uuidv4, type, name, path, referrerHost, sessionId, visitorHash, receivedAt }`.
 5. Bounded enqueue script → `202`, or `503` (+ `telemetry_events_rejected_total{reason}`).
 
@@ -875,7 +882,7 @@ retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics
 | Postgres drops at runtime                  | Idle-client pool errors are caught (they would otherwise crash the process); 5 s connect timeout, 10 s statement timeout   | `error` log, `postgres_pool_errors_total`                     |
 | `/health` while a dependency is down       | `503` + per-dependency status; each check ≤ 2 s                                                                            | `warn` log                                                    |
 | Redis down → content                       | Served from Postgres                                                                                                       | `cache_errors_total`                                          |
-| Postgres down → content                    | Cached entries still served; cache misses return `503 SERVICE_UNAVAILABLE` (Phase 3 fix; currently `500`)                  | `error` log                                                   |
+| Postgres down → content                    | Cached entries still served; cache misses return `503 SERVICE_UNAVAILABLE` (`infra/transient-error.ts`)                    | `error` log                                                   |
 | One API replica down (P6)                  | Caddy's health check removes it within 5 s; meanwhile `lb_try_duration` retries refused connections on the other replica   | Caddy log, container restart count                            |
 | Redis down → ingestion                     | `503` (no in-process fallback buffer; it would be lost on crash)                                                           | `telemetry_events_rejected_total{reason="redis_unavailable"}` |
 | Redis down → contact                       | `503` (fail closed)                                                                                                        | `rate_limit_errors_total`                                     |
