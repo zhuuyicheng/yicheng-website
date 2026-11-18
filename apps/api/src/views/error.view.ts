@@ -1,14 +1,7 @@
-import type { ErrorCode, ValidationIssue } from '../errors/app-error.js';
+import type { ErrorCode, ErrorResponseBody, ValidationIssue } from '@portfolio/shared';
 
-/** The single error response shape used by every endpoint. See DESIGN.md §7.1. */
-export interface ErrorResponseBody {
-  error: {
-    code: ErrorCode;
-    message: string;
-    requestId: string;
-    details?: ValidationIssue[];
-  };
-}
+/** The single error response shape used by every endpoint (DESIGN.md §7.1), from the shared contract. */
+export type { ErrorResponseBody } from '@portfolio/shared';
 
 export function renderError(
   code: ErrorCode,

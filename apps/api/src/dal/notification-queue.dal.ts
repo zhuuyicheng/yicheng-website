@@ -1,6 +1,6 @@
-import type { ChainableCommander } from 'ioredis';
 import type { Redis } from '../infra/redis.js';
 import { PROMOTE_DUE_JOBS_SCRIPT } from './lua/promote-due-jobs.lua.js';
+import { execOrThrow } from './redis-exec.js';
 
 /** Redis keys of the notification job queue. All are data, not cache: none has a TTL. DESIGN.md §6.2. */
 export const NOTIFICATION_QUEUE_KEYS = {
@@ -118,21 +118,4 @@ export function createNotificationQueueDal(
       await redis.lrem(keys.deadLetter, 1, entry);
     },
   };
-}
-
-/**
- * Runs a MULTI transaction and throws if any command in it failed. Redis has no rollback: a
- * failing command inside EXEC does not stop the others, and ioredis reports it in the results
- * instead of rejecting, so it would otherwise go unnoticed.
- */
-async function execOrThrow(transaction: ChainableCommander): Promise<void> {
-  const results = await transaction.exec();
-  if (results === null) {
-    throw new Error('Redis transaction aborted');
-  }
-  for (const [error] of results) {
-    if (error) {
-      throw error;
-    }
-  }
 }

@@ -28,7 +28,7 @@ docker compose ps
 
 ---
 
-## 2. The two kinds of tests
+## 2. The kinds of tests
 
 |                | Unit tests                                                                          | Integration tests                            |
 | -------------- | ----------------------------------------------------------------------------------- | -------------------------------------------- |
@@ -37,6 +37,12 @@ docker compose ps
 | Needs Docker?  | **No**                                                                              | **Yes** (`npm run infra:up`)                 |
 | Speed          | Milliseconds, run in parallel                                                       | Slower, run one file at a time               |
 | Fakes          | Uses fakes/stubs (e.g. a fake `ping` that always fails)                             | Uses the real datastores                     |
+
+The **website** has unit tests too, in `apps/web/test/lib/` (mirroring `apps/web/src/lib/`):
+the logic behind the page-view beacon, the contact form, the rate-limiter lab and the
+dashboard, tested without a browser or React. `npm test` and `npm run test:unit` run them
+after the API's. Every test command first builds `packages/shared` (the API contract both
+apps import), so its compiled `dist/` is always current.
 
 **Integration tests never touch your development data.** They use:
 
@@ -64,15 +70,16 @@ Three techniques worth knowing when you read the tests:
 
 ## 3. Everyday commands
 
-| Goal                                          | Command                                                          |
-| --------------------------------------------- | ---------------------------------------------------------------- |
-| Run **everything**                            | `npm test`                                                       |
-| Unit tests only (no Docker needed)            | `npm run test:unit`                                              |
-| Integration tests only                        | `npm run test:integration`                                       |
-| Re-run unit tests on every save (watch mode)  | `npm run test:watch -w @portfolio/api`                           |
-| One file                                      | `npm run test -w @portfolio/api -- test/unit/config/env.test.ts` |
-| Tests whose name matches some text            | `npm run test -w @portfolio/api -- -t "request id"`              |
-| What CI runs (format, lint, typecheck, tests) | `npm run check`                                                  |
+| Goal                                          | Command                                                               |
+| --------------------------------------------- | --------------------------------------------------------------------- |
+| Run **everything**                            | `npm test`                                                            |
+| Unit tests only (no Docker needed)            | `npm run test:unit`                                                   |
+| Integration tests only                        | `npm run test:integration`                                            |
+| Re-run unit tests on every save (watch mode)  | `npm run test:watch -w @portfolio/api` (web: `-w @portfolio/web`)     |
+| One file                                      | `npm run test -w @portfolio/api -- test/unit/config/env.test.ts`      |
+| One web file                                  | `npm run test -w @portfolio/web -- test/lib/contact.test.ts`          |
+| Tests whose name matches some text            | `npm run test -w @portfolio/api -- -t "request id"`                   |
+| What CI runs (format, lint, typecheck, tests) | `npm run check` (CI then also runs `npm run build -w @portfolio/web`) |
 
 Why the `-w @portfolio/api --` part? `-w` tells npm which workspace to run the script in,
 and everything after `--` is passed straight through to Vitest.
@@ -84,15 +91,19 @@ and everything after `--` is passed straight through to Vitest.
 A passing run ends like this:
 
 ```
- ✓ |unit| test/unit/config/env.test.ts (8 tests) 6ms
+ ✓ |unit| test/unit/config/env.test.ts (16 tests) 6ms
  ✓ |integration| test/integration/health.test.ts (6 tests) 52ms
  ...
- Test Files  27 passed (27)
-      Tests  175 passed (175)
+ Test Files  43 passed (43)
+      Tests  286 passed (286)
+ ...
+ ✓ test/lib/contact.test.ts (8 tests) 5ms
+ Test Files  5 passed (5)
+      Tests  37 passed (37)
 ```
 
-`|unit|` and `|integration|` show which Vitest project each file belongs to (configured in
-`apps/api/vitest.config.ts`).
+The first block is the API (`|unit|` and `|integration|` show which Vitest project each file
+belongs to, configured in `apps/api/vitest.config.ts`); the second is the website.
 
 A failing test prints the test name, the assertion that failed, and the expected vs received
 values with the exact file and line:
@@ -184,6 +195,10 @@ it('GET /health returns 200', async () => {
   expect(response.statusCode).toBe(200);
 });
 ```
+
+**Web test**: logic goes in `apps/web/src/lib/` (no React, browser objects passed in as
+arguments, like `fetch` or `sessionStorage`), and its test in `apps/web/test/lib/`, importing
+with the `@/` alias (`import { formatWait } from '@/lib/contact'`).
 
 Conventions: one behaviour per `it(...)`, names that read as sentences, arrange → act →
 assert separated by blank lines.

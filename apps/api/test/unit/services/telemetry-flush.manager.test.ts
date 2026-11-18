@@ -54,7 +54,7 @@ function setup(options: FakeOptions) {
   const insertCalls: BufferedEvent[][] = [];
   const acknowledged: string[][] = [];
 
-  const analyticsEventDal: AnalyticsEventDal = {
+  const analyticsEventDal: Pick<AnalyticsEventDal, 'insertBatch'> = {
     insertBatch: (events) => {
       insertCalls.push([...events]);
       if (options.outageFrom !== undefined && insertCalls.length >= options.outageFrom) {

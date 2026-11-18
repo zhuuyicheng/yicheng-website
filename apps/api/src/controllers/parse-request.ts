@@ -18,3 +18,19 @@ export function parseRequest<T>(schema: z.ZodType<T>, input: unknown): T {
   }));
   throw new AppError(ErrorCode.VALIDATION_ERROR, 'Request validation failed', { details });
 }
+
+/**
+ * A body sent as `text/plain` arrives as a string (Fastify parses only JSON content types
+ * into objects); this reads it as JSON. Used by POST /api/v1/events: the page-view beacon
+ * sends `text/plain` on purpose, see events.controller.ts. Anything else passes through.
+ */
+export function jsonFromText(body: unknown): unknown {
+  if (typeof body !== 'string') {
+    return body;
+  }
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    throw new AppError(ErrorCode.BAD_REQUEST, 'Body is not valid JSON');
+  }
+}

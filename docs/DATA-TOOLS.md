@@ -68,12 +68,13 @@ Redis has numbered "logical databases" inside one server. We use **DB 0** for de
 
 ## 2. What lives where
 
-| Phase | PostgreSQL (database `portfolio`)                 | Redis (DB 0)                                                         |
-| ----- | ------------------------------------------------- | -------------------------------------------------------------------- |
-| 1     | `schema_migrations`                               | —                                                                    |
-| 2     | `profile`, `experiences`, `education`, `projects` | `cache:v2:profile`, `cache:v1:projects`, `cache:v1:project:<slug>`   |
-| 3     | `analytics_events`                                | `telemetry:events:buffer` / `:inflight` / `:dlq`, `telemetry:salt:*` |
-| 4     | `contact_messages`                                | `ratelimit:contact:<hash>`, `jobs:notifications:*`                   |
+| Phase | PostgreSQL (database `portfolio`)                  | Redis (DB 0)                                                         |
+| ----- | -------------------------------------------------- | -------------------------------------------------------------------- |
+| 1     | `schema_migrations`                                | —                                                                    |
+| 2     | `profile`, `experiences`, `education`, `projects`  | `cache:v2:profile`, `cache:v1:projects`, `cache:v1:project:<slug>`   |
+| 3     | `analytics_events`                                 | `telemetry:events:buffer` / `:inflight` / `:dlq`, `telemetry:salt:*` |
+| 4     | `contact_messages`                                 | `ratelimit:contact:<hash>`, `jobs:notifications:*`                   |
+| 5     | — (the website fills the tables above via the API) | — (the status endpoint reads queue lengths)                          |
 
 Full key catalog: DESIGN.md §6.2. Tables: DESIGN.md §5.
 
@@ -361,10 +362,149 @@ rate limiter answers `429`, delete the `ratelimit:contact:…` key in the Redis 
     `BLMOVE`; closing its connection ends the wait. Then the telemetry drain, and
     `shutdown complete`.
 
-### 7.3 Later phases
+### 7.3 Phase 5: metrics and the status endpoint
 
-- **Phase 5 (dashboard):** the live dashboard shows the same numbers you have been reading by
-  hand here.
+Two ways to ask the API how it is doing (DESIGN.md §7.7):
+
+- `GET /metrics`: the Prometheus text format, for a monitoring server that collects it every
+  few seconds. Counters add up from the moment the process started.
+- `GET /api/v1/system/status`: JSON, for people. The dashboard (Phase 5c) shows it.
+
+Restart `npm run dev:api` to load the new code, then:
+
+1. **Read the Prometheus format.** Make a few requests, then look at one metric:
+
+   ```bash
+   curl -s localhost:4000/api/v1/projects > /dev/null
+   curl -s localhost:4000/metrics | grep -A4 'TYPE http_requests_total'
+   ```
+
+   ```
+   # TYPE http_requests_total counter
+   http_requests_total{method="GET",route="/api/v1/projects",status_code="200"} 1
+   ```
+
+   Each line is a name, labels in `{}`, and a value. A **counter** only ever goes up (a restart
+   starts it from 0 again); Prometheus works out rates like "requests per second" by comparing
+   two readings. Request the projects again and re-run the `grep`: 1 becomes 2.
+
+2. **A histogram is a row of counters.**
+   `curl -s localhost:4000/metrics | grep 'duration_seconds_bucket.*route="/api/v1/projects"'`
+   prints one line per bucket: `le="0.005"` counts requests that took at most 5 ms, `le="0.01"`
+   at most 10 ms, up to `le="+Inf"` (all of them). Each bucket includes the smaller ones, which
+   is how Prometheus estimates a p95 later (`histogram_quantile`). The first request, a cache
+   miss that went to Postgres, may land in a slower bucket than the cache hits after it.
+
+3. **Templates, not URLs.** `curl -s localhost:4000/api/v1/projects/nope` and
+   `curl -s localhost:4000/wp-login.php`, then `grep http_requests_total` again: you get
+   `route="/api/v1/projects/:slug"` and `route="unmatched"`, never `nope` or `wp-login.php`.
+   Every distinct label value is a separate series that Prometheus stores forever, so a bot
+   trying a million URLs must not create a million series.
+
+4. **A gauge is a current value.** `curl -s localhost:4000/metrics | grep queue_depth` lists
+   five queues. Stop the worker, send an event (§7.1 step 2) and re-run:
+   `queue_depth{queue="telemetry_buffer"} 1`. Start the worker: back to 0. `MONITOR` shows what
+   each scrape costs: four `llen` and one `zcard`, sent together. Now
+   `docker compose stop redis` and scrape again: the `queue_depth` lines are **gone** (unknown,
+   not zero) and `observability_read_errors_total{source="queue_depths"}` went up.
+   `docker compose start redis`.
+
+5. **The status endpoint.**
+
+   ```bash
+   curl -s localhost:4000/api/v1/system/status | python3 -m json.tool
+   ```
+
+   Uptime, Postgres and Redis latency, p50/p95 of the last 5 minutes, cache hits and misses,
+   page views in the last 24 h, and every queue's length. Run it twice within 5 s:
+   `generatedAt` is the same (served from the 5 s cache). Your status calls do not raise
+   `http.requestCount`: the monitors' own requests are left out, or watching would change what
+   is watched. Stop Postgres: still `200`, `postgres` is `down` and `pageViewsLast24h` is
+   `null`.
+
+6. **Protect `/metrics`.** Restart with a token: `METRICS_TOKEN=local-test-token-1234 npm run dev:api`.
+   `curl -si localhost:4000/metrics | head -5` answers `401` with `www-authenticate: Bearer`;
+   `curl -s -H 'authorization: Bearer local-test-token-1234' localhost:4000/metrics | head -3`
+   works. The status endpoint stays public: it shows counts only.
+
+7. **Security headers and CORS.** `curl -si localhost:4000/api/v1/projects | head -20` shows
+   Helmet's headers (`x-content-type-options: nosniff`, `strict-transport-security`, …). Then
+   ask the question a browser asks before the web app may POST JSON (a "preflight"):
+
+   ```bash
+   curl -si -X OPTIONS localhost:4000/api/v1/contact -H 'origin: http://localhost:3000' \
+     -H 'access-control-request-method: POST' -H 'access-control-request-headers: content-type'
+   ```
+
+   `204` with `access-control-allow-origin: http://localhost:3000` and
+   `access-control-max-age: 600` (the browser may skip asking again for 10 minutes). With
+   `-H 'origin: https://evil.example'` the allow-origin header is missing, so a browser would
+   hide the answer from that site's script. curl itself ignores all this: CORS protects
+   browser users, it is not a password.
+
+### 7.4 Phase 5b: the website feeds the pipelines
+
+Until now you played the browser with `curl`. Now a real browser sends the same requests.
+Run `npm run dev:api`, `npm run dev:worker`, `npm run dev:web` and `MONITOR`, and open
+http://localhost:3000 in Chrome or Firefox with the developer tools open (F12).
+
+1. **Your own page view.** On load, the Network tab shows a `POST` to
+   `localhost:4000/api/v1/events` (`202`). Just one request: the beacon sends its JSON as
+   `text/plain`, which browsers treat as a "simple" request that needs no CORS preflight.
+   (The contact form in step 4 sends `application/json`, and there you will see the
+   `OPTIONS` preflight first: the browser asking whether localhost:3000 may POST JSON.) `MONITOR` shows the bounded-enqueue `evalsha`; within 5 s the worker
+   flushes it. In `analytics_events` the newest row now has a real `browser`, `os` and
+   `device_type` (not curl's empty values) and your `timezone`. The Request payload in the
+   Network tab shows exactly what was sent, including the `sessionId` from session storage
+   (Application tab → Session storage → `portfolio.sessionId`).
+2. **A tagged link.** Open http://localhost:3000/?ref=acme&utm_source=linkedin: the row has
+   `ref = acme` and `utm_source = linkedin`. Click to a project page and back: more page views
+   with the same `session_id`, and `referrer_host` empty after the first one (only the first
+   view says where you came from).
+3. **A click.** Click the GitHub link in the hero: an `interaction` row with
+   `event_name = click:github-link`. It is sent with `keepalive`, so it arrives even though
+   the click opened another tab.
+4. **The contact form.** Send a message from the "Get in touch" section: `202`, a new
+   `contact_messages` row, the worker's `notification sent` (or your Discord channel). Send
+   four: the fourth shows "Too many messages for now. Please try again in 10 minutes", read
+   from the `Retry-After` header (readable only because the API exposes it, §7.3 step 7).
+   Delete the `ratelimit:contact:…` key to reset. Try an invalid email: the error appears
+   instantly, before any request (the form uses the API's own schema from `packages/shared`).
+5. **The API goes away.** Stop `dev:api` and reload: the "the backend did not answer" page
+   with a retry button (`app/error.tsx`). Start it again and press retry.
+6. **Every device.** In the developer tools, toggle the device toolbar (Ctrl+Shift+M) and try
+   a phone, a tablet and a desktop width: one column and a `menu` button on phones, two to
+   three project columns on wider screens, nothing scrolling sideways. Under Rendering, set
+   "Emulate CSS prefers-reduced-motion" to `reduce` and reload: no animation, all content
+   visible.
+
+### 7.5 Phase 5c: the live dashboard
+
+Open http://localhost:3000/status (API, worker and web running) next to the terminal.
+
+1. **It polls.** The Network tab shows `GET /api/v1/system/status` every 5 s: a plain GET,
+   so no preflight. "updated N s ago" counts up between polls. The two charts start with
+   "collecting samples…" and draw a line from the second sample on; hover (or touch) a chart
+   for the exact value at that moment.
+2. **Make traffic.** Reload the home page a few times in another tab: "requests · 5 min" and
+   the requests chart rise, the cache hit ratio climbs (the first load was a miss), and
+   "page views · 24 h" goes up once the worker has flushed your page views.
+3. **It saves work when nobody looks.** Switch to another tab for a minute: the polls stop.
+   Come back: one poll at once, then every 5 s again.
+4. **An outage.** `docker compose stop redis`: within 5 s the banner turns amber
+   ("! Degraded: redis is down"), Redis shows "✕ down", and the queues read "unknown". The
+   page itself keeps working: that is when people look at a status page. Start Redis again.
+   Then stop `dev:api`: the banner turns red ("Lost contact… from N s ago") and the last
+   numbers stay on screen. Start it again and the page recovers by itself.
+5. **A dead letter.** `RPUSH telemetry:events:dlq '{"x":1}'` in the Redis CLI panel: the
+   telemetry dead-letter row says "! needs attention". Delete the key afterwards.
+6. **The hero pill.** The home page's hero shows "live · api p95 … → status", refreshed every
+   30 s; it says "api offline" while the API is stopped.
+
+### 7.6 Later phases
+
+- **Phase 6 (continuous delivery):** the same pages, served from Docker containers behind
+  Caddy; the dashboard's `instance` then says which of the two API replicas answered.
 
 ## 8. Troubleshooting
 

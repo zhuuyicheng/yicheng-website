@@ -1,13 +1,13 @@
+import type { DependencyHealth } from '@portfolio/shared';
+
 /** A named dependency (Postgres, Redis, ...) that can be probed for liveness. */
 export interface DependencyCheck {
   name: string;
   ping: () => Promise<void>;
 }
 
-export interface DependencyHealth {
-  status: 'up' | 'down';
-  latencyMs: number;
-}
+/** `{ status: 'up' | 'down', latencyMs }`, shared with the system status contract. */
+export type { DependencyHealth } from '@portfolio/shared';
 
 export interface HealthReport {
   status: 'ok' | 'degraded';

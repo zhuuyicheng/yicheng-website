@@ -50,3 +50,8 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test # unit + integration (uses the service containers)
+      # The site's production build (Phase 5): catches what typecheck cannot, such as a page
+      # that would need the API while building. NEXT_TELEMETRY_DISABLED: no usage pings.
+      - run: npm run build -w @portfolio/web
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'

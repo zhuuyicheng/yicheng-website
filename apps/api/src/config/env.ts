@@ -26,7 +26,20 @@ export interface AppConfig {
   contact: { rateLimitMax: number; rateLimitWindowSeconds: number };
   /** Worker: how to notify, and how hard to try. `maxAttempts` includes the first attempt. */
   notifications: { notifier: NotifierConfig; maxAttempts: number; backoffBaseMs: number };
+  /** Browser origins allowed to call the API (the web app), e.g. `https://example.com`. */
+  cors: { origins: string[] };
+  /** `token`: if set, GET /metrics requires `Authorization: Bearer <token>`. */
+  metrics: { token: string | null };
   shutdown: { timeoutMs: number };
+}
+
+/** `https://example.com` is an origin; `https://example.com/` and `example.com` are not. */
+function isOrigin(value: string): boolean {
+  try {
+    return new URL(value).origin === value;
+  } catch {
+    return false;
+  }
 }
 
 /** A required URL whose scheme must match `protocol` (e.g. postgres or redis). */
@@ -65,6 +78,15 @@ const envSchema = z.object({
   DISCORD_WEBHOOK_URL: z.url({ protocol: /^https$/, error: 'must be an https:// URL' }).optional(),
   NOTIFY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
   NOTIFY_BACKOFF_BASE_MS: z.coerce.number().int().min(10).max(60_000).default(5_000),
+  // Comma-separated. A browser sends its origin exactly like this: scheme, host, port; no path.
+  CORS_ORIGINS: z
+    .string()
+    .default('http://localhost:3000')
+    .transform((value) => value.split(',').map((origin) => origin.trim()))
+    .refine((origins) => origins.every(isOrigin), {
+      message: 'must be comma-separated origins such as https://example.com (no path, no "/")',
+    }),
+  METRICS_TOKEN: z.string().min(16, 'must be at least 16 characters').optional(),
 });
 
 export class ConfigError extends Error {
@@ -130,6 +152,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       maxAttempts: vars.NOTIFY_MAX_ATTEMPTS,
       backoffBaseMs: vars.NOTIFY_BACKOFF_BASE_MS,
     },
+    cors: { origins: vars.CORS_ORIGINS },
+    metrics: { token: vars.METRICS_TOKEN ?? null },
     shutdown: { timeoutMs: vars.SHUTDOWN_TIMEOUT_MS },
   };
 }

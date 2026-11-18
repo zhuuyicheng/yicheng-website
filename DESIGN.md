@@ -27,7 +27,7 @@ processing, observability, and disciplined testing.
 | Concern       | Choice                                                                        |
 | ------------- | ----------------------------------------------------------------------------- |
 | Runtime       | Node.js 24 LTS, TypeScript 6 (strict), ESM                                    |
-| Monorepo      | npm workspaces (`apps/api`, `apps/web`, later `packages/shared`)              |
+| Monorepo      | npm workspaces (`packages/shared`, `apps/api`, `apps/web`)                    |
 | API           | Fastify 5, Zod 4 validation, Pino logging                                     |
 | Web           | Next.js 16 (App Router), React 19, Tailwind CSS 4                             |
 | Datastores    | PostgreSQL 16 (`pg`, plain SQL migrations), Redis 7 (`ioredis`)               |
@@ -54,12 +54,13 @@ flowchart LR
 
 ### 2.1 Process model
 
-| Process    | Entrypoint                         | Responsibilities                                                                         |
-| ---------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
-| API        | `apps/api/src/main.ts`             | HTTP routes, cache-aside, ingestion enqueue, contact + rate limit, `/metrics`            |
-| Worker     | `apps/api/src/worker.ts` (Phase 3) | Telemetry batch flusher; (P4) notification consumer, delayed-job promoter, reconciler    |
-| Migrations | `apps/api/src/cli/migrate.ts`      | Applies SQL migrations; run as a deploy step, **never** on API boot                      |
-| Other CLIs | `apps/api/src/cli/*.ts`            | `content:seed` (P2), `dlq:replay` and `geoip:download` (P3): one-off commands, then exit |
+| Process    | Entrypoint                         | Responsibilities                                                                          |
+| ---------- | ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| API        | `apps/api/src/main.ts`             | HTTP routes, cache-aside, ingestion enqueue, contact + rate limit, `/metrics`             |
+| Worker     | `apps/api/src/worker.ts` (Phase 3) | Telemetry batch flusher; (P4) notification consumer, delayed-job promoter, reconciler     |
+| Web        | `apps/web` (`next start`, Phase 5) | Renders pages from the API per request; serves the browser code (beacon, form, dashboard) |
+| Migrations | `apps/api/src/cli/migrate.ts`      | Applies SQL migrations; run as a deploy step, **never** on API boot                       |
+| Other CLIs | `apps/api/src/cli/*.ts`            | `content:seed` (P2), `dlq:replay` and `geoip:download` (P3): one-off commands, then exit  |
 
 The API and worker share one codebase but run as separate processes, so a slow webhook or
 flush never competes with request latency.
@@ -109,7 +110,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 
 ```
 .
-├── .github/workflows/ci.yml              (P2) format, lint, typecheck, unit + integration tests
+├── .github/workflows/ci.yml              (P2) format, lint, typecheck, unit + integration tests,
+│                                         (P5) web unit tests + the site's production build
 ├── .github/workflows/deploy.yml          (P6) build images → approve → migrate → deploy → smoke test
 ├── .vscode/extensions.json               recommended extensions (PostgreSQL, Redis, ESLint, Prettier)
 ├── .dockerignore                         (P6)
@@ -166,7 +168,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── rate-limiter.manager.ts       (P4) sliding window per hashed IP, fail closed
 │   │   │   │   ├── notification.manager.ts       (P4) one job: send → sent / retry / DLQ; promote; reconcile
 │   │   │   │   ├── notification-dlq.manager.ts   (P4) dead-letter replay: reopen FAILED messages
-│   │   │   │   └── system-status.manager.ts      (P5)
+│   │   │   │   └── system-status.manager.ts      (P5) status JSON (5 s cache) + Prometheus text
 │   │   │   ├── dal/                      the only datastore code
 │   │   │   │   ├── content.dal.ts                (P2) Postgres
 │   │   │   │   ├── content-cache.dal.ts          (P2) Redis
@@ -177,6 +179,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── contact-message.dal.ts        (P4) Postgres
 │   │   │   │   ├── rate-limit.dal.ts             (P4) Redis
 │   │   │   │   ├── notification-queue.dal.ts     (P4) Redis
+│   │   │   │   ├── queue-depth.dal.ts            (P5) Redis: LLEN/ZCARD of every queue, one round trip
+│   │   │   │   ├── redis-exec.ts                 (P4) MULTI/pipeline that throws if any command failed
 │   │   │   │   └── lua/                          (P3/P4) Lua scripts as TS string constants
 │   │   │   │       ├── bounded-enqueue.lua.ts    (P3) + its typed ioredis command
 │   │   │   │       ├── claim-batch.lua.ts        (P3) + its typed ioredis command
@@ -191,14 +195,15 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── content.schema.ts             (P2) responses + content/portfolio.json
 │   │   │   │   ├── analytics-event.schema.ts     (P3) request, visitor details, buffered event, dead letter
 │   │   │   │   ├── contact-message.schema.ts     (P4)
-│   │   │   │   └── notification-job.schema.ts    (P4)
+│   │   │   │   ├── notification-job.schema.ts    (P4)
+│   │   │   │   └── system-status.schema.ts       (P5)
 │   │   │   ├── views/
 │   │   │   │   ├── data.view.ts          (P3) the { data } envelope type
 │   │   │   │   ├── error.view.ts         { error: { code, message, requestId } }
 │   │   │   │   ├── content.view.ts       (P2) { data } bodies for profile/projects
 │   │   │   │   ├── telemetry.view.ts     (P3) { data: { eventId } }
 │   │   │   │   ├── contact.view.ts       (P4) { data: { id, status } }
-│   │   │   │   └── system-status.view.ts (P5)
+│   │   │   │   └── system-status.view.ts (P5) { data: { … } } for the dashboard
 │   │   │   ├── workers/                  (P3/P4) background loops started by worker.ts
 │   │   │   │   ├── telemetry-flusher.worker.ts   (P3) when to flush: interval, backoff, drain on stop
 │   │   │   │   ├── notification-consumer.worker.ts (P4) one job after another; backoff on outages
@@ -208,7 +213,9 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── request-id.ts         x-request-id accept/generate/echo
 │   │   │   │   ├── error-handler.ts      maps any error to the error view
 │   │   │   │   ├── rate-limit.ts         (P4) onRequest hook: X-RateLimit-* headers, 429
-│   │   │   │   └── http-metrics.ts       (P5) request duration histogram hook
+│   │   │   │   ├── http-metrics.ts       (P5) onResponse hook: duration histogram, counter, rolling window
+│   │   │   │   ├── bearer-token.ts       (P5) onRequest hook for /metrics: constant-time token check
+│   │   │   │   └── security.ts           (P5) Helmet headers + CORS allow-list
 │   │   │   ├── errors/app-error.ts       AppError + ErrorCode catalog
 │   │   │   ├── config/env.ts             Zod env schema → typed AppConfig (fail-fast)
 │   │   │   ├── db/migrator.ts            reads .sql files, applies pending ones
@@ -226,6 +233,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── ip-databases.ts       (P3) opens the GeoIP files at API startup
 │   │   │   │   ├── transient-error.ts    (P3) outage vs bug: 503 in the API, retry vs DLQ in the worker
 │   │   │   │   ├── ip-hash.ts            (P4) HMAC-SHA256(IP_HASH_SECRET, ip)
+│   │   │   │   ├── rolling-latency.ts    (P5) ring buffer of the last 5 min of durations → p50/p95
 │   │   │   │   ├── metrics.ts            (P2) prom-client registry + metric definitions
 │   │   │   │   └── notifiers/            (P4) log + Discord senders, NotificationError (retryable?)
 │   │   │   └── lifecycle/
@@ -235,15 +243,29 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │       ├── fixtures/geoip/           (P3) MaxMind's tiny test .mmdb files (Apache-2.0/MIT)
 │   │       ├── unit/                     mirrors src/ folders; pure logic, no I/O
 │   │       └── integration/              real Postgres + Redis (docker compose)
-│   └── web/
+│   └── web/                          (P5) the website (§8.6)
 │       ├── package.json, next.config.ts, postcss.config.mjs, tsconfig.json
+│       ├── vitest.config.ts              unit tests for src/lib
 │       ├── Dockerfile                    (P6) Next.js standalone server
-│       └── src/
-│           ├── app/                      routes: layout.tsx, page.tsx, (P5) projects/, status/
-│           ├── components/               (P5) presentational React components
-│           └── lib/api-client.ts         (P5) typed fetch wrapper
+│       ├── src/
+│       │   ├── app/                      routes (App Router)
+│       │   │   ├── layout.tsx            header, footer, page-view beacon
+│       │   │   ├── page.tsx              home: hero, about, experience, projects, lab, contact
+│       │   │   ├── projects/             list + [slug] detail
+│       │   │   ├── privacy/              privacy notice (static)
+│       │   │   ├── status/               live dashboard (static page, browser polls)
+│       │   │   ├── error.tsx             "API unreachable" + retry
+│       │   │   ├── not-found.tsx
+│       │   │   └── globals.css           theme, grid/glow, reveal, reduced motion
+│       │   ├── components/               sections and effects ('use client' only where needed)
+│       │   └── lib/                      logic without React: api (server fetch), telemetry
+│       │                                 (beacon), contact, sliding-window, format, config
+│       └── test/lib/                     unit tests mirroring src/lib
 └── packages/
-    └── shared/                           (P5) Zod API contract schemas shared by api + web
+    └── shared/                           (P5) the API contract: Zod schemas for every public
+        ├── package.json                  request/response (content, contact, events, system
+        ├── tsconfig.json / .build.json   status, error envelope). Built to dist/ (`build:shared`,
+        └── src/                          run by postinstall, dev:*, typecheck and test)
 ```
 
 ---
@@ -279,10 +301,14 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `DISCORD_WEBHOOK_URL`               | 4     | unset                   | `https://`; required when `NOTIFIER_DRIVER=discord`. A secret (token).    |
 | `NOTIFY_MAX_ATTEMPTS`               | 4     | `3`                     | 1–10. Total attempts including the first.                                 |
 | `NOTIFY_BACKOFF_BASE_MS`            | 4     | `5000`                  | Delay = base × 2^(attempt−1) ± 20 % jitter, capped at 4 min.              |
-| `METRICS_TOKEN`                     | 5     | unset                   | If set, `/metrics` requires `Authorization: Bearer <token>`.              |
-| `CORS_ORIGINS`                      | 5     | `http://localhost:3000` | Comma-separated allow-list.                                               |
-| `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side).                                              |
-| `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API (beacons, contact form).                                    |
+| `METRICS_TOKEN`                     | 5     | unset                   | ≥ 16 chars. If set, `/metrics` requires `Authorization: Bearer <token>`.  |
+| `CORS_ORIGINS`                      | 5     | `http://localhost:3000` | Comma-separated origins (`https://host[:port]`, no path, no `/`).         |
+| `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side, read at request time).                        |
+| `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API (beacon, contact form). Baked in at `next build`.           |
+
+The two web variables are read by Next.js from the environment or from `apps/web/.env*`
+files (not the root `.env`); the defaults suit local development. `NEXT_PUBLIC_*` values are
+copied into the JavaScript bundle when the site is built, so changing one means rebuilding.
 
 Docker Compose additionally reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
 `POSTGRES_PORT`, `REDIS_PORT` (all with local-dev defaults).
@@ -773,6 +799,10 @@ The server also reads the `User-Agent` and `Accept-Language` headers and the cli
 (`X-Forwarded-For` only when `TRUST_PROXY=true`), and records its own receive time; client
 clocks are not trusted.
 
+The body is JSON, sent as `application/json` or as `text/plain` (the web app's beacon uses
+`text/plain` so browsers send it without a CORS preflight, §8.6); text that is not JSON is
+`400 BAD_REQUEST`.
+
 `202 Accepted` → `{ "data": { "eventId": "uuid" } }`. Never touches Postgres.
 `503 SERVICE_UNAVAILABLE` when Redis is down or the buffer is at `TELEMETRY_BUFFER_MAX_LENGTH`.
 
@@ -801,7 +831,10 @@ Rate-limit headers on **every** response from this route once the limiter has ru
 
 ### 7.7 Observability (Phase 5)
 
-`GET /metrics` → Prometheus text exposition (`text/plain; version=0.0.4`).
+`GET /metrics` → Prometheus text exposition (`text/plain; version=0.0.4`). With
+`METRICS_TOKEN` set, a request without `Authorization: Bearer <token>` gets `401 UNAUTHORIZED`
+and `WWW-Authenticate: Bearer`. The token is compared in constant time (both sides hashed,
+then `timingSafeEqual`), so response timing reveals nothing about it.
 
 `GET /api/v1/system/status` → `200`, served from a 5 s in-process cache:
 
@@ -833,8 +866,16 @@ Rate-limit headers on **every** response from this route once the limiter has ru
 }
 ```
 
-Rolling percentiles come from an in-process ring buffer of the last 5 minutes of request
-durations (Prometheus histograms are cumulative, not rolling). Values are per API instance;
+Always `200`, even with a datastore down: a source that cannot be read becomes `null`
+(`queues` when Redis is down, `analytics.pageViewsLast24h` when Postgres is) and is counted in
+`observability_read_errors_total{source}`; `dependencies` says which one is down. Each read
+has a 2 s timeout. Concurrent requests during a refresh share it (single-flight).
+
+Rolling percentiles come from an in-process ring buffer (10 000 samples) of the last 5 minutes
+of request durations (Prometheus histograms are cumulative, not rolling). Requests to `/health`,
+`/metrics` and this endpoint are left out of it (Prometheus still counts them), or a dashboard
+polling every few seconds would mostly measure itself. `cache` counts content-cache lookups
+since the process started. Values are per API instance;
 `instance` (the container hostname) says which one answered, because with two replicas
 (§14.5) consecutive polls can reach different instances.
 
@@ -1020,30 +1061,101 @@ dead worker's items.
 The metric registry (`infra/metrics.ts`) is created in Phase 2 so every phase can count its
 retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics are enabled.
 
-| Metric                                           | Type      | Labels                                                    | Phase |
-| ------------------------------------------------ | --------- | --------------------------------------------------------- | ----- |
-| `cache_requests_total`                           | counter   | `cache`, `result` (`hit`\|`miss`)                         | 2     |
-| `cache_errors_total`                             | counter   | `operation` (`read`\|`write`\|`decode`)                   | 2     |
-| `redis_reconnects_total`                         | counter   | `client`                                                  | 2     |
-| `postgres_pool_errors_total`                     | counter   | —                                                         | 2     |
-| `telemetry_events_ingested_total`                | counter   | `type`                                                    | 3     |
-| `telemetry_events_rejected_total`                | counter   | `reason`                                                  | 3     |
-| `telemetry_events_flushed_total`                 | counter   | — (new rows; re-inserted duplicates not counted)          | 3     |
-| `telemetry_flush_failures_total`                 | counter   | `kind` (`transient`\|`permanent`\|`unexpected`)           | 3     |
-| `telemetry_events_dead_lettered_total`           | counter   | `reason` (`invalid_payload`\|`insert_failed`)             | 3     |
-| `rate_limit_decisions_total`                     | counter   | `limiter`, `decision`                                     | 4     |
-| `rate_limit_errors_total`                        | counter   | `limiter`                                                 | 4     |
-| `notification_jobs_total`                        | counter   | `outcome` (`sent`\|`retried`\|`dead_lettered`\|`skipped`) | 4     |
-| `notification_enqueue_failures_total`            | counter   | —                                                         | 4     |
-| `notification_jobs_requeued_total`               | counter   | `reason` (`stranded`\|`reconciled`)                       | 4     |
-| `worker_loop_failures_total`                     | counter   | `loop`, `kind` (`transient`\|`unexpected`)                | 4     |
-| `http_request_duration_seconds`                  | histogram | `method`, `route`, `status_code`                          | 5     |
-| `http_requests_total`                            | counter   | `method`, `route`, `status_code`                          | 5     |
-| `telemetry_buffer_depth` / `telemetry_dlq_depth` | gauge     | — (read on scrape via `LLEN`)                             | 5     |
-| `notification_queue_depth`                       | gauge     | `queue` (`ready`\|`delayed`\|`dlq`)                       | 5     |
+| Metric                                 | Type      | Labels                                                    | Phase |
+| -------------------------------------- | --------- | --------------------------------------------------------- | ----- |
+| `cache_requests_total`                 | counter   | `cache`, `result` (`hit`\|`miss`)                         | 2     |
+| `cache_errors_total`                   | counter   | `operation` (`read`\|`write`\|`decode`)                   | 2     |
+| `redis_reconnects_total`               | counter   | `client`                                                  | 2     |
+| `postgres_pool_errors_total`           | counter   | —                                                         | 2     |
+| `telemetry_events_ingested_total`      | counter   | `type`                                                    | 3     |
+| `telemetry_events_rejected_total`      | counter   | `reason`                                                  | 3     |
+| `telemetry_events_flushed_total`       | counter   | — (new rows; re-inserted duplicates not counted)          | 3     |
+| `telemetry_flush_failures_total`       | counter   | `kind` (`transient`\|`permanent`\|`unexpected`)           | 3     |
+| `telemetry_events_dead_lettered_total` | counter   | `reason` (`invalid_payload`\|`insert_failed`)             | 3     |
+| `rate_limit_decisions_total`           | counter   | `limiter`, `decision`                                     | 4     |
+| `rate_limit_errors_total`              | counter   | `limiter`                                                 | 4     |
+| `notification_jobs_total`              | counter   | `outcome` (`sent`\|`retried`\|`dead_lettered`\|`skipped`) | 4     |
+| `notification_enqueue_failures_total`  | counter   | —                                                         | 4     |
+| `notification_jobs_requeued_total`     | counter   | `reason` (`stranded`\|`reconciled`)                       | 4     |
+| `worker_loop_failures_total`           | counter   | `loop`, `kind` (`transient`\|`unexpected`)                | 4     |
+| `http_request_duration_seconds`        | histogram | `method`, `route`, `status_code`                          | 5     |
+| `http_requests_total`                  | counter   | `method`, `route`, `status_code`                          | 5     |
+| `queue_depth`                          | gauge     | `queue` (5 queues, see below)                             | 5     |
+| `observability_read_errors_total`      | counter   | `source` (`queue_depths`\|`page_views`)                   | 5     |
 
 `route` uses the route **template** (`/api/v1/projects/:slug`); unmatched requests use
-`route="unmatched"`, keeping label cardinality bounded.
+`route="unmatched"`, keeping label cardinality bounded: every distinct label value is a separate
+time series, so raw URLs (or a bot guessing random paths) would grow them without limit.
+
+`queue_depth{queue}` (`telemetry_buffer`, `telemetry_dlq`, `notifications_ready`,
+`notifications_delayed`, `notifications_dlq`) is refreshed from Redis (one pipeline of
+`LLEN`/`ZCARD`) each time `/metrics` is read. It is one gauge with a `queue` label rather than
+one gauge per queue because prom-client reports a label-less gauge as `0` even after a reset:
+when Redis is down, the samples are removed, so Prometheus shows a gap ("unknown") instead of
+a false "empty".
+
+### 8.6 The website (Phase 5)
+
+**Contract.** `packages/shared` holds the Zod schemas of every public request and response.
+The API's `schema/` files re-export them (internal shapes stay in the API), and the web app
+validates what it receives and what it sends with the same schemas, so the two cannot drift.
+The package is compiled to `dist/` with `tsc` (`npm run build:shared`); `postinstall`, the
+`dev:*` scripts, `typecheck` and `test` build it first, and `npm run dev:shared` rebuilds on
+save. Plain `node` (production) and every tool then import ordinary JavaScript.
+
+**Rendering.** Pages with content are Server Components rendered per request
+(`connection()` in `lib/api.ts`): they fetch from `API_BASE_URL`, validate with the shared
+schemas, and never depend on the API during `next build`. The API's Redis cache keeps this
+cheap. React `cache()` dedupes `getProfile()` between `generateMetadata` and the page. A
+missing profile (not seeded) shows a hint; an unknown project is a 404; an unreachable API
+renders `error.tsx` with a retry button. `/privacy` has no data and is prerendered.
+
+**Page-view beacon** (`components/page-view-beacon.tsx`, logic in `lib/telemetry.ts`):
+
+- one `page_view` per navigation, with the path **including its query string** (so tagged
+  links work), the browser's time zone, and the referrer **on the first view only** (later
+  ones come from our own pages);
+- `sessionId`: 16 random URL-safe characters in `sessionStorage` (per tab, never sent on its
+  own like a cookie; a fresh id per page load if storage is blocked);
+- clicks on links marked `data-track="click:…"` (external links, project repos) send an
+  `interaction`, through one delegated listener;
+- events are validated with the shared schema before sending; a path is trimmed to 512
+  characters and an unusual time zone is dropped rather than losing the event;
+- `fetch(…, { keepalive: true })`, so a click that leaves the site still gets counted, with
+  the JSON body sent as `Content-Type: text/plain`. That makes it a CORS "simple" request: no
+  preflight (one request instead of two), and no reliance on browsers combining preflights
+  with `keepalive`. The API accepts either content type on this endpoint (§7.5). Failures are
+  ignored on purpose: analytics must never break the page.
+
+**Contact form** (`components/contact-form.tsx`, `lib/contact.ts`): validated in the browser
+with the API's schema, then sent. Every answer has a message: `202` (with the remaining count
+from `X-RateLimit-Remaining`), `400` (the API's field details under each field), `429` (the
+wait from `Retry-After`, rounded up), `503` and network failures.
+
+**Effects.** Dark theme with monospace "terminal" details. Scroll-linked effects write one
+CSS variable (`--progress`, `components/use-scroll-progress.ts`) per animation frame instead
+of re-rendering React: the hero drifts and fades, the timeline line fills. Sections reveal
+once on entering the screen (IntersectionObserver), the header highlights the section being
+read, the hero glow follows a precise pointer, and the rate-limiter lab replays the API's
+sliding window (`lib/sliding-window.ts`) with sliders, a play button and tap-to-add requests.
+Content is in the server-rendered HTML first; effects only enhance it, so without JavaScript
+or with `prefers-reduced-motion: reduce` everything is visible and still.
+
+**Live dashboard** (`/status`, `components/status-dashboard.tsx`, logic in `lib/status.ts`).
+A static page whose numbers the browser fetches from `GET /api/v1/system/status` every 5 s
+(the API's own cache period), validated with the shared schema. Polling pauses while the tab
+is hidden and resumes at once when it is shown. If the API stops answering, the last numbers
+stay on screen under a "lost contact" banner instead of disappearing. It shows a health banner
+(icon + words, never colour alone), stat tiles (uptime, requests, p50/p95, cache hit ratio,
+page views), two charts of the samples gathered since the page opened (p95 latency and
+request count: one measure per chart, 2 px line, crosshair and tooltip on hover or touch),
+dependencies and queue lengths (a non-empty dead-letter queue is flagged "needs attention").
+Counts and timings only. The header links to it with a pulsing "status" dot, and a pill in
+the hero shows the current health and p95 (refreshed every 30 s).
+
+**Devices.** Mobile-first Tailwind: one column on phones, the header's links collapse into a
+menu below `md`, project cards go 1 → 2 → 3 columns (`sm`, `lg`), the timeline puts dates
+beside entries from `md`, and the lab's sliders stack. Tap targets are at least 24 px.
 
 ---
 
@@ -1063,6 +1175,7 @@ retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics
 | GeoIP path set but file unreadable at boot | API exits 1 naming the variable (`npm run geoip:download`)                                                                 | `fatal` log                                                   |
 | GeoIP path not set                         | API starts; `country_code`, `city`, `organization` stay `NULL`                                                             | `warn` log at startup                                         |
 | Redis down → contact                       | `503` (fail closed)                                                                                                        | `rate_limit_errors_total`                                     |
+| Redis or Postgres down → system status     | Still `200`; the unreadable parts are `null`, `dependencies` shows which is down; `queue_depth` samples disappear          | `observability_read_errors_total{source}`                     |
 | Postgres or Redis down → flusher           | The batch stays in the in-flight list; retried with backoff (0.5 s → 30 s); ingestion continues until the buffer cap       | `telemetry_flush_failures_total{kind="transient"}`            |
 | Poison event                               | Batch insert fails → rows retried one by one → failing rows to the DLQ with their SQLSTATE, the rest inserted              | `telemetry_events_dead_lettered_total{reason}`                |
 | Unexpected flush error (a bug)             | Logged at `error`, retried with the same backoff (never a crash loop, never dropped)                                       | `telemetry_flush_failures_total{kind="unexpected"}`           |
@@ -1132,7 +1245,14 @@ matters most for deploys: the old worker empties the buffer before the new one s
   job in `processing`, reconciler); backoff/jitter bounds; Discord notifier status
   classification, timeout and payload (mentions off, truncation); consumer and periodic loops
   with a fake `sleep`; shutdown steps receive the time left.
-- (P5) Rolling percentile tracker.
+- (P5) Web (`apps/web/test/lib`, Vitest, no browser): the sliding-window replay matches the
+  API's rule; beacon session ids, referrer filtering, path trimming, time zone fallback,
+  interaction names; contact validation and every API answer (202/400/429/503/garbage);
+  date formatting; dashboard fetching/validation, health summary, uptime and "—" formatting,
+  chart path (gaps break the line) and scale.
+- (P5) Rolling percentile tracker (nearest rank, window expiry, fixed capacity); system status
+  manager (5 s cache, single-flight, unreadable sources → `null` + metric, hit ratio, queue
+  gauges reset when Redis is down); CORS origin and metrics token config.
 
 **Integration tests** (`apps/api/test/integration`, real Postgres + Redis from docker
 compose, run serially):
@@ -1147,6 +1267,10 @@ compose, run serially):
   inserted) → no duplicate rows; poison events → DLQ (invalid JSON, CHECK violation `23514`);
   Postgres down → batch stays in flight; buffer cap → 503; IP lookup on MaxMind's test
   databases; `dlq:replay` CLI; **real worker process**: `SIGTERM` drains the buffer, exit `0`.
+- (P5) `/api/v1/system/status` with live datastores (traffic excluding monitors, page views,
+  queues, 5 s cache) and with Redis down; `/metrics` (route templates, `unmatched`, queue
+  gauges, histogram buckets); bearer token 401/200; Helmet headers; CORS preflight (not
+  rate-limited), exposed rate-limit headers, other origins refused.
 - (P4) Rate limiter: limit, sliding expiry, `Retry-After`, **20 concurrent requests across 4
   API instances admit exactly 3**, Redis down → 503; notification worker against a local stub
   HTTP server (API → webhook end to end; fail twice then succeed → `SENT`; always 500 → DLQ +
@@ -1155,7 +1279,9 @@ compose, run serially):
   notification and stops on `SIGTERM` without waiting out `BLMOVE`.
 
 **CI** (from Phase 2): GitHub Actions runs `format:check`, `lint`, `typecheck` and the full
-test suite against Postgres and Redis service containers on every push and pull request.
+test suite (API unit + integration, web unit) against Postgres and Redis service containers on
+every push and pull request, then (P5) `next build` for the website, which must succeed
+without the API running.
 See [docs/CI.md](docs/CI.md).
 
 ---
@@ -1173,7 +1299,7 @@ browsers send (§8.2). Contact-form emails are not linked to browsing sessions (
 Consequences:
 
 - Derived details such as organisation and city still count as personal data under the GDPR
-  (for EU/UK visitors) and similar laws. (P5) The site gets a short privacy notice saying what is
+  (for EU/UK visitors) and similar laws. The site's privacy notice (`/privacy`, P5) says what is
   collected and why, plus the DB-IP attribution wherever the data is shown publicly.
 - Visitor details are for the site owner, who reads them with SQL (`docs/sql/telemetry.sql`).
   They never appear on the public status dashboard, which shows counts only (§7.7).
@@ -1184,7 +1310,12 @@ Other measures:
 - Docker ports bind to `127.0.0.1` only (Redis has no password in local dev).
 - Logs redact `authorization` and `cookie` headers.
 - Error responses never leak internal messages or stack traces.
-- (P5) `@fastify/helmet` security headers and an explicit CORS allow-list for the web app.
+- (P5) `@fastify/helmet` security headers on every response, and an explicit CORS allow-list
+  (`CORS_ORIGINS`) for the web app: methods `GET`/`POST`, request headers `content-type` and
+  `x-request-id`, and the web app may read `x-request-id`, `x-ratelimit-*`, `retry-after` and
+  `x-cache` (browsers hide other response headers from scripts). Preflights are cached for
+  10 minutes and never reach the rate limiter. CORS only governs what browsers let scripts
+  read; it is not access control (curl ignores it).
 
 ---
 
@@ -1222,17 +1353,24 @@ gate once releases are routine.
 | Graceful shutdown with a deadline                | Stopping the old version lets in-flight requests finish         |
 | Worker is a separate process                     | Restarted independently of the API                              |
 | CI on every PR and on `main`                     | Only tested commits become releases                             |
+| `/metrics` and `/api/v1/system/status` (P5)      | Monitoring and the public dashboard work from day one           |
+| Web pages render per request, not at build (P5)  | `next build` never needs the API, so the web image builds in CI |
 
 ### 14.2 Artifacts
 
-- `apps/api/Dockerfile`, multi-stage: install → `tsc` build → small runtime image with
-  production dependencies only, running as the non-root `node` user. One image, several
+- `apps/api/Dockerfile`, multi-stage: install (`npm ci` for the workspaces, which also builds
+  `packages/shared` through `postinstall`) → `tsc` build → small runtime image with production
+  dependencies and `packages/shared/dist` only, running as the non-root `node` user. One image, several
   commands: `node dist/main.js` (API), `node dist/worker.js`, `node dist/cli/migrate.js`,
   `node dist/cli/seed-content.js`, `node dist/cli/replay-dlq.js`. It contains `migrations/` and
   `content/`. The GeoIP files (§8.2) are not in Git: the image build runs
   `node dist/cli/download-geoip.js`, so each image carries that month's files (an image older
   than a month should be rebuilt to refresh them).
-- `apps/web/Dockerfile`: Next.js `output: 'standalone'` server.
+- `apps/web/Dockerfile`: Next.js `output: 'standalone'` server (to add to `next.config.ts`,
+  with `outputFileTracingRoot` at the repo root so the workspace packages are traced).
+  `NEXT_PUBLIC_API_BASE_URL` is copied into the browser bundle **at build time** (§4), so it is
+  a build argument set to the production API URL (`https://api.<domain>`); `API_BASE_URL` stays
+  a runtime variable.
 - Images go to GitHub Container Registry, tagged with the **git commit SHA**
   (`ghcr.io/<owner>/portfolio-api:<sha>`). Every release is traceable to a commit, and a
   rollback is "deploy the previous SHA".
@@ -1267,7 +1405,9 @@ merge to main ─► CI green ─► build + push images (tag = SHA)
   `allkeys-lru` (which would evict queued events).
 - Production settings: `NODE_ENV=production`, `TRUST_PROXY=true` (without it every visitor
   would have Caddy's IP, and the IP lookup would find nothing), `CORS_ORIGINS=https://<domain>`,
-  `METRICS_TOKEN` set, `GEOIP_ASN_DB_PATH` / `GEOIP_LOCATION_DB_PATH` pointing into the image.
+  `METRICS_TOKEN` set, `GEOIP_ASN_DB_PATH` / `GEOIP_LOCATION_DB_PATH` pointing into the image,
+  `NOTIFIER_DRIVER=discord` with `DISCORD_WEBHOOK_URL`, and for the web container
+  `API_BASE_URL` (the API through Caddy) plus the `NEXT_PUBLIC_API_BASE_URL` build argument.
 - **Memory**: each API replica holds ~140 MB of GeoIP data (§8.2); size the VPS for two
   replicas, or switch to the country-only file.
 

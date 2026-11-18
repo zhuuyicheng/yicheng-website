@@ -25,7 +25,7 @@ npm run geoip:download   # free IP → organisation/location files (~65 MB downl
 
 npm run dev:api          # API    → http://localhost:4000/api/v1/projects
 npm run dev:worker       # Worker → analytics events to Postgres, contact notifications
-npm run dev:web          # Web    → http://localhost:3000   (each in its own terminal)
+npm run dev:web          # Web    → http://localhost:3000 (live dashboard: /status); each in its own terminal
 ```
 
 ## Common commands
@@ -34,7 +34,7 @@ npm run dev:web          # Web    → http://localhost:3000   (each in its own t
 | ------------------------------------- | ---------------------------------------------------- |
 | `npm test`                            | Unit + integration tests (needs `infra:up`)          |
 | `npm run test:unit`                   | Unit tests only (no Docker needed)                   |
-| `npm run check`                       | Everything CI runs: format, lint, typecheck, tests   |
+| `npm run check`                       | Format, lint, typecheck, tests (CI also builds site) |
 | `npm run content:seed`                | Publish edits to `apps/api/content/portfolio.json`   |
 | `npm run dlq:replay -- telemetry`     | Retry dead-lettered analytics events after a fix     |
 | `npm run dlq:replay -- notifications` | Retry failed contact notifications after a fix       |
@@ -53,7 +53,7 @@ and don't need to: tables come from migrations and content from `portfolio.json`
    ```bash
    git clone https://github.com/zhuuyicheng/yicheng-website.git
    cd yicheng-website
-   git switch <your-branch>       # e.g. feat/portfolio-cache-api
+   git switch <your-branch>       # main, or the phase branch you were working on
    nvm install                    # installs the Node version in .nvmrc
    npm ci
    cp .env.example .env           # .env is never committed
@@ -65,7 +65,8 @@ and don't need to: tables come from migrations and content from `portfolio.json`
 ## Repository layout
 
 ```
-apps/api   Fastify API (controllers → managers → DAL, with dao/, schema/, views/) and the
-           background worker (src/worker.ts, workers/)
-apps/web   Next.js + Tailwind frontend
+packages/shared  The API contract: Zod schemas both apps import
+apps/api         Fastify API (controllers → managers → DAL, with dao/, schema/, views/) and the
+                 background worker (src/worker.ts, workers/)
+apps/web         Next.js + Tailwind website (portfolio pages, contact form, page-view beacon)
 ```

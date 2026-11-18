@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    // Lets "Go to definition" in the API or the web app jump to src/, not to dist/*.d.ts.
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src"]
+}

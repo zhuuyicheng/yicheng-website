@@ -8,8 +8,8 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | 1     | `main` (initial scaffold)    | —      | ✅ Done        |
 | 2     | `feat/portfolio-cache-api`   | A      | ✅ Done        |
 | 3     | `feat/telemetry-pipeline`    | B      | ✅ Done        |
-| 4     | `feat/contact-rate-limiter`  | C      | 🔍 In review   |
-| 5     | `feat/metrics-and-dashboard` | D      | ⬜ Not started |
+| 4     | `feat/contact-rate-limiter`  | C      | ✅ Done        |
+| 5     | `feat/metrics-and-dashboard` | D      | 🔍 In review   |
 | 6     | `feat/continuous-delivery`   | —      | ⬜ Not started |
 
 ---
@@ -79,7 +79,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
       `docs/sql/telemetry.sql`
 - [x] PR #4 merged (CI green)
 
-## Phase 4: Contact API + rate limiter (`feat/contact-rate-limiter`)
+## Phase 4: Contact API + rate limiter (`feat/contact-rate-limiter`) ✅
 
 Not in scope: linking contact-form emails to browsing sessions (on hold by decision; the form
 stays optional and is never required to view the site).
@@ -107,20 +107,43 @@ Built in two steps, one commit each: **4a** the API side (limiter, endpoint, job
       integration total)
 - [x] DATA-TOOLS.md §7.2: watching the rate-limit sorted set and the ready queue fill up
 - [x] DATA-TOOLS.md §7.2: watching the worker drain the job queues, retries and the DLQ (4b)
-- [ ] PR merged (CI green)
+- [x] PR #5 merged (CI green)
 
 ## Phase 5: Metrics & dashboard (`feat/metrics-and-dashboard`)
 
-- [ ] HTTP metrics hook (duration histogram, request counter) + queue depth gauges
-- [ ] `GET /metrics` (Prometheus, optional bearer token)
-- [ ] `GET /api/v1/system/status` (uptime, health, p50/p95, cache ratio, page views, queues)
-- [ ] Helmet security headers + CORS allow-list
-- [ ] `packages/shared` API contract schemas
-- [ ] Next.js portfolio pages (profile, projects, contact form) + page-view beacon (sends the
+Built in three steps, one commit each: **5a** the API side (metrics, status, security
+headers), **5b** the website (shared schemas, pages, contact form, beacon, privacy notice),
+**5c** the live dashboard.
+
+- [x] HTTP metrics hook (duration histogram, request counter, route templates) + `queue_depth`
+      gauge refreshed from Redis on every scrape
+- [x] `GET /metrics` (Prometheus, optional bearer token compared in constant time)
+- [x] `GET /api/v1/system/status` (uptime, health, p50/p95 over 5 min, cache ratio, page views,
+      queues; 5 s cache; unreadable parts are `null`, still `200`)
+- [x] Helmet security headers + CORS allow-list (`CORS_ORIGINS`, exposes the rate-limit headers)
+- [x] Tests (5a): status with live datastores and Redis down, `/metrics`, token, Helmet, CORS
+      (207 unit + 75 integration total)
+- [x] DATA-TOOLS.md §7.3: reading `/metrics` and the status endpoint
+- [x] `packages/shared` API contract schemas (content, contact, events, system status, error
+      envelope); the API re-exports them, built to `dist/` by `build:shared` / `postinstall`
+- [x] Next.js portfolio pages (profile, projects, contact form) + page-view beacon (sends the
       path with its query string, so tagged links work, plus referrer, session id, time zone)
-- [ ] Privacy notice page: what the analytics collect and why, with the DB-IP attribution
+      and tracked external-link clicks
+- [x] Dark, developer-style design with scroll effects (reveal, hero fade, timeline fill,
+      scrollspy), an interactive rate-limiter lab with sliders, responsive from phone to
+      desktop, `prefers-reduced-motion` respected (DESIGN.md §8.6)
+- [x] Privacy notice page: what the analytics collect and why, with the DB-IP attribution
       (DESIGN.md §12)
-- [ ] Live system telemetry dashboard (counts only; visitor details stay private)
+- [x] Tests (5b): web unit tests for the beacon, contact form, lab and formatting (282 API +
+      28 web total); `next build` passes without the API running
+- [x] Live system telemetry dashboard at `/status` (counts only; visitor details stay private):
+      polls every 5 s, pauses in hidden tabs, keeps stale numbers on an outage, live charts;
+      linked from the header, footer and a live pill in the hero
+- [x] Tests (5c): dashboard logic (fetch + contract check, health, formatting, chart paths)
+      (286 API + 37 web total)
+- [x] Guided tour station 11 and DATA-TOOLS.md §7.5: the website and the dashboard
+- [x] CI also runs the website's production build (`next build`, no API needed)
+- [ ] PR merged (CI green)
 
 ## Phase 6: Continuous delivery (`feat/continuous-delivery`)
 
@@ -129,8 +152,9 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
 - [ ] Decide hosting + domain (default: one VPS running Docker Compose, Caddy for HTTPS and
       load balancing)
 - [ ] `apps/api/Dockerfile` (multi-stage, non-root; one image for api/worker/migrate/seed;
-      downloads the GeoIP files during the build), `apps/web/Dockerfile` (Next.js standalone),
-      `.dockerignore`
+      builds `packages/shared`; downloads the GeoIP files during the build),
+      `apps/web/Dockerfile` (Next.js `output: 'standalone'`; `NEXT_PUBLIC_API_BASE_URL` as a
+      build argument, DESIGN.md §14.2), `.dockerignore`
 - [ ] CI: build both images on every PR (a broken Dockerfile fails before merge)
 - [ ] On merge to `main`: push images to GHCR tagged with the git SHA
 - [ ] `deploy/compose.prod.yml` + `Caddyfile`; production env file kept on the host only
@@ -140,7 +164,8 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
   - [ ] Two API replicas (`api-1`, `api-2`) behind Caddy: round robin, active health checks
   - [ ] `GET /health/live` liveness endpoint for the load balancer (no dependency checks) + tests
   - [ ] Rolling update: worker → api-1 (wait for `/health` = 200) → api-2 → web
-  - [ ] Per-replica numbers: `instance` in system status; Prometheus scrapes each replica directly
+  - [ ] Per-replica numbers: Prometheus scrapes each replica directly (`instance` in the system
+        status already exists since Phase 5; set each container's hostname to `api-1`/`api-2`)
   - [ ] Prove it: a request loop sees no failures while one replica is stopped, or during a deploy
 - [ ] Nightly `pg_dump` backups off the host + a tested restore
 - [ ] `docs/CD.md`: how to release, approve, roll back, read deploy logs
