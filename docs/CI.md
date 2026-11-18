@@ -154,7 +154,20 @@ Common causes:
 | `npm ci`                          | `package.json` changed without updating the lockfile       | `npm install`, commit `package-lock.json`      |
 | `build -w @portfolio/web`         | A page that needs the API while building, or a build error | `npm run build -w @portfolio/web`              |
 | Integration tests only fail in CI | Test depends on local state (data left in your DB, timing) | Make the test create its own data and clean up |
+| Lint or typecheck only fail in CI | A gitignored, generated file exists only on your laptop    | Commit, then check a fresh clone (below)       |
 | `image (api)` / `image (web)`     | A Dockerfile step fails (missing file, new dependency)     | `npm run image:api` / `npm run image:web`      |
+
+**"It passes on my laptop."** Your working folder has files CI never sees: `node_modules`,
+`.next/`, and generated files such as `apps/web/next-env.d.ts` (gitignored). Example from
+Phase 6: photo imports got their types only from `next-env.d.ts`, which Next.js creates
+during a build; CI lints _before_ building, so lint failed there and nowhere else (fixed by
+`apps/web/src/image-imports.d.ts`). To see exactly what CI sees, check a fresh clone:
+
+```bash
+git clone . /tmp/ci-check && cd /tmp/ci-check   # only committed files
+npm ci && npm run format:check && npm run lint && npm run typecheck
+cd - && rm -rf /tmp/ci-check
+```
 
 ---
 
