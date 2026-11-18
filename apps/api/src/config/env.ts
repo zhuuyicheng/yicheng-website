@@ -17,6 +17,10 @@ export interface AppConfig {
   telemetry: { bufferMaxLength: number; batchSize: number; flushIntervalMs: number };
   /** GeoIP database files; `null` = that lookup is disabled (its fields stay null). */
   ipLookup: { asnDbPath: string | null; locationDbPath: string | null };
+  /** Key for HMAC-hashing IPs (rate-limit keys, `contact_messages.ip_hash`). */
+  ipHash: { secret: string };
+  /** POST /api/v1/contact accepts `rateLimitMax` messages per sender per window. */
+  contact: { rateLimitMax: number; rateLimitWindowSeconds: number };
   shutdown: { timeoutMs: number };
 }
 
@@ -45,6 +49,12 @@ const envSchema = z.object({
   TELEMETRY_FLUSH_INTERVAL_MS: z.coerce.number().int().min(100).max(300_000).default(5_000),
   GEOIP_ASN_DB_PATH: z.string().optional(),
   GEOIP_LOCATION_DB_PATH: z.string().optional(),
+  // A secret, so it has no default: every environment must choose its own.
+  IP_HASH_SECRET: z
+    .string({ error: 'is required' })
+    .min(32, 'must be at least 32 characters (try: openssl rand -hex 32)'),
+  CONTACT_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1_000).default(3),
+  CONTACT_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().min(1).max(86_400).default(600),
 });
 
 export class ConfigError extends Error {
@@ -88,6 +98,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ipLookup: {
       asnDbPath: vars.GEOIP_ASN_DB_PATH ?? null,
       locationDbPath: vars.GEOIP_LOCATION_DB_PATH ?? null,
+    },
+    ipHash: { secret: vars.IP_HASH_SECRET },
+    contact: {
+      rateLimitMax: vars.CONTACT_RATE_LIMIT_MAX,
+      rateLimitWindowSeconds: vars.CONTACT_RATE_LIMIT_WINDOW_SECONDS,
     },
     shutdown: { timeoutMs: vars.SHUTDOWN_TIMEOUT_MS },
   };

@@ -90,6 +90,10 @@ controller ──────► manager ──────► DAL ────�
 A worker loop is the background equivalent of a controller: time (an interval, a backoff), not
 an HTTP request, triggers it, and the manager it calls holds the business rules.
 
+Route middleware runs before the handler and calls its own manager, so the handler still calls
+one. The rate limiter (`middleware/rate-limit.ts`, Phase 4) is a Fastify `onRequest` hook that
+a controller attaches to a route: `{ onRequest: rateLimit(limiter) }`.
+
 Why DAO and schema are separate: the database and the API change for different reasons. A
 column rename touches a DAO row type and one mapping function in the DAL; the API (and its
 cache entries) stay unchanged. Managers depend on DAL **interfaces**, which makes them
@@ -117,7 +121,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 ├── ROADMAP.md                            phases, branches, progress checklists
 ├── docs/                                 how-to guides (testing, CI, content & cache, data viewers)
 │   └── sql/                              read-only queries for the VS Code PostgreSQL extension
-│                                         (content.sql, (P3) telemetry.sql)
+│                                         (content.sql, (P3) telemetry.sql, (P4) contact.sql)
 ├── deploy/                               (P6) compose.prod.yml + Caddyfile for the production host
 ├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests
 ├── eslint.config.mjs                     one flat config for the whole repo
@@ -158,8 +162,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── visitor-details.manager.ts    (P3) what the link, browser and IP reveal
 │   │   │   │   ├── telemetry-flush.manager.ts    (P3) one flush: claim → insert → ack, DLQ routing
 │   │   │   │   ├── telemetry-dlq.manager.ts      (P3) dead-letter replay
-│   │   │   │   ├── contact.manager.ts            (P4)
-│   │   │   │   ├── rate-limiter.manager.ts       (P4)
+│   │   │   │   ├── contact.manager.ts            (P4) store the message, queue its notification job
+│   │   │   │   ├── rate-limiter.manager.ts       (P4) sliding window per hashed IP, fail closed
 │   │   │   │   └── system-status.manager.ts      (P5)
 │   │   │   ├── dal/                      the only datastore code
 │   │   │   │   ├── content.dal.ts                (P2) Postgres
@@ -173,7 +177,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── notification-queue.dal.ts     (P4) Redis
 │   │   │   │   └── lua/                          (P3/P4) Lua scripts as TS string constants
 │   │   │   │       ├── bounded-enqueue.lua.ts    (P3) + its typed ioredis command
-│   │   │   │       └── claim-batch.lua.ts        (P3) + its typed ioredis command
+│   │   │   │       ├── claim-batch.lua.ts        (P3) + its typed ioredis command
+│   │   │   │       └── sliding-window.lua.ts     (P4) the rate limiter (§6.4)
 │   │   │   ├── dao/                      row types, one per table
 │   │   │   │   ├── content.dao.ts                (P2) profile, experiences, education, projects
 │   │   │   │   ├── analytics-event.dao.ts        (P3)
@@ -189,6 +194,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── error.view.ts         { error: { code, message, requestId } }
 │   │   │   │   ├── content.view.ts       (P2) { data } bodies for profile/projects
 │   │   │   │   ├── telemetry.view.ts     (P3) { data: { eventId } }
+│   │   │   │   ├── contact.view.ts       (P4) { data: { id, status } }
 │   │   │   │   └── system-status.view.ts (P5)
 │   │   │   ├── workers/                  (P3/P4) background loops started by worker.ts
 │   │   │   │   ├── telemetry-flusher.worker.ts   (P3) when to flush: interval, backoff, drain on stop
@@ -197,6 +203,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   ├── middleware/
 │   │   │   │   ├── request-id.ts         x-request-id accept/generate/echo
 │   │   │   │   ├── error-handler.ts      maps any error to the error view
+│   │   │   │   ├── rate-limit.ts         (P4) onRequest hook: X-RateLimit-* headers, 429
 │   │   │   │   └── http-metrics.ts       (P5) request duration histogram hook
 │   │   │   ├── errors/app-error.ts       AppError + ErrorCode catalog
 │   │   │   ├── config/env.ts             Zod env schema → typed AppConfig (fail-fast)
@@ -214,6 +221,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── sleep.ts              (P3) a wait that a stopping worker can cut short
 │   │   │   │   ├── ip-databases.ts       (P3) opens the GeoIP files at API startup
 │   │   │   │   ├── transient-error.ts    (P3) outage vs bug: 503 in the API, retry vs DLQ in the worker
+│   │   │   │   ├── ip-hash.ts            (P4) HMAC-SHA256(IP_HASH_SECRET, ip)
 │   │   │   │   ├── metrics.ts            (P2) prom-client registry + metric definitions
 │   │   │   │   └── notifiers/            (P4) log + Discord notification senders
 │   │   │   └── lifecycle/
@@ -531,6 +539,11 @@ return { 0, 0, retryAfterMs }
 - **Keying**: `HMAC-SHA256(IP_HASH_SECRET, ip)`. A static secret (not the daily analytics
   salt) keeps windows stable across midnight.
 - **Failure policy: fail closed.** If Redis is unreachable the contact endpoint returns `503`.
+- **Where it runs**: a Fastify `onRequest` hook, the first hook of a request, before the body is
+  read. A blocked client costs one Redis call, and every request counts, including one that
+  later fails validation (`400`), so a bot cannot probe the validator for free.
+- **`Retry-After`** is `retryAfterMs` rounded **up** to whole seconds (at least 1): rounded down,
+  a client that obeys it could arrive a moment too early and be refused again.
 
 ### 6.5 Telemetry buffer scripts (Phase 3)
 
@@ -761,8 +774,16 @@ Limits: name 1–100, email valid ≤ 254, message 1–5000 chars (trimmed).
 
 `202 Accepted` → `{ "data": { "id": "uuid", "status": "PENDING" } }`
 
-Rate-limit headers on **every** response from this route: `X-RateLimit-Limit: 3`,
-`X-RateLimit-Remaining: 2`. On `429`, additionally `Retry-After: <seconds, rounded up>`.
+Rate-limit headers on **every** response from this route once the limiter has run (all but a
+`503` caused by Redis being down): `X-RateLimit-Limit: 3`, `X-RateLimit-Remaining: 2`. On
+`429`, additionally `Retry-After: <seconds, rounded up>`.
+
+| Status | When                                                                                   |
+| ------ | -------------------------------------------------------------------------------------- |
+| `202`  | Stored as `PENDING` (also when queueing the notification failed: see §8.3)             |
+| `400`  | `VALIDATION_ERROR` with `details`; the request still counted towards the limit         |
+| `429`  | `RATE_LIMITED`: the sender already has `CONTACT_RATE_LIMIT_MAX` messages in the window |
+| `503`  | Redis down (the limiter fails closed, nothing stored), or Postgres down                |
 
 ### 7.7 Observability (Phase 5)
 
@@ -925,11 +946,14 @@ still fails returns to the DLQ. Unreadable entries are left in place, and the co
 
 **API** `POST /api/v1/contact`:
 
-1. Rate limit (§6.4) → `429` or continue.
-2. Validate, `INSERT` with `status = 'PENDING'`.
+1. Rate limit (§6.4, an `onRequest` hook: before the body is parsed) → `429` or continue.
+2. Validate, `INSERT` with `status = 'PENDING'` and `ip_hash`.
 3. `LPUSH jobs:notifications:ready {"jobId","messageId","attempt":1,"enqueuedAt"}`.
    If this fails the message is already safe in Postgres: log `error` +
    `notification_enqueue_failures_total`, still return `202`; the reconciler enqueues it.
+   Postgres and Redis cannot be written in one transaction (the "dual write" problem), so
+   Postgres goes first as the source of truth, and the reconciler repairs a missing job.
+   The job carries ids only: the name, email and text never leave Postgres.
 
 **Worker**:
 

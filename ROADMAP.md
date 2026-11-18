@@ -7,8 +7,8 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | ----- | ---------------------------- | ------ | -------------- |
 | 1     | `main` (initial scaffold)    | —      | ✅ Done        |
 | 2     | `feat/portfolio-cache-api`   | A      | ✅ Done        |
-| 3     | `feat/telemetry-pipeline`    | B      | 🔍 In review   |
-| 4     | `feat/contact-rate-limiter`  | C      | ⬜ Not started |
+| 3     | `feat/telemetry-pipeline`    | B      | ✅ Done        |
+| 4     | `feat/contact-rate-limiter`  | C      | 🚧 In progress |
 | 5     | `feat/metrics-and-dashboard` | D      | ⬜ Not started |
 | 6     | `feat/continuous-delivery`   | —      | ⬜ Not started |
 
@@ -56,7 +56,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
       `repositories/` → `dal/`, `models/` → `schema/` + new `dao/` row types (DESIGN.md §2.2).
       Responses and cache entries are byte-for-byte unchanged, so no cache key bump
 
-## Phase 3: Telemetry pipeline (`feat/telemetry-pipeline`)
+## Phase 3: Telemetry pipeline (`feat/telemetry-pipeline`) ✅
 
 - [x] Migration `0003_analytics_events.sql` (+ `dao/analytics-event.dao.ts`, request/buffer schemas)
 - [x] Datastore unavailable → `503 SERVICE_UNAVAILABLE`, not `500` (found in the guided tour:
@@ -77,21 +77,29 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
       (129 unit + 46 integration total)
 - [x] DATA-TOOLS.md §7: watching the buffer drain into `analytics_events`, plus
       `docs/sql/telemetry.sql`
-- [ ] PR merged (CI green)
+- [x] PR #4 merged (CI green)
 
 ## Phase 4: Contact API + rate limiter (`feat/contact-rate-limiter`)
 
 Not in scope: linking contact-form emails to browsing sessions (on hold by decision; the form
 stays optional and is never required to view the site).
 
-- [ ] Migration `0005_contact_messages.sql`
-- [ ] Atomic Lua sliding-window rate limiter + `X-RateLimit-*` / `Retry-After` headers
-- [ ] `POST /api/v1/contact` → persist `PENDING`, enqueue notification job, `202`
+Built in two steps, one commit each: **4a** the API side (limiter, endpoint, job enqueue),
+**4b** the worker side (notification consumer, notifiers, reconciler).
+
+- [x] Migration `0005_contact_messages.sql` (+ `dao/contact-message.dao.ts`, request and job schemas)
+- [x] Atomic Lua sliding-window rate limiter + `X-RateLimit-*` / `Retry-After` headers
+      (`onRequest` hook, keyed by `HMAC-SHA256(IP_HASH_SECRET, ip)`, fails closed with `503`)
+- [x] `POST /api/v1/contact` → persist `PENDING`, enqueue notification job, `202`
+      (enqueue failure still answers `202`, counted in `notification_enqueue_failures_total`)
 - [ ] Notification worker: reliable queue, exponential backoff, DLQ, `SENT`/`FAILED` status
 - [ ] Notifiers: `log` (dev) and `discord`
 - [ ] Reconciler for messages whose enqueue failed
-- [ ] Tests: 20 concurrent requests admit exactly 3; retry/backoff/DLQ against a stub webhook
-- [ ] DATA-TOOLS.md §7: watching rate-limit sorted sets and the job queues
+- [x] Tests (4a): 20 concurrent requests across 4 API instances admit exactly 3; sliding expiry;
+      `Retry-After`; Redis down → 503 (147 unit + 56 integration total)
+- [ ] Tests (4b): retry/backoff/DLQ against a stub webhook; reconciler; crash recovery
+- [x] DATA-TOOLS.md §7.2: watching the rate-limit sorted set and the ready queue fill up
+- [ ] DATA-TOOLS.md §7.2: watching the worker drain the job queues (4b)
 
 ## Phase 5: Metrics & dashboard (`feat/metrics-and-dashboard`)
 

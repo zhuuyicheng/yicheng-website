@@ -4,6 +4,7 @@ import { ConfigError, loadConfig } from '../../../src/config/env.js';
 const REQUIRED_ENV = {
   DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
   REDIS_URL: 'redis://localhost:6379/0',
+  IP_HASH_SECRET: 'unit-test-ip-hash-secret-0123456789abcdef',
 };
 
 function captureConfigError(env: NodeJS.ProcessEnv): ConfigError {
@@ -29,8 +30,27 @@ describe('loadConfig', () => {
       cache: { ttlSeconds: 300 },
       telemetry: { bufferMaxLength: 100_000, batchSize: 50, flushIntervalMs: 5_000 },
       ipLookup: { asnDbPath: null, locationDbPath: null },
+      ipHash: { secret: REQUIRED_ENV.IP_HASH_SECRET },
+      contact: { rateLimitMax: 3, rateLimitWindowSeconds: 600 },
       shutdown: { timeoutMs: 10_000 },
     });
+  });
+
+  it('reads the contact rate limit, and refuses a short IP_HASH_SECRET', () => {
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      CONTACT_RATE_LIMIT_MAX: '5',
+      CONTACT_RATE_LIMIT_WINDOW_SECONDS: '60',
+    });
+
+    expect(config.contact).toEqual({ rateLimitMax: 5, rateLimitWindowSeconds: 60 });
+    // A short secret is guessable, and then every IP hash can be reversed.
+    expect(captureConfigError({ ...REQUIRED_ENV, IP_HASH_SECRET: 'too-short' }).problems).toEqual([
+      'IP_HASH_SECRET: must be at least 32 characters (try: openssl rand -hex 32)',
+    ]);
+    expect(captureConfigError({ ...REQUIRED_ENV, CONTACT_RATE_LIMIT_MAX: '0' }).problems).toEqual([
+      expect.stringMatching(/^CONTACT_RATE_LIMIT_MAX:/),
+    ]);
   });
 
   it('reads the worker settings and the GeoIP database paths', () => {
@@ -103,7 +123,11 @@ describe('loadConfig', () => {
   it('reports every missing required variable at once', () => {
     const error = captureConfigError({});
 
-    expect(error.problems).toEqual(['DATABASE_URL: is required', 'REDIS_URL: is required']);
+    expect(error.problems).toEqual([
+      'DATABASE_URL: is required',
+      'REDIS_URL: is required',
+      'IP_HASH_SECRET: is required',
+    ]);
   });
 
   it('rejects URLs with the wrong scheme', () => {

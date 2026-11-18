@@ -233,11 +233,70 @@ Arrange four terminals: `npm run dev:api`, `npm run dev:worker`, `MONITOR` (§4)
    events, top pages, unique visitors per day, organisations, tagged-link sessions, referrers,
    devices, clicks, and how long events waited in Redis.
 
-### 7.2 Later phases
+### 7.2 Phase 4: the contact form and rate limiter
 
-- **Phase 4 (contact):** each accepted contact request adds a timestamped member to a
-  `ratelimit:contact:<hash>` sorted set with a TTL; `contact_messages.status` moves from
-  `PENDING` to `SENT` (or to `FAILED` with jobs in `jobs:notifications:dlq`).
+The path of one message (DESIGN.md §8.3):
+
+```
+curl / form ─► rate limiter ─► contact_messages (Postgres, PENDING) ─► jobs:notifications:ready
+               ratelimit:contact:<hash>                                  (Redis LIST, ids only)
+               (Redis ZSET, one member per accepted request)
+```
+
+**Before you start** (once): the API now needs `IP_HASH_SECRET`. Copy the "Contact form" block
+from `.env.example` into your `.env`, run `npm run db:migrate` (it applies
+`0005_contact_messages`), and restart `npm run dev:api`. Arrange three terminals: the API,
+`MONITOR` (§4), and one for `curl`. Open the Redis view and the `contact_messages` table.
+
+1. **Send a message and read the headers.**
+
+   ```bash
+   curl -si -X POST localhost:4000/api/v1/contact -H 'content-type: application/json' \
+     -d '{"name":"Ada","email":"ada@example.com","message":"Hello!"}'
+   ```
+
+   `-i` prints the response headers: `HTTP/1.1 202 Accepted`, `x-ratelimit-limit: 3`,
+   `x-ratelimit-remaining: 2`. `MONITOR` shows the order of work: first an `evalsha` (the
+   sliding-window script) with the `[0 lua]` lines it ran (`ZREMRANGEBYSCORE`, `ZCARD`, `ZADD`,
+   `PEXPIRE`), then the `INSERT` happens in Postgres (not visible in `MONITOR`), then an `lpush`
+   to `jobs:notifications:ready`.
+
+2. **Look at the three places it left a trace.**
+   - Redis view, filter `ratelimit:*`: one key, `ratelimit:contact:` followed by 64 hex
+     characters (the HMAC of `127.0.0.1`, never the IP itself). Its type is **ZSET**: one
+     member per accepted request, and each member's **score** is the request time in
+     milliseconds since 1970. Its TTL counts down from 600 s.
+   - Redis view, `jobs:notifications:ready`: a LIST with one job,
+     `{"jobId":…,"messageId":…,"attempt":1,"enqueuedAt":…}`. Ids only: the name, email and
+     text stay in Postgres.
+   - `contact_messages`: the row, `status = PENDING`, `attempts = 0`. Its `id` is the job's
+     `messageId`. It stays `PENDING` until Phase 4b's worker sends the notification.
+3. **Hit the limit.** Run the `curl` three more times. The fourth answers
+   `429 Too Many Requests` with `retry-after: 5xx` (seconds until your first message leaves
+   the 10-minute window) and `x-ratelimit-remaining: 0`. Refresh the ZSET: still **3** members. Rejected
+   requests are not recorded, so hammering the endpoint while blocked never extends the
+   lockout. `MONITOR` shows the script ran `ZRANGE … WITHSCORES` (to find the oldest member)
+   instead of `ZADD`.
+4. **Watch the window slide.** Waiting 10 minutes is dull, so restart the API with a short
+   window: `CONTACT_RATE_LIMIT_WINDOW_SECONDS=30 npm run dev:api`. Delete the ZSET key in the
+   Redis view (that resets your window), send 3 messages a few seconds apart, then a fourth:
+   its `retry-after` is the time until the **first** one is 30 s old. Send again after that:
+   one slot is free, not three. That is the difference from a fixed window, which would reset
+   everything at once.
+5. **Invalid input still counts.** Send `{"name":"Ada","email":"nope","message":"Hi"}`: `400`
+   with `details`, but `x-ratelimit-remaining` went down. The limiter runs before validation,
+   so a bot cannot try thousands of payloads for free.
+6. **Redis goes down: fail closed.** `docker compose stop redis`, send a message:
+   `503 SERVICE_UNAVAILABLE`, and no new row in `contact_messages`. Without Redis the API
+   cannot count, and refusing beats letting a bot flood your inbox. `docker compose start redis`.
+7. **Read the messages with SQL.** Open [`docs/sql/contact.sql`](sql/contact.sql): latest
+   messages, counts per status, stuck `PENDING` messages, failed notifications, repeat senders.
+
+Phase 4b adds the worker that consumes `jobs:notifications:ready` and moves each row to `SENT`
+(or `FAILED`, with the job in `jobs:notifications:dlq`).
+
+### 7.3 Later phases
+
 - **Phase 5 (dashboard):** the live dashboard shows the same numbers you have been reading by
   hand here.
 

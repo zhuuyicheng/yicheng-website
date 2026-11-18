@@ -17,6 +17,9 @@ export interface Metrics {
   telemetryEventsFlushed: Counter;
   telemetryFlushFailures: Counter<'kind'>;
   telemetryEventsDeadLettered: Counter<'reason'>;
+  rateLimitDecisions: Counter<'limiter' | 'decision'>;
+  rateLimitErrors: Counter<'limiter'>;
+  notificationEnqueueFailures: Counter;
 }
 
 /** Why POST /api/v1/events refused an event (every refusal is a 503). */
@@ -30,6 +33,9 @@ export type TelemetryRejectReason = 'buffer_full' | 'redis_unavailable';
  *   - `unexpected`: any other error (a bug); logged as an error, retried after a backoff.
  */
 export type TelemetryFlushFailureKind = 'transient' | 'permanent' | 'unexpected';
+
+/** What a rate limiter decided for one request. */
+export type RateLimitDecision = 'allowed' | 'denied';
 
 export interface MetricsOptions {
   /** CPU, memory, event-loop lag, ... Only worth collecting in a real process. */
@@ -94,6 +100,23 @@ export function createMetrics(options: MetricsOptions = {}): Metrics {
       name: 'telemetry_events_dead_lettered_total',
       help: 'Events moved to the DLQ, by reason (invalid_payload, insert_failed).',
       labelNames: ['reason'],
+      registers: [registry],
+    }),
+    rateLimitDecisions: new Counter({
+      name: 'rate_limit_decisions_total',
+      help: 'Rate-limit checks, by limiter and decision (allowed, denied).',
+      labelNames: ['limiter', 'decision'],
+      registers: [registry],
+    }),
+    rateLimitErrors: new Counter({
+      name: 'rate_limit_errors_total',
+      help: 'Rate-limit checks that failed because Redis was unavailable (answered 503).',
+      labelNames: ['limiter'],
+      registers: [registry],
+    }),
+    notificationEnqueueFailures: new Counter({
+      name: 'notification_enqueue_failures_total',
+      help: 'Contact messages saved but not queued for notification (the reconciler retries).',
       registers: [registry],
     }),
   };
