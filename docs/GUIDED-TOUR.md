@@ -248,7 +248,7 @@ Now, in [services/cache-aside.manager.ts](../apps/api/src/services/cache-aside.m
 **See**: the `ttlWithJitter` tests turn red within a second, telling you exactly which
 expectation broke; undoing turns them green.
 
-Then run the whole suite once: `npm test` (175 tests). Pick one test file, read it, and match
+Then run the whole suite once: `npm test` (286 API tests, then 37 for the website). Pick one test file, read it, and match
 each `it(...)` to a behaviour you saw in Stations 1–7.
 
 **Why**: tests are the safety net that lets later phases change code without fear. CI runs

@@ -34,7 +34,7 @@ npm run dev:web          # Web    → http://localhost:3000 (live dashboard: /st
 | ------------------------------------- | ---------------------------------------------------- |
 | `npm test`                            | Unit + integration tests (needs `infra:up`)          |
 | `npm run test:unit`                   | Unit tests only (no Docker needed)                   |
-| `npm run check`                       | Everything CI runs: format, lint, typecheck, tests   |
+| `npm run check`                       | Format, lint, typecheck, tests (CI also builds site) |
 | `npm run content:seed`                | Publish edits to `apps/api/content/portfolio.json`   |
 | `npm run dlq:replay -- telemetry`     | Retry dead-lettered analytics events after a fix     |
 | `npm run dlq:replay -- notifications` | Retry failed contact notifications after a fix       |
@@ -53,7 +53,7 @@ and don't need to: tables come from migrations and content from `portfolio.json`
    ```bash
    git clone https://github.com/zhuuyicheng/yicheng-website.git
    cd yicheng-website
-   git switch <your-branch>       # e.g. feat/portfolio-cache-api
+   git switch <your-branch>       # main, or the phase branch you were working on
    nvm install                    # installs the Node version in .nvmrc
    npm ci
    cp .env.example .env           # .env is never committed

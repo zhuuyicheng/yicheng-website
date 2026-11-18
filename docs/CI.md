@@ -9,7 +9,7 @@ CI was added at the start of Phase 2. This guide explains what it does and how t
 Every time you push a commit or open a pull request, GitHub starts a fresh Linux machine,
 checks out your code, installs dependencies, starts Postgres and Redis, and runs exactly what
 `npm run check` runs locally: format check, lint, typecheck, unit tests and integration
-tests. If any step fails, the commit/PR gets a red ❌; if all pass, a green ✅. This catches
+tests, then (since Phase 5) a production build of the website. If any step fails, the commit/PR gets a red ❌; if all pass, a green ✅. This catches
 "works on my machine" problems and stops broken code from reaching `main`.
 
 Because the repository is public, GitHub Actions minutes are free.
@@ -147,6 +147,7 @@ Common causes:
 | `format:check`                    | Code not run through Prettier                              | `npm run format`                               |
 | `lint`                            | Rule violation                                             | `npm run lint:fix`, then fix the rest by hand  |
 | `npm ci`                          | `package.json` changed without updating the lockfile       | `npm install`, commit `package-lock.json`      |
+| `build -w @portfolio/web`         | A page that needs the API while building, or a build error | `npm run build -w @portfolio/web`              |
 | Integration tests only fail in CI | Test depends on local state (data left in your DB, timing) | Make the test create its own data and clean up |
 
 ---

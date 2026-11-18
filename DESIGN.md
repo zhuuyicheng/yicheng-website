@@ -54,12 +54,13 @@ flowchart LR
 
 ### 2.1 Process model
 
-| Process    | Entrypoint                         | Responsibilities                                                                         |
-| ---------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
-| API        | `apps/api/src/main.ts`             | HTTP routes, cache-aside, ingestion enqueue, contact + rate limit, `/metrics`            |
-| Worker     | `apps/api/src/worker.ts` (Phase 3) | Telemetry batch flusher; (P4) notification consumer, delayed-job promoter, reconciler    |
-| Migrations | `apps/api/src/cli/migrate.ts`      | Applies SQL migrations; run as a deploy step, **never** on API boot                      |
-| Other CLIs | `apps/api/src/cli/*.ts`            | `content:seed` (P2), `dlq:replay` and `geoip:download` (P3): one-off commands, then exit |
+| Process    | Entrypoint                         | Responsibilities                                                                          |
+| ---------- | ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| API        | `apps/api/src/main.ts`             | HTTP routes, cache-aside, ingestion enqueue, contact + rate limit, `/metrics`             |
+| Worker     | `apps/api/src/worker.ts` (Phase 3) | Telemetry batch flusher; (P4) notification consumer, delayed-job promoter, reconciler     |
+| Web        | `apps/web` (`next start`, Phase 5) | Renders pages from the API per request; serves the browser code (beacon, form, dashboard) |
+| Migrations | `apps/api/src/cli/migrate.ts`      | Applies SQL migrations; run as a deploy step, **never** on API boot                       |
+| Other CLIs | `apps/api/src/cli/*.ts`            | `content:seed` (P2), `dlq:replay` and `geoip:download` (P3): one-off commands, then exit  |
 
 The API and worker share one codebase but run as separate processes, so a slow webhook or
 flush never competes with request latency.
@@ -109,7 +110,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 
 ```
 .
-├── .github/workflows/ci.yml              (P2) format, lint, typecheck, unit + integration tests
+├── .github/workflows/ci.yml              (P2) format, lint, typecheck, unit + integration tests,
+│                                         (P5) web unit tests + the site's production build
 ├── .github/workflows/deploy.yml          (P6) build images → approve → migrate → deploy → smoke test
 ├── .vscode/extensions.json               recommended extensions (PostgreSQL, Redis, ESLint, Prettier)
 ├── .dockerignore                         (P6)
@@ -1277,7 +1279,9 @@ compose, run serially):
   notification and stops on `SIGTERM` without waiting out `BLMOVE`.
 
 **CI** (from Phase 2): GitHub Actions runs `format:check`, `lint`, `typecheck` and the full
-test suite against Postgres and Redis service containers on every push and pull request.
+test suite (API unit + integration, web unit) against Postgres and Redis service containers on
+every push and pull request, then (P5) `next build` for the website, which must succeed
+without the API running.
 See [docs/CI.md](docs/CI.md).
 
 ---
@@ -1349,17 +1353,24 @@ gate once releases are routine.
 | Graceful shutdown with a deadline                | Stopping the old version lets in-flight requests finish         |
 | Worker is a separate process                     | Restarted independently of the API                              |
 | CI on every PR and on `main`                     | Only tested commits become releases                             |
+| `/metrics` and `/api/v1/system/status` (P5)      | Monitoring and the public dashboard work from day one           |
+| Web pages render per request, not at build (P5)  | `next build` never needs the API, so the web image builds in CI |
 
 ### 14.2 Artifacts
 
-- `apps/api/Dockerfile`, multi-stage: install → `tsc` build → small runtime image with
-  production dependencies only, running as the non-root `node` user. One image, several
+- `apps/api/Dockerfile`, multi-stage: install (`npm ci` for the workspaces, which also builds
+  `packages/shared` through `postinstall`) → `tsc` build → small runtime image with production
+  dependencies and `packages/shared/dist` only, running as the non-root `node` user. One image, several
   commands: `node dist/main.js` (API), `node dist/worker.js`, `node dist/cli/migrate.js`,
   `node dist/cli/seed-content.js`, `node dist/cli/replay-dlq.js`. It contains `migrations/` and
   `content/`. The GeoIP files (§8.2) are not in Git: the image build runs
   `node dist/cli/download-geoip.js`, so each image carries that month's files (an image older
   than a month should be rebuilt to refresh them).
-- `apps/web/Dockerfile`: Next.js `output: 'standalone'` server.
+- `apps/web/Dockerfile`: Next.js `output: 'standalone'` server (to add to `next.config.ts`,
+  with `outputFileTracingRoot` at the repo root so the workspace packages are traced).
+  `NEXT_PUBLIC_API_BASE_URL` is copied into the browser bundle **at build time** (§4), so it is
+  a build argument set to the production API URL (`https://api.<domain>`); `API_BASE_URL` stays
+  a runtime variable.
 - Images go to GitHub Container Registry, tagged with the **git commit SHA**
   (`ghcr.io/<owner>/portfolio-api:<sha>`). Every release is traceable to a commit, and a
   rollback is "deploy the previous SHA".
@@ -1394,7 +1405,9 @@ merge to main ─► CI green ─► build + push images (tag = SHA)
   `allkeys-lru` (which would evict queued events).
 - Production settings: `NODE_ENV=production`, `TRUST_PROXY=true` (without it every visitor
   would have Caddy's IP, and the IP lookup would find nothing), `CORS_ORIGINS=https://<domain>`,
-  `METRICS_TOKEN` set, `GEOIP_ASN_DB_PATH` / `GEOIP_LOCATION_DB_PATH` pointing into the image.
+  `METRICS_TOKEN` set, `GEOIP_ASN_DB_PATH` / `GEOIP_LOCATION_DB_PATH` pointing into the image,
+  `NOTIFIER_DRIVER=discord` with `DISCORD_WEBHOOK_URL`, and for the web container
+  `API_BASE_URL` (the API through Caddy) plus the `NEXT_PUBLIC_API_BASE_URL` build argument.
 - **Memory**: each API replica holds ~140 MB of GeoIP data (§8.2); size the VPS for two
   replicas, or switch to the country-only file.
 

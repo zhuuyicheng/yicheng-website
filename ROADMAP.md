@@ -152,8 +152,9 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
 - [ ] Decide hosting + domain (default: one VPS running Docker Compose, Caddy for HTTPS and
       load balancing)
 - [ ] `apps/api/Dockerfile` (multi-stage, non-root; one image for api/worker/migrate/seed;
-      downloads the GeoIP files during the build), `apps/web/Dockerfile` (Next.js standalone),
-      `.dockerignore`
+      builds `packages/shared`; downloads the GeoIP files during the build),
+      `apps/web/Dockerfile` (Next.js `output: 'standalone'`; `NEXT_PUBLIC_API_BASE_URL` as a
+      build argument, DESIGN.md §14.2), `.dockerignore`
 - [ ] CI: build both images on every PR (a broken Dockerfile fails before merge)
 - [ ] On merge to `main`: push images to GHCR tagged with the git SHA
 - [ ] `deploy/compose.prod.yml` + `Caddyfile`; production env file kept on the host only
@@ -163,7 +164,8 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
   - [ ] Two API replicas (`api-1`, `api-2`) behind Caddy: round robin, active health checks
   - [ ] `GET /health/live` liveness endpoint for the load balancer (no dependency checks) + tests
   - [ ] Rolling update: worker → api-1 (wait for `/health` = 200) → api-2 → web
-  - [ ] Per-replica numbers: `instance` in system status; Prometheus scrapes each replica directly
+  - [ ] Per-replica numbers: Prometheus scrapes each replica directly (`instance` in the system
+        status already exists since Phase 5; set each container's hostname to `api-1`/`api-2`)
   - [ ] Prove it: a request loop sees no failures while one replica is stopped, or during a deploy
 - [ ] Nightly `pg_dump` backups off the host + a tested restore
 - [ ] `docs/CD.md`: how to release, approve, roll back, read deploy logs

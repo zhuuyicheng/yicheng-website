@@ -6,14 +6,23 @@ import { TrackedLink } from '@/components/tracked-link';
 import { getProject } from '@/lib/api';
 import { trackName } from '@/lib/telemetry';
 
-export async function generateMetadata(props: PageProps<'/projects/[slug]'>): Promise<Metadata> {
+/**
+ * Written out instead of Next's generated `PageProps<'/projects/[slug]'>`: that global type
+ * only exists after `next typegen` has run, and a fresh checkout (CI) lints before that.
+ * In Next.js 16, `params` is a Promise.
+ */
+interface ProjectPageProps {
+  params: Promise<{ slug: string }>;
+}
+
+export async function generateMetadata(props: ProjectPageProps): Promise<Metadata> {
   const { slug } = await props.params;
   const project = await getProject(slug);
   return project ? { title: project.title, description: project.summary } : {};
 }
 
 /** One project. Unknown slugs (the API answers 404) show the not-found page. */
-export default async function ProjectPage(props: PageProps<'/projects/[slug]'>) {
+export default async function ProjectPage(props: ProjectPageProps) {
   const { slug } = await props.params;
   const project = await getProject(slug);
   if (!project) {

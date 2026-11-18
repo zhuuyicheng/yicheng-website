@@ -53,7 +53,7 @@ Three extra safeguards, each with a test:
 | 4b   | [dal/content.dal.ts](../apps/api/src/dal/content.dal.ts)                               | SQL; maps each row to the API shape                                                                 |
 | 5    | [views/content.view.ts](../apps/api/src/views/content.view.ts)                         | builds `{ data: … }` with only public fields                                                        |
 | —    | [dao/content.dao.ts](../apps/api/src/dao/content.dao.ts)                               | row types: what a database row looks like (`snake_case`)                                            |
-| —    | [schema/content.schema.ts](../apps/api/src/schema/content.schema.ts)                   | Zod schemas for responses, cache entries and the JSON file (`camelCase`)                            |
+| —    | [schema/content.schema.ts](../apps/api/src/schema/content.schema.ts)                   | Zod schema for the JSON file; re-exports the response schemas from `packages/shared` (`camelCase`)  |
 
 ## 4. Try it yourself
 
@@ -102,6 +102,7 @@ docker compose start redis
    location (e.g. `projects.0.slug: must be lowercase letters/digits separated by hyphens`)
    and nothing is written.
 3. The seed clears the old cache entries and warms new ones, so the API serves your edit
-   immediately.
+   immediately, and so does the website (http://localhost:3000), which renders each page from
+   the API on request.
 
 `slug` is the project's URL name (`/projects/<slug>`): lowercase words joined by hyphens.

@@ -68,12 +68,13 @@ Redis has numbered "logical databases" inside one server. We use **DB 0** for de
 
 ## 2. What lives where
 
-| Phase | PostgreSQL (database `portfolio`)                 | Redis (DB 0)                                                         |
-| ----- | ------------------------------------------------- | -------------------------------------------------------------------- |
-| 1     | `schema_migrations`                               | —                                                                    |
-| 2     | `profile`, `experiences`, `education`, `projects` | `cache:v2:profile`, `cache:v1:projects`, `cache:v1:project:<slug>`   |
-| 3     | `analytics_events`                                | `telemetry:events:buffer` / `:inflight` / `:dlq`, `telemetry:salt:*` |
-| 4     | `contact_messages`                                | `ratelimit:contact:<hash>`, `jobs:notifications:*`                   |
+| Phase | PostgreSQL (database `portfolio`)                  | Redis (DB 0)                                                         |
+| ----- | -------------------------------------------------- | -------------------------------------------------------------------- |
+| 1     | `schema_migrations`                                | —                                                                    |
+| 2     | `profile`, `experiences`, `education`, `projects`  | `cache:v2:profile`, `cache:v1:projects`, `cache:v1:project:<slug>`   |
+| 3     | `analytics_events`                                 | `telemetry:events:buffer` / `:inflight` / `:dlq`, `telemetry:salt:*` |
+| 4     | `contact_messages`                                 | `ratelimit:contact:<hash>`, `jobs:notifications:*`                   |
+| 5     | — (the website fills the tables above via the API) | — (the status endpoint reads queue lengths)                          |
 
 Full key catalog: DESIGN.md §6.2. Tables: DESIGN.md §5.
 
