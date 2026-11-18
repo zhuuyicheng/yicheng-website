@@ -251,7 +251,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │       │   │   ├── page.tsx              home: hero, about, experience, projects, lab, contact
 │       │   │   ├── projects/             list + [slug] detail
 │       │   │   ├── privacy/              privacy notice (static)
-│       │   │   ├── status/               (P5c) live dashboard
+│       │   │   ├── status/               live dashboard (static page, browser polls)
 │       │   │   ├── error.tsx             "API unreachable" + retry
 │       │   │   ├── not-found.tsx
 │       │   │   └── globals.css           theme, grid/glow, reveal, reduced motion
@@ -1139,6 +1139,18 @@ sliding window (`lib/sliding-window.ts`) with sliders, a play button and tap-to-
 Content is in the server-rendered HTML first; effects only enhance it, so without JavaScript
 or with `prefers-reduced-motion: reduce` everything is visible and still.
 
+**Live dashboard** (`/status`, `components/status-dashboard.tsx`, logic in `lib/status.ts`).
+A static page whose numbers the browser fetches from `GET /api/v1/system/status` every 5 s
+(the API's own cache period), validated with the shared schema. Polling pauses while the tab
+is hidden and resumes at once when it is shown. If the API stops answering, the last numbers
+stay on screen under a "lost contact" banner instead of disappearing. It shows a health banner
+(icon + words, never colour alone), stat tiles (uptime, requests, p50/p95, cache hit ratio,
+page views), two charts of the samples gathered since the page opened (p95 latency and
+request count: one measure per chart, 2 px line, crosshair and tooltip on hover or touch),
+dependencies and queue lengths (a non-empty dead-letter queue is flagged "needs attention").
+Counts and timings only. The header links to it with a pulsing "status" dot, and a pill in
+the hero shows the current health and p95 (refreshed every 30 s).
+
 **Devices.** Mobile-first Tailwind: one column on phones, the header's links collapse into a
 menu below `md`, project cards go 1 → 2 → 3 columns (`sm`, `lg`), the timeline puts dates
 beside entries from `md`, and the lab's sliders stack. Tap targets are at least 24 px.
@@ -1234,7 +1246,8 @@ matters most for deploys: the old worker empties the buffer before the new one s
 - (P5) Web (`apps/web/test/lib`, Vitest, no browser): the sliding-window replay matches the
   API's rule; beacon session ids, referrer filtering, path trimming, time zone fallback,
   interaction names; contact validation and every API answer (202/400/429/503/garbage);
-  date formatting.
+  date formatting; dashboard fetching/validation, health summary, uptime and "—" formatting,
+  chart path (gaps break the line) and scale.
 - (P5) Rolling percentile tracker (nearest rank, window expiry, fixed capacity); system status
   manager (5 s cache, single-flight, unreadable sources → `null` + metric, hit ratio, queue
   gauges reset when Redis is down); CORS origin and metrics token config.

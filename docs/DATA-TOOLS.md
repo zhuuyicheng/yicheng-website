@@ -477,10 +477,33 @@ http://localhost:3000 in Chrome or Firefox with the developer tools open (F12).
    "Emulate CSS prefers-reduced-motion" to `reduce` and reload: no animation, all content
    visible.
 
-### 7.5 Later phases
+### 7.5 Phase 5c: the live dashboard
 
-- **Phase 5c (dashboard):** a `/status` page polls the status endpoint every few seconds and
-  shows the numbers you have been reading by hand.
+Open http://localhost:3000/status (API, worker and web running) next to the terminal.
+
+1. **It polls.** The Network tab shows `GET /api/v1/system/status` every 5 s: a plain GET,
+   so no preflight. "updated N s ago" counts up between polls. The two charts start with
+   "collecting samples…" and draw a line from the second sample on; hover (or touch) a chart
+   for the exact value at that moment.
+2. **Make traffic.** Reload the home page a few times in another tab: "requests · 5 min" and
+   the requests chart rise, the cache hit ratio climbs (the first load was a miss), and
+   "page views · 24 h" goes up once the worker has flushed your page views.
+3. **It saves work when nobody looks.** Switch to another tab for a minute: the polls stop.
+   Come back: one poll at once, then every 5 s again.
+4. **An outage.** `docker compose stop redis`: within 5 s the banner turns amber
+   ("! Degraded: redis is down"), Redis shows "✕ down", and the queues read "unknown". The
+   page itself keeps working: that is when people look at a status page. Start Redis again.
+   Then stop `dev:api`: the banner turns red ("Lost contact… from N s ago") and the last
+   numbers stay on screen. Start it again and the page recovers by itself.
+5. **A dead letter.** `RPUSH telemetry:events:dlq '{"x":1}'` in the Redis CLI panel: the
+   telemetry dead-letter row says "! needs attention". Delete the key afterwards.
+6. **The hero pill.** The home page's hero shows "live · api p95 … → status", refreshed every
+   30 s; it says "api offline" while the API is stopped.
+
+### 7.6 Later phases
+
+- **Phase 6 (continuous delivery):** the same pages, served from Docker containers behind
+  Caddy; the dashboard's `instance` then says which of the two API replicas answered.
 
 ## 8. Troubleshooting
 

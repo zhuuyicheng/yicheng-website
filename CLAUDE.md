@@ -26,7 +26,7 @@ section before changing behaviour, and update it in the same change when a desig
 | All tests                                          | `npm test` (integration tests need `infra:up`)                   |
 | Unit only / integration only                       | `npm run test:unit` / `npm run test:integration`                 |
 | Single file                                        | `npm run test -w @portfolio/api -- test/unit/config/env.test.ts` |
-| Everything CI runs                                 | `npm run check`                                                  |
+| Everything CI runs                                 | `npm run check`, then `npm run build -w @portfolio/web`          |
 
 ## Architecture rules (see DESIGN.md §2.2)
 
@@ -101,7 +101,7 @@ Phases and live progress checklists: [ROADMAP.md](ROADMAP.md). Tick items there 
 4. `feat/contact-rate-limiter`: Lua sliding-window limiter, contact API, notification worker
    (done)
 5. `feat/metrics-and-dashboard`: `/metrics`, system status API, Next.js portfolio + dashboard
-   (in progress)
+   (built; PR in review)
 6. `feat/continuous-delivery`: Docker images, GHCR, deploy workflow with approval gate, rollback
 
 One phase per branch → pull request → CI green → merge. Stop for review between phases.

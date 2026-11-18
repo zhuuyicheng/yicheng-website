@@ -87,6 +87,14 @@ export function SiteHeader() {
                 </Link>
               </li>
             ))}
+            <li>
+              <StatusLink
+                onNavigate={() => {
+                  setMenuOpen(false);
+                }}
+                active={pathname === '/status'}
+              />
+            </li>
           </ul>
         </nav>
 
@@ -120,11 +128,35 @@ export function SiteHeader() {
                 </Link>
               </li>
             ))}
+            <li className="py-2.5">
+              <StatusLink
+                onNavigate={() => {
+                  setMenuOpen(false);
+                }}
+                active={pathname === '/status'}
+              />
+            </li>
           </ul>
         </nav>
       )}
 
       <ScrollProgressBar />
     </header>
+  );
+}
+
+/** The live dashboard: a page of its own, marked with a pulsing "live" dot. */
+function StatusLink({ onNavigate, active }: { onNavigate: () => void; active: boolean }) {
+  return (
+    <Link
+      href="/status"
+      onClick={onNavigate}
+      className={`inline-flex items-center gap-1.5 rounded px-2 py-1 transition-colors hover:text-emerald-300 ${
+        active ? 'text-emerald-400' : 'text-zinc-400'
+      }`}
+    >
+      <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-emerald-400" />
+      status
+    </Link>
   );
 }

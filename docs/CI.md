@@ -73,6 +73,9 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test # unit + integration (uses the service containers)
+      - run: npm run build -w @portfolio/web # the website's production build (Phase 5)
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
 ```
 
 How the pieces map to what you already know:
@@ -82,7 +85,11 @@ How the pieces map to what you already know:
 | `nvm use`          | `actions/setup-node` with `node-version-file: .nvmrc`                           |
 | `npm install`      | `npm ci` (stricter: fails if `package-lock.json` is out of date)                |
 | `npm run infra:up` | `services:` block (containers start before the steps and wait for healthchecks) |
-| `npm run check`    | the four `run:` steps                                                           |
+| `npm run check`    | the four `run:` steps after `npm ci`                                            |
+| `next build`       | the last step: the site must build without the API running                      |
+
+`npm ci` also builds `packages/shared` (the root `postinstall` script), so every later step
+finds its compiled `dist/`.
 
 The integration tests need no extra configuration: their default connection strings
 (`localhost:5432`, user `portfolio`, Redis DB 1) match the service containers, and the test

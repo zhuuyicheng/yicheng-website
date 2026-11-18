@@ -1,5 +1,6 @@
 import type { Profile, ProjectSummary } from '@portfolio/shared';
 import { trackName } from '@/lib/telemetry';
+import { LiveStatusPill } from './live-status-pill';
 import { ScrollFade } from './scroll-fade';
 import { Spotlight } from './spotlight';
 import { TrackedLink } from './tracked-link';
@@ -32,6 +33,9 @@ export function Hero({ profile, projects }: { profile: Profile; projects: Projec
 
       <ScrollFade className="mx-auto grid w-full max-w-6xl items-center gap-12 px-4 py-20 sm:px-6 lg:grid-cols-[1.4fr_1fr]">
         <div>
+          <div className="mb-6">
+            <LiveStatusPill />
+          </div>
           <p className="font-mono text-sm text-zinc-500">
             <span className="text-emerald-400">~/yicheng</span>{' '}
             <span className="text-zinc-600">$</span>{' '}

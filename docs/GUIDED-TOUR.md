@@ -1,4 +1,4 @@
-# Guided Tour: Phases 1–4, Hands-On
+# Guided Tour: Phases 1–5, Hands-On
 
 A set of short "stations" that let you poke at everything built so far. Each station is
 10–15 minutes and has the same shape:
@@ -339,9 +339,53 @@ DLQ, crash recovery, the reconciler): [DATA-TOOLS.md §7.2](DATA-TOOLS.md#72-pha
 
 ---
 
-## Station 11: Check yourself
+## Station 11: The website, and the system watching itself (Phase 5)
 
-You've got Phases 1–4 down if you can answer these. Click to reveal.
+**Do**: in a fifth terminal start the site, then open it, and ask the API about itself.
+
+```bash
+# Terminal E: the website
+npm run dev:web          # → http://localhost:3000
+
+# Terminal B
+curl -s localhost:4000/metrics | grep 'http_requests_total{'
+curl -s localhost:4000/api/v1/system/status | python3 -m json.tool | head -20
+```
+
+**See**
+
+- http://localhost:3000: your profile, experience, projects, the rate-limiter lab and the
+  contact form, all read from the API. Scroll slowly: sections slide in, the timeline line
+  fills, the hero fades. Drag the lab's sliders and press ▶ play.
+- Terminal C (`MONITOR`): your page view arriving (`evalsha` of the bounded enqueue), sent by
+  the browser itself this time.
+- Terminal B: Prometheus counters labelled by route template, and the JSON status report.
+- http://localhost:3000/status: the same report, live, polled every 5 s. Stop Redis and watch
+  the banner turn amber within 5 s; start it again.
+
+**Why**: the site is a client of the same API you have been calling with curl, and both sides
+use one contract (`packages/shared`), so they cannot disagree about a field. The API measures
+every request and reports it twice: as Prometheus text for machines, and as JSON for the
+dashboard. The status endpoint keeps answering when a datastore is down, because that is
+exactly when people look at it.
+
+**Code**: [packages/shared/src](../packages/shared/src) (the contract) →
+[lib/api.ts](../apps/web/src/lib/api.ts) (server-side fetch) →
+[app/page.tsx](../apps/web/src/app/page.tsx);
+[page-view-beacon.tsx](../apps/web/src/components/page-view-beacon.tsx);
+[http-metrics.ts](../apps/api/src/middleware/http-metrics.ts) →
+[system-status.manager.ts](../apps/api/src/services/system-status.manager.ts) →
+[status-dashboard.tsx](../apps/web/src/components/status-dashboard.tsx).
+
+**More experiments** (reading counters and histograms, the metrics token, CORS, a tagged
+link from a real browser, every device width, an outage on the dashboard):
+[DATA-TOOLS.md §7.3–7.5](DATA-TOOLS.md#73-phase-5-metrics-and-the-status-endpoint).
+
+---
+
+## Station 12: Check yourself
+
+You've got Phases 1–5 down if you can answer these. Click to reveal.
 
 <details><summary>1. Which file decides whether <code>/health</code> returns 200 or 503?</summary>
 
@@ -456,10 +500,46 @@ for each. So the notification arrives within about 6 minutes instead of being lo
 
 </details>
 
+<details><summary>15. Why is <code>/api/v1/projects/nope</code> counted under <code>route="/api/v1/projects/:slug"</code>?</summary>
+
+Every distinct label value is a separate time series in Prometheus. Labelling by the route
+template keeps the number of series fixed; raw URLs would let anyone create unlimited series
+just by requesting random paths. Unknown URLs become `route="unmatched"`
+(`middleware/http-metrics.ts`).
+
+</details>
+
+<details><summary>16. Redis is down. What does the status page show, and why does it not just fail?</summary>
+
+The status endpoint still answers 200: Redis is `down` in `dependencies`, and `queues` is
+`null` (unknown, not zero), counted in `observability_read_errors_total`. A status page that
+fails during an outage is useless at the one moment it is needed. The dashboard turns its
+banner amber and keeps polling.
+
+</details>
+
+<details><summary>17. Where is the rule "an email must be valid" written, and who uses it?</summary>
+
+Once, in `packages/shared/src/contact.ts`. The API validates requests with it, and the web
+app's contact form validates with the very same schema before sending, so the form and the
+API can never disagree.
+
+</details>
+
+<details><summary>18. The page-view beacon sends JSON. Why does it say <code>Content-Type: text/plain</code>?</summary>
+
+A cross-origin `application/json` POST needs a CORS preflight (an extra OPTIONS request);
+`text/plain` makes it a "simple" request sent straight away, which also works with
+`keepalive` in every browser. The API's events endpoint accepts both (`jsonFromText` in
+`controllers/parse-request.ts`).
+
+</details>
+
 ---
 
 ## Where to go next
 
 - [ROADMAP.md](../ROADMAP.md): what's done and what's next.
 - [DESIGN.md](../DESIGN.md): §2 (architecture), §8.1 (cache), §8.2 (telemetry pipeline) and
-  §8.3 (contact + notifications) are worth reading now that you've seen them working. Skip the later phases until we get there.
+  §8.3 (contact + notifications), §8.5 (observability) and §8.6 (the website) are worth reading
+  now that you've seen them working. Skip the later phases until we get there.

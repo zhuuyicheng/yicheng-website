@@ -25,7 +25,7 @@ npm run geoip:download   # free IP → organisation/location files (~65 MB downl
 
 npm run dev:api          # API    → http://localhost:4000/api/v1/projects
 npm run dev:worker       # Worker → analytics events to Postgres, contact notifications
-npm run dev:web          # Web    → http://localhost:3000, the site itself (each in its own terminal)
+npm run dev:web          # Web    → http://localhost:3000 (live dashboard: /status); each in its own terminal
 ```
 
 ## Common commands

@@ -9,7 +9,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | 2     | `feat/portfolio-cache-api`   | A      | ✅ Done        |
 | 3     | `feat/telemetry-pipeline`    | B      | ✅ Done        |
 | 4     | `feat/contact-rate-limiter`  | C      | ✅ Done        |
-| 5     | `feat/metrics-and-dashboard` | D      | 🚧 In progress |
+| 5     | `feat/metrics-and-dashboard` | D      | 🔍 In review   |
 | 6     | `feat/continuous-delivery`   | —      | ⬜ Not started |
 
 ---
@@ -136,7 +136,14 @@ headers), **5b** the website (shared schemas, pages, contact form, beacon, priva
       (DESIGN.md §12)
 - [x] Tests (5b): web unit tests for the beacon, contact form, lab and formatting (282 API +
       28 web total); `next build` passes without the API running
-- [ ] Live system telemetry dashboard (counts only; visitor details stay private)
+- [x] Live system telemetry dashboard at `/status` (counts only; visitor details stay private):
+      polls every 5 s, pauses in hidden tabs, keeps stale numbers on an outage, live charts;
+      linked from the header, footer and a live pill in the hero
+- [x] Tests (5c): dashboard logic (fetch + contract check, health, formatting, chart paths)
+      (286 API + 37 web total)
+- [x] Guided tour station 11 and DATA-TOOLS.md §7.5: the website and the dashboard
+- [x] CI also runs the website's production build (`next build`, no API needed)
+- [ ] PR merged (CI green)
 
 ## Phase 6: Continuous delivery (`feat/continuous-delivery`)
 
