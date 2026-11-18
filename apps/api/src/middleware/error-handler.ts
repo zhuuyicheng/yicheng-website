@@ -1,8 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { AppError, ErrorCode, type ValidationIssue } from '../errors/app-error.js';
+import { isTransientDatastoreError } from '../infra/transient-error.js';
 import { renderError, type ErrorResponseBody } from '../views/error.view.js';
 
 export const GENERIC_ERROR_MESSAGE = 'An unexpected error occurred';
+export const SERVICE_UNAVAILABLE_MESSAGE =
+  'A required service is temporarily unavailable. Please retry shortly.';
 
 export interface ErrorResponse {
   statusCode: number;
@@ -62,6 +65,15 @@ export function toErrorResponse(error: unknown, requestId: string): ErrorRespons
     return {
       statusCode: clientStatus,
       body: renderError(errorCodeForClientStatus(clientStatus), error.message, requestId),
+    };
+  }
+
+  // A datastore that is down or restarting is not a bug in our code: 503 tells clients to
+  // retry shortly, and keeps 500 meaning "something is actually broken".
+  if (isTransientDatastoreError(error)) {
+    return {
+      statusCode: 503,
+      body: renderError(ErrorCode.SERVICE_UNAVAILABLE, SERVICE_UNAVAILABLE_MESSAGE, requestId),
     };
   }
 

@@ -6,7 +6,7 @@ section before changing behaviour, and update it in the same change when a desig
 ## Environment
 
 - Node **24 LTS** (`nvm use` reads `.nvmrc`), npm workspaces, Docker for Postgres 16 + Redis 7.
-- First run: `cp .env.example .env && npm install && npm run infra:up && npm run db:migrate && npm run content:seed`
+- First run: `cp .env.example .env && npm install && npm run infra:up && npm run db:migrate && npm run content:seed && npm run geoip:download`
 
 ## Commands (run from repo root)
 
@@ -14,8 +14,11 @@ section before changing behaviour, and update it in the same change when a desig
 | ----------------------------------------------- | ---------------------------------------------------------------- |
 | Start Postgres + Redis (waits for healthchecks) | `npm run infra:up` / `npm run infra:down`                        |
 | Dev servers                                     | `npm run dev:api` (port 4000), `npm run dev:web` (port 3000)     |
+| Worker (telemetry flusher)                      | `npm run dev:worker`                                             |
 | Apply migrations                                | `npm run db:migrate`                                             |
 | Publish `apps/api/content/portfolio.json`       | `npm run content:seed`                                           |
+| Retry dead-lettered telemetry events            | `npm run dlq:replay -- telemetry`                                |
+| Download / refresh the GeoIP databases          | `npm run geoip:download` (gitignored `apps/api/data/geoip/`)     |
 | Lint / fix                                      | `npm run lint` / `npm run lint:fix`                              |
 | Typecheck                                       | `npm run typecheck`                                              |
 | Format                                          | `npm run format` / `npm run format:check`                        |
@@ -33,13 +36,16 @@ section before changing behaviour, and update it in the same change when a desig
     (method + path), validates input with `parseRequest`, calls **one** manager method, picks
     the status code, renders a view. No business rules, no SQL, no Redis.
   - `services/*.manager.ts`: business rules. No Fastify request/reply objects, no SQL.
-  - `dal/*.dal.ts`: the only datastore code (Postgres or Redis; say which in the file
-    comment). Reads return `schema/` types, mapped from `dao/` rows.
+  - `dal/*.dal.ts`: the only datastore code (Postgres, Redis or local GeoIP files; say which
+    in the file comment). Reads return `schema/` types, mapped from `dao/` rows.
+  - `workers/*.worker.ts`: background loops started by `src/worker.ts`. The worker's
+    "controllers": decide _when_ to run, call one manager method, back off on failure.
   - `dao/*.dao.ts`: row types, one interface per table, column for column (`snake_case`).
   - `schema/*.schema.ts`: Zod schemas + types for responses, requests and input files.
   - `views/`: build response bodies (`{ data }`, `{ error }`); never leak internal fields.
-- **Composition root**: `src/main.ts` (and `src/worker.ts` from Phase 3) build infra clients;
-  `src/app.ts` wires DAL → managers → controllers. No module-level singletons.
+- **Composition root**: `src/main.ts` (API) and `src/worker.ts` (worker) build infra clients;
+  `src/app.ts` wires DAL → managers → controllers, `worker.ts` wires DAL → managers → worker
+  loops. No module-level singletons.
 - **Errors**: throw `AppError` (`src/errors/app-error.ts`) for expected failures. The error
   handler renders `{ error: { code, message, requestId } }` via `views/error.view.ts`.
 - **Success responses** are `{ data: ... }` (except `/health` and `/metrics`).
@@ -75,8 +81,9 @@ section before changing behaviour, and update it in the same change when a desig
 Phases and live progress checklists: [ROADMAP.md](ROADMAP.md). Tick items there as they land.
 
 1. **Skeleton & infra**: done (`main`)
-2. `feat/portfolio-cache-api`: CI workflow, profile/projects API, Redis cache-aside, cache metrics
-3. `feat/telemetry-pipeline`: event ingestion, Redis buffer, batch flusher worker, DLQ
+2. `feat/portfolio-cache-api`: CI workflow, profile/projects API, Redis cache-aside, cache metrics (done)
+3. `feat/telemetry-pipeline`: event ingestion, visitor details, Redis buffer, batch flusher
+   worker, DLQ + replay (built; PR in review)
 4. `feat/contact-rate-limiter`: Lua sliding-window limiter, contact API, notification worker
 5. `feat/metrics-and-dashboard`: `/metrics`, system status API, Next.js portfolio + dashboard
 6. `feat/continuous-delivery`: Docker images, GHCR, deploy workflow with approval gate, rollback

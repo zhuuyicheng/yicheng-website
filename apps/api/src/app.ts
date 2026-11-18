@@ -1,9 +1,13 @@
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import type { AppConfig } from './config/env.js';
 import { registerContentController } from './controllers/content.controller.js';
+import { registerEventsController } from './controllers/events.controller.js';
 import { registerHealthController } from './controllers/health.controller.js';
 import { createContentCacheDal } from './dal/content-cache.dal.js';
 import { createContentDal } from './dal/content.dal.js';
+import { createEventBufferDal } from './dal/event-buffer.dal.js';
+import { createIpLocationDal, type IpDatabases } from './dal/ip-location.dal.js';
+import { createTelemetrySaltDal } from './dal/telemetry-salt.dal.js';
 import type { Logger } from './infra/logger.js';
 import type { Metrics } from './infra/metrics.js';
 import { pingPostgres, type PostgresPool } from './infra/postgres.js';
@@ -13,6 +17,8 @@ import { REQUEST_ID_HEADER, resolveRequestId } from './middleware/request-id.js'
 import { createCacheAsideManager } from './services/cache-aside.manager.js';
 import { createContentManager } from './services/content.manager.js';
 import { createHealthManager } from './services/health.manager.js';
+import { createTelemetryManager } from './services/telemetry.manager.js';
+import { createVisitorDetailsManager } from './services/visitor-details.manager.js';
 
 /** Infrastructure created by the composition root (main.ts, or a test) and shared by modules. */
 export interface AppDependencies {
@@ -21,6 +27,8 @@ export interface AppDependencies {
   metrics: Metrics;
   postgres: PostgresPool;
   redis: Redis;
+  /** Opened at startup by infra/ip-databases.ts; tests usually pass NO_IP_DATABASES. */
+  ipDatabases: IpDatabases;
 }
 
 const BODY_LIMIT_BYTES = 16 * 1024;
@@ -30,13 +38,17 @@ const BODY_LIMIT_BYTES = 16 * 1024;
  * `app.inject()` against the exact same app that production runs.
  */
 export function buildApp(dependencies: AppDependencies): FastifyInstance {
-  const { config, logger, metrics, postgres, redis } = dependencies;
+  const { config, logger, metrics, postgres, redis, ipDatabases } = dependencies;
 
   const app = Fastify({
     loggerInstance: logger,
     genReqId: resolveRequestId,
     logController: new LogController({ requestIdLogLabel: 'requestId' }),
     bodyLimit: BODY_LIMIT_BYTES,
+    // Behind a proxy (Caddy), every request comes from the proxy's IP. Trusting it makes
+    // `request.ip` the visitor's IP from X-Forwarded-For. Never enable without a proxy:
+    // anyone could then fake their IP with that header.
+    trustProxy: config.server.trustProxy,
   });
 
   // Set early so the header is present on every response, errors included.
@@ -67,6 +79,17 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     }),
   });
   registerContentController(app, contentManager);
+
+  const telemetryManager = createTelemetryManager({
+    bufferDal: createEventBufferDal(redis),
+    saltDal: createTelemetrySaltDal(redis),
+    visitorDetails: createVisitorDetailsManager({
+      ipLocationDal: createIpLocationDal(ipDatabases),
+    }),
+    metrics,
+    bufferMaxLength: config.telemetry.bufferMaxLength,
+  });
+  registerEventsController(app, telemetryManager);
 
   return app;
 }

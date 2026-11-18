@@ -1,4 +1,4 @@
-# Guided Tour: Phases 1–2, Hands-On
+# Guided Tour: Phases 1–3, Hands-On
 
 A set of short "stations" that let you poke at everything built so far. Each station is
 10–15 minutes and has the same shape:
@@ -134,12 +134,13 @@ docker compose start postgres
   Terminal A logs `redis reconnecting` and `cache operation failed, serving from postgres`.
   When Redis returns, everything recovers without restarting the API.
 - **Postgres down**: cached content keeps working. That's a bonus of caching. An uncached
-  request fails.
+  request fails with `503 SERVICE_UNAVAILABLE`: "a dependency is down, try again soon".
 
-**Spot the gap**: that last request returns `500 INTERNAL_ERROR`. DESIGN.md §7.2 says a
-required dependency being down should be `503 SERVICE_UNAVAILABLE` (meaning "try again soon",
-not "the server has a bug"). This is a real gap you just found. It's on the roadmap for
-Phase 3, which builds the "temporary vs permanent error" classifier this fix needs.
+**A gap this station found**: before Phase 3, that last request returned `500 INTERNAL_ERROR`,
+which means "the server has a bug". Phase 3 fixed it with a classifier that tells an outage
+(retry later) from a bug: [infra/transient-error.ts](../apps/api/src/infra/transient-error.ts),
+used by [middleware/error-handler.ts](../apps/api/src/middleware/error-handler.ts). The
+regression test is "answers 503 (not 500) for a cache miss" in `test/integration/content.test.ts`.
 
 **Why**: `/health` answers "is everything healthy?", which is strict. The content API answers
 "can I still serve this request?", which is tolerant. Redis is an _optimisation_ for content,
@@ -247,7 +248,7 @@ Now, in [services/cache-aside.manager.ts](../apps/api/src/services/cache-aside.m
 **See**: the `ttlWithJitter` tests turn red within a second, telling you exactly which
 expectation broke; undoing turns them green.
 
-Then run the whole suite once: `npm test` (79 tests). Pick one test file, read it, and match
+Then run the whole suite once: `npm test` (175 tests). Pick one test file, read it, and match
 each `it(...)` to a behaviour you saw in Stations 1–7.
 
 **Why**: tests are the safety net that lets later phases change code without fear. CI runs
@@ -255,9 +256,49 @@ the same tests on GitHub for every pull request ([CI.md](CI.md)).
 
 ---
 
-## Station 9: Check yourself
+## Station 9: Follow an event into Postgres (Phase 3)
 
-You've got Phases 1–2 down if you can answer these. Click to reveal.
+**Do**: start the worker in a fourth terminal, then send an event.
+
+```bash
+# Terminal D: the worker, which moves events from Redis to Postgres
+npm run dev:worker
+
+# Terminal B
+curl -s -X POST localhost:4000/api/v1/events -H 'content-type: application/json' \
+  -d '{"type":"page_view","path":"/?ref=tour","sessionId":"tourSession01","timezone":"Asia/Singapore"}'
+```
+
+**See**
+
+- Terminal B: `{"data":{"eventId":"…"}}` with status `202 Accepted`: queued, not yet stored.
+- Terminal C (`MONITOR`): the API's `evalsha` appends the event to `telemetry:events:buffer`.
+  Within 5 s the worker's `evalsha` moves it to `telemetry:events:inflight`, and a `del`
+  removes that list once Postgres has the row.
+- Terminal D: `telemetry batch flushed` with `inserted: 1`.
+- PostgreSQL sidebar: a new row in `analytics_events` with `ref = tour` and your time zone.
+
+**Why**: the visitor's request only waits for Redis (well under a millisecond), never for
+Postgres. The worker inserts whole batches with one statement, and keeps a copy of each batch in
+Redis until Postgres has it, so neither a crash nor an outage loses an event.
+
+**Code**: the request: [events.controller.ts](../apps/api/src/controllers/events.controller.ts) →
+[telemetry.manager.ts](../apps/api/src/services/telemetry.manager.ts) (with
+[visitor-details.manager.ts](../apps/api/src/services/visitor-details.manager.ts)) →
+[event-buffer.dal.ts](../apps/api/src/dal/event-buffer.dal.ts). The worker:
+[worker.ts](../apps/api/src/worker.ts) →
+[telemetry-flusher.worker.ts](../apps/api/src/workers/telemetry-flusher.worker.ts) →
+[telemetry-flush.manager.ts](../apps/api/src/services/telemetry-flush.manager.ts) →
+[analytics-event.dal.ts](../apps/api/src/dal/analytics-event.dal.ts).
+
+**More experiments** (an outage, a poison event and the DLQ, graceful shutdown, an IP's
+organisation): [DATA-TOOLS.md §7.1](DATA-TOOLS.md#71-phase-3-the-telemetry-pipeline).
+
+---
+
+## Station 10: Check yourself
+
+You've got Phases 1–3 down if you can answer these. Click to reveal.
 
 <details><summary>1. Which file decides whether <code>/health</code> returns 200 or 503?</summary>
 
@@ -283,13 +324,13 @@ entries are never read again and simply expire. Project shapes didn't change.
 <details><summary>4. What is single-flight, and which test proves it works?</summary>
 
 Concurrent cache misses for the same key share one database query. Proven by "shares one
-source load between concurrent misses" in `test/unit/services/cache-aside.test.ts`.
+source load between concurrent misses" in `test/unit/services/cache-aside.manager.test.ts`.
 
 </details>
 
 <details><summary>5. You want to add a "certifications" list. What do you create?</summary>
 
-A new migration (`0003_…`, never an edit to 0001/0002), a row type in `content.dao.ts`, Zod
+A new migration (the next free number, never an edit to an applied one), a row type in `content.dao.ts`, Zod
 schemas in `content.schema.ts`, SQL + a row mapping in `content.dal.ts`, a view mapping, tests,
 and a profile cache key bump to `v3`.
 
@@ -302,10 +343,43 @@ instead of being hidden by a cached "doesn't exist".
 
 </details>
 
+<details><summary>7. Why does <code>POST /api/v1/events</code> answer 202, not 201?</summary>
+
+`201 Created` would claim the event is stored. It is only queued in Redis; the worker stores it
+a moment later. `202 Accepted` means exactly "accepted for processing".
+
+</details>
+
+<details><summary>8. Postgres is down for ten minutes. What happens to the events sent meanwhile?</summary>
+
+Ingestion still answers 202, because it never touches Postgres. The worker's flush fails with a
+transient error, so the batch stays in `telemetry:events:inflight` and is retried with backoff
+(0.5 s doubling to 30 s), while new events wait in the buffer (503 only once it holds
+`TELEMETRY_BUFFER_MAX_LENGTH`). Nothing goes to the DLQ, which is reserved for bad data.
+
+</details>
+
+<details><summary>9. The worker crashes after inserting a batch but before acknowledging it. Why are there no duplicate rows?</summary>
+
+On restart the claim script returns the in-flight batch again, but every event's id was
+assigned at ingestion and the insert says `ON CONFLICT (id) DO NOTHING`, so re-inserting it is a
+no-op. Proven by "after a crash between insert and acknowledge, re-delivers the batch without
+duplicates" in `test/integration/telemetry-flusher.test.ts`.
+
+</details>
+
+<details><summary>10. Which test proves the worker empties the buffer when it is stopped?</summary>
+
+"on SIGTERM, drains the whole buffer into Postgres, then exits with code 0" in
+`test/integration/worker-process.test.ts`. It starts the real worker process with a 5-minute
+flush interval, so anything flushed after `SIGTERM` was flushed by the drain.
+
+</details>
+
 ---
 
 ## Where to go next
 
 - [ROADMAP.md](../ROADMAP.md): what's done and what's next.
-- [DESIGN.md](../DESIGN.md): §2 (architecture) and §8.1 (cache) are worth reading now that
-  you've seen them working. Skip the later phases until we get there.
+- [DESIGN.md](../DESIGN.md): §2 (architecture), §8.1 (cache) and §8.2 (telemetry pipeline)
+  are worth reading now that you've seen them working. Skip the later phases until we get there.

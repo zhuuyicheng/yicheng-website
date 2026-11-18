@@ -22,13 +22,57 @@ describe('loadConfig', () => {
 
     expect(config).toEqual({
       nodeEnv: 'development',
-      server: { host: '0.0.0.0', port: 4000 },
+      server: { host: '0.0.0.0', port: 4000, trustProxy: false },
       log: { level: 'info', pretty: true },
       postgres: { url: REQUIRED_ENV.DATABASE_URL, poolMax: 10 },
       redis: { url: REQUIRED_ENV.REDIS_URL },
       cache: { ttlSeconds: 300 },
+      telemetry: { bufferMaxLength: 100_000, batchSize: 50, flushIntervalMs: 5_000 },
+      ipLookup: { asnDbPath: null, locationDbPath: null },
       shutdown: { timeoutMs: 10_000 },
     });
+  });
+
+  it('reads the worker settings and the GeoIP database paths', () => {
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      TELEMETRY_BATCH_SIZE: '200',
+      TELEMETRY_FLUSH_INTERVAL_MS: '1000',
+      GEOIP_ASN_DB_PATH: 'data/geoip/dbip-asn-lite.mmdb',
+      GEOIP_LOCATION_DB_PATH: '/srv/geoip/city.mmdb',
+    });
+
+    expect(config.telemetry).toMatchObject({ batchSize: 200, flushIntervalMs: 1_000 });
+    expect(config.ipLookup).toEqual({
+      asnDbPath: 'data/geoip/dbip-asn-lite.mmdb',
+      locationDbPath: '/srv/geoip/city.mmdb',
+    });
+    // A batch must fit in one INSERT; a 0 ms interval would spin the worker.
+    expect(
+      captureConfigError({
+        ...REQUIRED_ENV,
+        TELEMETRY_BATCH_SIZE: '5000',
+        TELEMETRY_FLUSH_INTERVAL_MS: '0',
+      }).problems,
+    ).toEqual([
+      expect.stringMatching(/^TELEMETRY_BATCH_SIZE:/),
+      expect.stringMatching(/^TELEMETRY_FLUSH_INTERVAL_MS:/),
+    ]);
+  });
+
+  it('parses TRUST_PROXY strictly and the telemetry buffer cap as a number', () => {
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      TRUST_PROXY: 'true',
+      TELEMETRY_BUFFER_MAX_LENGTH: '500',
+    });
+
+    expect(config.server.trustProxy).toBe(true);
+    expect(config.telemetry.bufferMaxLength).toBe(500);
+    // A typo must not silently mean "false".
+    expect(captureConfigError({ ...REQUIRED_ENV, TRUST_PROXY: 'ture' }).problems).toEqual([
+      expect.stringMatching(/^TRUST_PROXY:/),
+    ]);
   });
 
   it('coerces numeric variables from strings', () => {

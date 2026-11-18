@@ -7,7 +7,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | ----- | ---------------------------- | ------ | -------------- |
 | 1     | `main` (initial scaffold)    | —      | ✅ Done        |
 | 2     | `feat/portfolio-cache-api`   | A      | ✅ Done        |
-| 3     | `feat/telemetry-pipeline`    | B      | ⏳ Next        |
+| 3     | `feat/telemetry-pipeline`    | B      | 🔍 In review   |
 | 4     | `feat/contact-rate-limiter`  | C      | ⬜ Not started |
 | 5     | `feat/metrics-and-dashboard` | D      | ⬜ Not started |
 | 6     | `feat/continuous-delivery`   | —      | ⬜ Not started |
@@ -58,21 +58,33 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 
 ## Phase 3: Telemetry pipeline (`feat/telemetry-pipeline`)
 
-- [ ] Migration `0003_analytics_events.sql`
-- [ ] Datastore unavailable → `503 SERVICE_UNAVAILABLE`, not `500` (found in the guided tour:
-      Postgres down + cache miss returns 500); reuse the transient-error classifier
-- [ ] `POST /api/v1/events` → validation, daily-salted visitor hash, bounded Redis buffer, `202`
-- [ ] `worker.ts` entrypoint + telemetry batch flusher (claim → bulk insert → ack)
-- [ ] Transient vs permanent error handling; poison events → DLQ
-- [ ] `npm run dlq:replay`
-- [ ] Worker graceful shutdown drains the buffer
-- [ ] Integration tests: ingest → flush, crash recovery (no duplicates), DLQ, buffer cap,
-      **worker SIGTERM graceful shutdown**
-- [ ] DATA-TOOLS.md §7: watching the buffer drain into `analytics_events`
+- [x] Migration `0003_analytics_events.sql` (+ `dao/analytics-event.dao.ts`, request/buffer schemas)
+- [x] Datastore unavailable → `503 SERVICE_UNAVAILABLE`, not `500` (found in the guided tour:
+      Postgres down + cache miss returns 500); `infra/transient-error.ts`, reused by the flusher
+- [x] `POST /api/v1/events` → validation, daily-salted visitor hash, bounded Redis buffer, `202`
+      (`TRUST_PROXY`, `TELEMETRY_BUFFER_MAX_LENGTH`; ingested/rejected metrics)
+- [x] Visitor details (decided mid-phase, DESIGN.md §8.2 and §12): migration
+      `0004_analytics_visitor_details.sql`; tagged links (`ref`, `utm_*`), browser / OS / device
+      type, language, time zone; IP → country, city, organisation from local DB-IP Lite files
+      (`npm run geoip:download`, `GEOIP_*_DB_PATH`)
+- [x] `worker.ts` entrypoint + telemetry batch flusher (claim → bulk insert with `unnest` → ack)
+- [x] Transient vs permanent error handling (backoff 0.5 s → 30 s); poison events isolated row
+      by row → DLQ
+- [x] `npm run dlq:replay -- telemetry`
+- [x] Worker graceful shutdown drains the buffer
+- [x] Integration tests: ingest → flush, crash recovery (no duplicates), DLQ, buffer cap, IP
+      lookup on MaxMind test databases, DLQ replay CLI, **worker SIGTERM graceful shutdown**
+      (129 unit + 46 integration total)
+- [x] DATA-TOOLS.md §7: watching the buffer drain into `analytics_events`, plus
+      `docs/sql/telemetry.sql`
+- [ ] PR merged (CI green)
 
 ## Phase 4: Contact API + rate limiter (`feat/contact-rate-limiter`)
 
-- [ ] Migration `0004_contact_messages.sql`
+Not in scope: linking contact-form emails to browsing sessions (on hold by decision; the form
+stays optional and is never required to view the site).
+
+- [ ] Migration `0005_contact_messages.sql`
 - [ ] Atomic Lua sliding-window rate limiter + `X-RateLimit-*` / `Retry-After` headers
 - [ ] `POST /api/v1/contact` → persist `PENDING`, enqueue notification job, `202`
 - [ ] Notification worker: reliable queue, exponential backoff, DLQ, `SENT`/`FAILED` status
@@ -88,8 +100,11 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 - [ ] `GET /api/v1/system/status` (uptime, health, p50/p95, cache ratio, page views, queues)
 - [ ] Helmet security headers + CORS allow-list
 - [ ] `packages/shared` API contract schemas
-- [ ] Next.js portfolio pages (profile, projects, contact form) + page-view beacon
-- [ ] Live system telemetry dashboard
+- [ ] Next.js portfolio pages (profile, projects, contact form) + page-view beacon (sends the
+      path with its query string, so tagged links work, plus referrer, session id, time zone)
+- [ ] Privacy notice page: what the analytics collect and why, with the DB-IP attribution
+      (DESIGN.md §12)
+- [ ] Live system telemetry dashboard (counts only; visitor details stay private)
 
 ## Phase 6: Continuous delivery (`feat/continuous-delivery`)
 
@@ -97,8 +112,9 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
 
 - [ ] Decide hosting + domain (default: one VPS running Docker Compose, Caddy for HTTPS and
       load balancing)
-- [ ] `apps/api/Dockerfile` (multi-stage, non-root; one image for api/worker/migrate/seed),
-      `apps/web/Dockerfile` (Next.js standalone), `.dockerignore`
+- [ ] `apps/api/Dockerfile` (multi-stage, non-root; one image for api/worker/migrate/seed;
+      downloads the GeoIP files during the build), `apps/web/Dockerfile` (Next.js standalone),
+      `.dockerignore`
 - [ ] CI: build both images on every PR (a broken Dockerfile fails before merge)
 - [ ] On merge to `main`: push images to GHCR tagged with the git SHA
 - [ ] `deploy/compose.prod.yml` + `Caddyfile`; production env file kept on the host only

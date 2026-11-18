@@ -4,6 +4,7 @@ import { AppError, ErrorCode } from '../../../src/errors/app-error.js';
 import {
   GENERIC_ERROR_MESSAGE,
   registerErrorHandlers,
+  SERVICE_UNAVAILABLE_MESSAGE,
   toErrorResponse,
 } from '../../../src/middleware/error-handler.js';
 import type { ErrorResponseBody } from '../../../src/views/error.view.js';
@@ -49,6 +50,23 @@ describe('toErrorResponse', () => {
       code: 'INTERNAL_ERROR',
       message: GENERIC_ERROR_MESSAGE,
       requestId: 'r3',
+    });
+  });
+
+  it('maps a datastore outage to 503 SERVICE_UNAVAILABLE without leaking the address', () => {
+    const error = Object.assign(new Error('connect ECONNREFUSED 10.0.0.5:5432'), {
+      code: 'ECONNREFUSED',
+    });
+
+    expect(toErrorResponse(error, 'r6')).toEqual({
+      statusCode: 503,
+      body: {
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: SERVICE_UNAVAILABLE_MESSAGE,
+          requestId: 'r6',
+        },
+      },
     });
   });
 

@@ -84,14 +84,16 @@ Full key catalog: DESIGN.md §6.2. Tables: DESIGN.md §5.
 - **Browse**: `portfolio (dev)` → Databases → `portfolio` → Schemas → `public` → Tables.
   Expand a table to see its columns and indexes, e.g. `projects_display_order_idx`.
 - **See rows**: right-click a table → **Select Top 1000**. The result grid opens in a panel.
-- **Run saved queries**: open [`docs/sql/content.sql`](sql/content.sql), pick the
-  `portfolio (dev)` connection when asked (or from the status bar), put the cursor on one
-  statement and press the **Run** (▷) button at the top of the editor.
+- **Run saved queries**: open [`docs/sql/content.sql`](sql/content.sql) (or, from Phase 3,
+  [`docs/sql/telemetry.sql`](sql/telemetry.sql)), pick the `portfolio (dev)` connection when
+  asked (or from the status bar), put the cursor on one statement and press the **Run** (▷)
+  button at the top of the editor.
 - **Schema diagram**: right-click the `portfolio` database → **Visualize Schema** (if your
   extension version has it) to see the tables and their columns as a diagram.
 - **Who is connected**: the last query in `content.sql` lists connections by
-  `application_name`. You will see `portfolio-api` while `npm run dev:api` runs; that name is
-  set in `src/main.ts` so connections are easy to tell apart.
+  `application_name`. You will see `portfolio-api` while `npm run dev:api` runs and
+  `portfolio-worker` while `npm run dev:worker` runs; those names are set in `src/main.ts` and
+  `src/worker.ts` so connections are easy to tell apart.
 
 ## 4. Tour of Redis for VS Code
 
@@ -157,13 +159,82 @@ DB 1 (`docker compose exec redis redis-cli -n 1 KEYS '*'`). After `npm run test:
 you can inspect what the last test left behind. Tests empty these databases freely, so anything
 you change there will be overwritten.
 
-## 7. What to watch in later phases
+## 7. What to watch, phase by phase
 
 Each phase extends this section when it lands.
 
-- **Phase 3 (telemetry):** `telemetry:events:buffer` (a LIST) grows as events arrive and
-  empties every few seconds; rows appear in `analytics_events` at the same moment. Stop
-  Postgres and watch the buffer grow instead of losing events.
+### 7.1 Phase 3: the telemetry pipeline
+
+The path of one event (DESIGN.md §8.2):
+
+```
+curl / browser ─► API ─► telemetry:events:buffer ─► worker claims a batch ─► analytics_events
+                         (Redis LIST)                telemetry:events:inflight   (Postgres)
+                                                     bad events ─► telemetry:events:dlq
+```
+
+Arrange four terminals: `npm run dev:api`, `npm run dev:worker`, `MONITOR` (§4), and one for
+`curl`. Keep the Redis view and the `analytics_events` table open. Remember ↻ in the Redis view.
+
+1. **Drain what is already waiting.** Before you start the worker, click
+   `telemetry:events:buffer` in the Redis view: the events you sent while trying step 3 of the
+   phase are still there, because nothing consumed them. Now start `npm run dev:worker`. Its
+   log says `worker started`, then `telemetry batch flushed` with `claimed` and `inserted`
+   counts. Refresh: the buffer key is gone (Redis deletes empty lists). Select Top 1000 on
+   `analytics_events`: the rows are there. Events sent before migration 0004 have empty visitor
+   details, because the old code did not collect them.
+2. **Send one event with everything filled in.**
+
+   ```bash
+   curl -s -X POST localhost:4000/api/v1/events -H 'content-type: application/json' \
+     -H 'accept-language: en-SG,en;q=0.9' \
+     -d '{"type":"page_view","path":"/?ref=acme&utm_source=linkedin","sessionId":"mySession001","timezone":"Asia/Singapore"}'
+   ```
+
+   `MONITOR` shows the API's `evalsha` (the bounded-enqueue script) and, on lines marked
+   `[0 lua]`, the `LLEN` and `RPUSH` the script ran. Within 5 s (`TELEMETRY_FLUSH_INTERVAL_MS`)
+   the worker's `evalsha` (claim) runs `LRANGE`, `LTRIM` and `RPUSH` into
+   `telemetry:events:inflight`, then a `del` of the in-flight list once Postgres has the row.
+   The new row has `ref = acme`, `utm_source = linkedin`, `language = en-SG` and
+   `timezone = Asia/Singapore`. `browser` stays empty: curl's user agent is not a browser.
+
+3. **See who a visitor is (organisation and location).** Locally every request comes from
+   `127.0.0.1`, which no IP database knows, so `organization`, `city` and `country_code` stay
+   empty. To try the lookup, restart the API pretending to be behind a proxy, and claim to be
+   someone else (never do this in production without a real proxy):
+
+   ```bash
+   TRUST_PROXY=true npm run dev:api        # an env var beats the .env file
+   curl -s -X POST localhost:4000/api/v1/events -H 'content-type: application/json' \
+     -H 'x-forwarded-for: 8.8.8.8' -d '{"type":"page_view","path":"/","sessionId":"mySession001"}'
+   ```
+
+   The row says `US`, `Mountain View`, `Google LLC`. This needs the GeoIP files
+   (`npm run geoip:download`) and the `GEOIP_*_DB_PATH` lines from `.env.example`.
+
+4. **Postgres goes down: nothing is lost.** `docker compose stop postgres`, then send a few
+   events: still `202`, because ingestion never touches Postgres. The worker logs
+   `telemetry flush failed: datastore unavailable, will retry` with `retryInMs` doubling (500,
+   1000, 2000…). In the Redis view, `telemetry:events:inflight` holds the batch it is retrying
+   and `telemetry:events:buffer` keeps growing. `docker compose start postgres`: within the
+   current backoff (at most 30 s) the worker inserts the in-flight batch, then the rest.
+5. **A poison event goes to the DLQ.** In the Redis CLI panel run
+   `RPUSH telemetry:events:buffer "not json"`. The worker logs `telemetry event dead-lettered`
+   (`reason: invalid_payload`) and `telemetry:events:dlq` appears; its value shows the original
+   payload, the reason and the error message. `npm run dlq:replay -- telemetry` moves it back
+   to the buffer, and since it is still not JSON, the worker dead-letters it again. That is the
+   intended loop: fix the cause first, then replay. Delete the DLQ key when you are done.
+6. **Graceful shutdown drains the buffer.** Restart the worker with a pause so long that it
+   cannot flush by itself: `TELEMETRY_FLUSH_INTERVAL_MS=60000 npm run dev:worker`. Send three
+   events (they wait in the buffer), then press Ctrl+C in the worker terminal. The log reads
+   `shutdown started`, `telemetry batch flushed` (`claimed: 3`), `telemetry buffer drained`,
+   `shutdown complete`: it emptied the buffer before exiting instead of waiting a minute.
+7. **Ask questions with SQL.** Open [`docs/sql/telemetry.sql`](sql/telemetry.sql): latest
+   events, top pages, unique visitors per day, organisations, tagged-link sessions, referrers,
+   devices, clicks, and how long events waited in Redis.
+
+### 7.2 Later phases
+
 - **Phase 4 (contact):** each accepted contact request adds a timestamped member to a
   `ratelimit:contact:<hash>` sorted set with a TTL; `contact_messages.status` moves from
   `PENDING` to `SENT` (or to `FAILED` with jobs in `jobs:notifications:dlq`).
@@ -172,9 +243,12 @@ Each phase extends this section when it lands.
 
 ## 8. Troubleshooting
 
-| Symptom                           | Fix                                                                   |
-| --------------------------------- | --------------------------------------------------------------------- |
-| "Connection refused"              | `npm run infra:up`; use `127.0.0.1` instead of `localhost`            |
-| Connects, but no tables           | `npm run db:migrate` (and `npm run content:seed` for content rows)    |
-| Redis view shows no `cache:` keys | Make sure the connection uses DB **0**, make a request, press refresh |
-| `portfolio_test` database missing | It is created by the first `npm run test:integration`                 |
+| Symptom                            | Fix                                                                   |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| "Connection refused"               | `npm run infra:up`; use `127.0.0.1` instead of `localhost`            |
+| Connects, but no tables            | `npm run db:migrate` (and `npm run content:seed` for content rows)    |
+| Redis view shows no `cache:` keys  | Make sure the connection uses DB **0**, make a request, press refresh |
+| `portfolio_test` database missing  | It is created by the first `npm run test:integration`                 |
+| `analytics_events` stays empty     | Is `npm run dev:worker` running? Events wait in Redis until it is     |
+| API exits: `GEOIP_…: cannot open`  | `npm run geoip:download`, or remove the `GEOIP_*` lines from `.env`   |
+| `organization`/`city` always empty | Normal locally (`127.0.0.1`); see §7.1 step 3 to try a public IP      |

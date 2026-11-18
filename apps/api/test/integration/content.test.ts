@@ -1,16 +1,18 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
+import { createPostgresPool } from '../../src/infra/postgres.js';
 import { closeRedis, createRedisClient } from '../../src/infra/redis.js';
 import type { Profile, Project, ProjectSummary } from '../../src/schema/content.schema.js';
 import { CONTENT_CACHE_KEYS } from '../../src/dal/content-cache.dal.js';
 import { createContentDal } from '../../src/dal/content.dal.js';
-import type { DataResponseBody } from '../../src/views/content.view.js';
+import type { DataResponseBody } from '../../src/views/data.view.js';
 import type { ErrorResponseBody } from '../../src/views/error.view.js';
 import { counterValue } from '../helpers/metrics.js';
 import { SAMPLE_CONTENT } from '../helpers/sample-content.js';
 import {
   createTestDependencies,
+  UNREACHABLE_POSTGRES_URL,
   UNREACHABLE_REDIS_URL,
   type TestDependencies,
 } from '../helpers/test-dependencies.js';
@@ -169,6 +171,48 @@ describe('content API with Redis down', () => {
     } finally {
       await app.close();
       await closeRedis(deadRedis);
+    }
+  });
+});
+
+describe('content API with Postgres down', () => {
+  let deps: TestDependencies;
+
+  beforeAll(async () => {
+    deps = await createTestDependencies();
+    await deps.postgres.query('TRUNCATE profile, experiences, education, projects');
+    await createContentDal(deps.postgres).replaceAll(SAMPLE_CONTENT);
+    await deps.redis.flushdb();
+  });
+
+  afterAll(async () => {
+    await deps.close();
+  });
+
+  // Regression test: found in the guided tour, a cache miss used to return 500 INTERNAL_ERROR.
+  it('serves cached entries, and answers 503 (not 500) for a cache miss', async () => {
+    const healthyApp = buildApp(deps);
+    await healthyApp.inject({ method: 'GET', url: '/api/v1/projects' }); // warm one key
+    await healthyApp.close();
+
+    const deadPostgres = createPostgresPool(
+      { url: UNREACHABLE_POSTGRES_URL, poolMax: 1, applicationName: 'dead-postgres' },
+      deps.logger,
+      deps.metrics,
+    );
+    const app = buildApp({ ...deps, postgres: deadPostgres });
+
+    try {
+      const cached = await app.inject({ method: 'GET', url: '/api/v1/projects' });
+      const uncached = await app.inject({ method: 'GET', url: '/api/v1/projects/note-g' });
+
+      expect(cached.statusCode).toBe(200);
+      expect(cached.headers['x-cache']).toBe('hit');
+      expect(uncached.statusCode).toBe(503);
+      expect(uncached.json<ErrorResponseBody>().error.code).toBe('SERVICE_UNAVAILABLE');
+    } finally {
+      await app.close();
+      await deadPostgres.end();
     }
   });
 });
