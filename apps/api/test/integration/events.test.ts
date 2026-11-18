@@ -92,6 +92,32 @@ describe('POST /api/v1/events with live Redis', () => {
     }
   });
 
+  it('accepts the beacon’s text/plain body (a CORS "simple" request: no preflight needed)', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/events',
+      payload: JSON.stringify(PAGE_VIEW),
+      headers: { 'content-type': 'text/plain;charset=UTF-8', origin: 'http://localhost:3000' },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.headers['access-control-allow-origin']).toBe('http://localhost:3000');
+    expect(await bufferedEvents()).toHaveLength(1);
+  });
+
+  it('answers 400 BAD_REQUEST for a text/plain body that is not JSON', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/events',
+      payload: 'not json',
+      headers: { 'content-type': 'text/plain' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json<ErrorResponseBody>().error.code).toBe('BAD_REQUEST');
+    expect(await bufferedEvents()).toEqual([]);
+  });
+
   it('rejects an invalid event with 400 and field details, buffering nothing', async () => {
     const response = await app.inject({
       method: 'POST',

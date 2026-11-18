@@ -124,11 +124,18 @@ headers), **5b** the website (shared schemas, pages, contact form, beacon, priva
 - [x] Tests (5a): status with live datastores and Redis down, `/metrics`, token, Helmet, CORS
       (207 unit + 75 integration total)
 - [x] DATA-TOOLS.md §7.3: reading `/metrics` and the status endpoint
-- [ ] `packages/shared` API contract schemas
-- [ ] Next.js portfolio pages (profile, projects, contact form) + page-view beacon (sends the
+- [x] `packages/shared` API contract schemas (content, contact, events, system status, error
+      envelope); the API re-exports them, built to `dist/` by `build:shared` / `postinstall`
+- [x] Next.js portfolio pages (profile, projects, contact form) + page-view beacon (sends the
       path with its query string, so tagged links work, plus referrer, session id, time zone)
-- [ ] Privacy notice page: what the analytics collect and why, with the DB-IP attribution
+      and tracked external-link clicks
+- [x] Dark, developer-style design with scroll effects (reveal, hero fade, timeline fill,
+      scrollspy), an interactive rate-limiter lab with sliders, responsive from phone to
+      desktop, `prefers-reduced-motion` respected (DESIGN.md §8.6)
+- [x] Privacy notice page: what the analytics collect and why, with the DB-IP attribution
       (DESIGN.md §12)
+- [x] Tests (5b): web unit tests for the beacon, contact form, lab and formatting (282 API +
+      28 web total); `next build` passes without the API running
 - [ ] Live system telemetry dashboard (counts only; visitor details stay private)
 
 ## Phase 6: Continuous delivery (`feat/continuous-delivery`)

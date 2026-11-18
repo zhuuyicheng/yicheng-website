@@ -27,7 +27,7 @@ processing, observability, and disciplined testing.
 | Concern       | Choice                                                                        |
 | ------------- | ----------------------------------------------------------------------------- |
 | Runtime       | Node.js 24 LTS, TypeScript 6 (strict), ESM                                    |
-| Monorepo      | npm workspaces (`apps/api`, `apps/web`, later `packages/shared`)              |
+| Monorepo      | npm workspaces (`packages/shared`, `apps/api`, `apps/web`)                    |
 | API           | Fastify 5, Zod 4 validation, Pino logging                                     |
 | Web           | Next.js 16 (App Router), React 19, Tailwind CSS 4                             |
 | Datastores    | PostgreSQL 16 (`pg`, plain SQL migrations), Redis 7 (`ioredis`)               |
@@ -241,15 +241,29 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │       ├── fixtures/geoip/           (P3) MaxMind's tiny test .mmdb files (Apache-2.0/MIT)
 │   │       ├── unit/                     mirrors src/ folders; pure logic, no I/O
 │   │       └── integration/              real Postgres + Redis (docker compose)
-│   └── web/
+│   └── web/                          (P5) the website (§8.6)
 │       ├── package.json, next.config.ts, postcss.config.mjs, tsconfig.json
+│       ├── vitest.config.ts              unit tests for src/lib
 │       ├── Dockerfile                    (P6) Next.js standalone server
-│       └── src/
-│           ├── app/                      routes: layout.tsx, page.tsx, (P5) projects/, status/
-│           ├── components/               (P5) presentational React components
-│           └── lib/api-client.ts         (P5) typed fetch wrapper
+│       ├── src/
+│       │   ├── app/                      routes (App Router)
+│       │   │   ├── layout.tsx            header, footer, page-view beacon
+│       │   │   ├── page.tsx              home: hero, about, experience, projects, lab, contact
+│       │   │   ├── projects/             list + [slug] detail
+│       │   │   ├── privacy/              privacy notice (static)
+│       │   │   ├── status/               (P5c) live dashboard
+│       │   │   ├── error.tsx             "API unreachable" + retry
+│       │   │   ├── not-found.tsx
+│       │   │   └── globals.css           theme, grid/glow, reveal, reduced motion
+│       │   ├── components/               sections and effects ('use client' only where needed)
+│       │   └── lib/                      logic without React: api (server fetch), telemetry
+│       │                                 (beacon), contact, sliding-window, format, config
+│       └── test/lib/                     unit tests mirroring src/lib
 └── packages/
-    └── shared/                           (P5) Zod API contract schemas shared by api + web
+    └── shared/                           (P5) the API contract: Zod schemas for every public
+        ├── package.json                  request/response (content, contact, events, system
+        ├── tsconfig.json / .build.json   status, error envelope). Built to dist/ (`build:shared`,
+        └── src/                          run by postinstall, dev:*, typecheck and test)
 ```
 
 ---
@@ -287,8 +301,12 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `NOTIFY_BACKOFF_BASE_MS`            | 4     | `5000`                  | Delay = base × 2^(attempt−1) ± 20 % jitter, capped at 4 min.              |
 | `METRICS_TOKEN`                     | 5     | unset                   | ≥ 16 chars. If set, `/metrics` requires `Authorization: Bearer <token>`.  |
 | `CORS_ORIGINS`                      | 5     | `http://localhost:3000` | Comma-separated origins (`https://host[:port]`, no path, no `/`).         |
-| `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side).                                              |
-| `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API (beacons, contact form).                                    |
+| `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side, read at request time).                        |
+| `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API (beacon, contact form). Baked in at `next build`.           |
+
+The two web variables are read by Next.js from the environment or from `apps/web/.env*`
+files (not the root `.env`); the defaults suit local development. `NEXT_PUBLIC_*` values are
+copied into the JavaScript bundle when the site is built, so changing one means rebuilding.
 
 Docker Compose additionally reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
 `POSTGRES_PORT`, `REDIS_PORT` (all with local-dev defaults).
@@ -779,6 +797,10 @@ The server also reads the `User-Agent` and `Accept-Language` headers and the cli
 (`X-Forwarded-For` only when `TRUST_PROXY=true`), and records its own receive time; client
 clocks are not trusted.
 
+The body is JSON, sent as `application/json` or as `text/plain` (the web app's beacon uses
+`text/plain` so browsers send it without a CORS preflight, §8.6); text that is not JSON is
+`400 BAD_REQUEST`.
+
 `202 Accepted` → `{ "data": { "eventId": "uuid" } }`. Never touches Postgres.
 `503 SERVICE_UNAVAILABLE` when Redis is down or the buffer is at `TELEMETRY_BUFFER_MAX_LENGTH`.
 
@@ -1070,6 +1092,57 @@ one gauge per queue because prom-client reports a label-less gauge as `0` even a
 when Redis is down, the samples are removed, so Prometheus shows a gap ("unknown") instead of
 a false "empty".
 
+### 8.6 The website (Phase 5)
+
+**Contract.** `packages/shared` holds the Zod schemas of every public request and response.
+The API's `schema/` files re-export them (internal shapes stay in the API), and the web app
+validates what it receives and what it sends with the same schemas, so the two cannot drift.
+The package is compiled to `dist/` with `tsc` (`npm run build:shared`); `postinstall`, the
+`dev:*` scripts, `typecheck` and `test` build it first, and `npm run dev:shared` rebuilds on
+save. Plain `node` (production) and every tool then import ordinary JavaScript.
+
+**Rendering.** Pages with content are Server Components rendered per request
+(`connection()` in `lib/api.ts`): they fetch from `API_BASE_URL`, validate with the shared
+schemas, and never depend on the API during `next build`. The API's Redis cache keeps this
+cheap. React `cache()` dedupes `getProfile()` between `generateMetadata` and the page. A
+missing profile (not seeded) shows a hint; an unknown project is a 404; an unreachable API
+renders `error.tsx` with a retry button. `/privacy` has no data and is prerendered.
+
+**Page-view beacon** (`components/page-view-beacon.tsx`, logic in `lib/telemetry.ts`):
+
+- one `page_view` per navigation, with the path **including its query string** (so tagged
+  links work), the browser's time zone, and the referrer **on the first view only** (later
+  ones come from our own pages);
+- `sessionId`: 16 random URL-safe characters in `sessionStorage` (per tab, never sent on its
+  own like a cookie; a fresh id per page load if storage is blocked);
+- clicks on links marked `data-track="click:…"` (external links, project repos) send an
+  `interaction`, through one delegated listener;
+- events are validated with the shared schema before sending; a path is trimmed to 512
+  characters and an unusual time zone is dropped rather than losing the event;
+- `fetch(…, { keepalive: true })`, so a click that leaves the site still gets counted, with
+  the JSON body sent as `Content-Type: text/plain`. That makes it a CORS "simple" request: no
+  preflight (one request instead of two), and no reliance on browsers combining preflights
+  with `keepalive`. The API accepts either content type on this endpoint (§7.5). Failures are
+  ignored on purpose: analytics must never break the page.
+
+**Contact form** (`components/contact-form.tsx`, `lib/contact.ts`): validated in the browser
+with the API's schema, then sent. Every answer has a message: `202` (with the remaining count
+from `X-RateLimit-Remaining`), `400` (the API's field details under each field), `429` (the
+wait from `Retry-After`, rounded up), `503` and network failures.
+
+**Effects.** Dark theme with monospace "terminal" details. Scroll-linked effects write one
+CSS variable (`--progress`, `components/use-scroll-progress.ts`) per animation frame instead
+of re-rendering React: the hero drifts and fades, the timeline line fills. Sections reveal
+once on entering the screen (IntersectionObserver), the header highlights the section being
+read, the hero glow follows a precise pointer, and the rate-limiter lab replays the API's
+sliding window (`lib/sliding-window.ts`) with sliders, a play button and tap-to-add requests.
+Content is in the server-rendered HTML first; effects only enhance it, so without JavaScript
+or with `prefers-reduced-motion: reduce` everything is visible and still.
+
+**Devices.** Mobile-first Tailwind: one column on phones, the header's links collapse into a
+menu below `md`, project cards go 1 → 2 → 3 columns (`sm`, `lg`), the timeline puts dates
+beside entries from `md`, and the lab's sliders stack. Tap targets are at least 24 px.
+
 ---
 
 ## 9. Failure Modes & Edge Cases
@@ -1158,6 +1231,10 @@ matters most for deploys: the old worker empties the buffer before the new one s
   job in `processing`, reconciler); backoff/jitter bounds; Discord notifier status
   classification, timeout and payload (mentions off, truncation); consumer and periodic loops
   with a fake `sleep`; shutdown steps receive the time left.
+- (P5) Web (`apps/web/test/lib`, Vitest, no browser): the sliding-window replay matches the
+  API's rule; beacon session ids, referrer filtering, path trimming, time zone fallback,
+  interaction names; contact validation and every API answer (202/400/429/503/garbage);
+  date formatting.
 - (P5) Rolling percentile tracker (nearest rank, window expiry, fixed capacity); system status
   manager (5 s cache, single-flight, unreadable sources → `null` + metric, hit ratio, queue
   gauges reset when Redis is down); CORS origin and metrics token config.
@@ -1205,7 +1282,7 @@ browsers send (§8.2). Contact-form emails are not linked to browsing sessions (
 Consequences:
 
 - Derived details such as organisation and city still count as personal data under the GDPR
-  (for EU/UK visitors) and similar laws. (P5) The site gets a short privacy notice saying what is
+  (for EU/UK visitors) and similar laws. The site's privacy notice (`/privacy`, P5) says what is
   collected and why, plus the DB-IP attribution wherever the data is shown publicly.
 - Visitor details are for the site owner, who reads them with SQL (`docs/sql/telemetry.sql`).
   They never appear on the public status dashboard, which shows counts only (§7.7).

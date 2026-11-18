@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseRequest } from '../../../src/controllers/parse-request.js';
+import { jsonFromText, parseRequest } from '../../../src/controllers/parse-request.js';
 import { AppError } from '../../../src/errors/app-error.js';
 import { projectParamsSchema } from '../../../src/schema/content.schema.js';
 
@@ -23,5 +23,18 @@ describe('parseRequest', () => {
     expect(appError.details).toEqual([
       { path: 'slug', message: 'must be lowercase letters/digits separated by hyphens' },
     ]);
+  });
+});
+
+describe('jsonFromText', () => {
+  it('reads a text/plain body as JSON, and leaves an already parsed body alone', () => {
+    expect(jsonFromText('{"type":"page_view"}')).toEqual({ type: 'page_view' });
+    expect(jsonFromText({ type: 'page_view' })).toEqual({ type: 'page_view' });
+  });
+
+  it('turns text that is not JSON into a 400 BAD_REQUEST', () => {
+    expect(() => jsonFromText('not json')).toThrow(
+      expect.objectContaining({ code: 'BAD_REQUEST', statusCode: 400 }),
+    );
   });
 });

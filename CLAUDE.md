@@ -10,22 +10,23 @@ section before changing behaviour, and update it in the same change when a desig
 
 ## Commands (run from repo root)
 
-| Task                                            | Command                                                          |
-| ----------------------------------------------- | ---------------------------------------------------------------- |
-| Start Postgres + Redis (waits for healthchecks) | `npm run infra:up` / `npm run infra:down`                        |
-| Dev servers                                     | `npm run dev:api` (port 4000), `npm run dev:web` (port 3000)     |
-| Worker (telemetry flusher)                      | `npm run dev:worker`                                             |
-| Apply migrations                                | `npm run db:migrate`                                             |
-| Publish `apps/api/content/portfolio.json`       | `npm run content:seed`                                           |
-| Retry dead-lettered events / notifications      | `npm run dlq:replay -- telemetry` (or `-- notifications`)        |
-| Download / refresh the GeoIP databases          | `npm run geoip:download` (gitignored `apps/api/data/geoip/`)     |
-| Lint / fix                                      | `npm run lint` / `npm run lint:fix`                              |
-| Typecheck                                       | `npm run typecheck`                                              |
-| Format                                          | `npm run format` / `npm run format:check`                        |
-| All tests                                       | `npm test` (integration tests need `infra:up`)                   |
-| Unit only / integration only                    | `npm run test:unit` / `npm run test:integration`                 |
-| Single file                                     | `npm run test -w @portfolio/api -- test/unit/config/env.test.ts` |
-| Everything CI runs                              | `npm run check`                                                  |
+| Task                                               | Command                                                          |
+| -------------------------------------------------- | ---------------------------------------------------------------- |
+| Start Postgres + Redis (waits for healthchecks)    | `npm run infra:up` / `npm run infra:down`                        |
+| Dev servers                                        | `npm run dev:api` (port 4000), `npm run dev:web` (port 3000)     |
+| Rebuild `packages/shared` (or watch: `dev:shared`) | `npm run build:shared` (dev/test/typecheck scripts run it first) |
+| Worker (telemetry flusher)                         | `npm run dev:worker`                                             |
+| Apply migrations                                   | `npm run db:migrate`                                             |
+| Publish `apps/api/content/portfolio.json`          | `npm run content:seed`                                           |
+| Retry dead-lettered events / notifications         | `npm run dlq:replay -- telemetry` (or `-- notifications`)        |
+| Download / refresh the GeoIP databases             | `npm run geoip:download` (gitignored `apps/api/data/geoip/`)     |
+| Lint / fix                                         | `npm run lint` / `npm run lint:fix`                              |
+| Typecheck                                          | `npm run typecheck`                                              |
+| Format                                             | `npm run format` / `npm run format:check`                        |
+| All tests                                          | `npm test` (integration tests need `infra:up`)                   |
+| Unit only / integration only                       | `npm run test:unit` / `npm run test:integration`                 |
+| Single file                                        | `npm run test -w @portfolio/api -- test/unit/config/env.test.ts` |
+| Everything CI runs                                 | `npm run check`                                                  |
 
 ## Architecture rules (see DESIGN.md §2.2)
 
@@ -43,6 +44,9 @@ section before changing behaviour, and update it in the same change when a desig
   - `dao/*.dao.ts`: row types, one interface per table, column for column (`snake_case`).
   - `schema/*.schema.ts`: Zod schemas + types for responses, requests and input files.
   - `views/`: build response bodies (`{ data }`, `{ error }`); never leak internal fields.
+- **Public contract**: request/response Zod schemas live in `packages/shared` (both the API
+  and the web app import them); the API's `schema/` files re-export them and keep internal
+  shapes (buffered events, jobs, the content file) to themselves.
 - **Composition root**: `src/main.ts` (API) and `src/worker.ts` (worker) build infra clients;
   `src/app.ts` wires DAL → managers → controllers, `worker.ts` wires DAL → managers → worker
   loops. No module-level singletons.
@@ -67,6 +71,16 @@ section before changing behaviour, and update it in the same change when a desig
 - Comments explain _why_, not _what_.
 - Logging: use the injected Pino logger (`request.log` inside handlers) with an object first:
   `log.warn({ err, attempt }, 'redis reconnecting')`. Never log secrets, raw IPs, or bodies.
+
+## Web app (`apps/web`, Next.js 16)
+
+- Read `apps/web/AGENTS.md` first: this Next.js version differs from older docs; its guides
+  are in `node_modules/next/dist/docs/`.
+- Server Components fetch through `src/lib/api.ts` (validated with `@portfolio/shared`).
+  Logic without React goes in `src/lib/` and gets unit tests in `test/lib/`; `'use client'`
+  only where a component needs the browser.
+- Effects enhance server-rendered content, never hide it: respect `prefers-reduced-motion`,
+  drive scroll effects through CSS variables, not React state. Check phone widths.
 
 ## Testing
 

@@ -1,74 +1,26 @@
+import { EVENT_TYPES } from '@portfolio/shared';
 import { z } from 'zod';
 
 /**
  * Telemetry events. See DESIGN.md §7.5 and §8.2.
  *
  * Shapes, in the order an event meets them:
- *   1. `EventRequest`: what a browser sends to POST /api/v1/events. Untrusted, so strict.
+ *   1. `EventRequest`: what a browser sends to POST /api/v1/events (in `@portfolio/shared`).
  *   2. `VisitorDetails`: what the API learns about the visitor (link, browser, IP address).
  *   3. `BufferedEvent`: what the API stores in the Redis buffer. The worker's flusher reads it
  *      back and validates it with the same schema before inserting it into Postgres.
  *   4. `DeadLetteredEvent`: an event the flusher could never insert, kept in the DLQ.
  */
 
-export const EVENT_TYPES = ['page_view', 'interaction'] as const;
-export type EventType = (typeof EVENT_TYPES)[number];
-
-// ---------------------------------------------------------------------------------------------
-// 1. Request body
-// ---------------------------------------------------------------------------------------------
-
-/** Browsers report "no referrer" as an empty string; treat it like a missing value. */
-function emptyStringToNull(value: unknown): unknown {
-  return value === '' ? null : value;
-}
-
-/** IANA time zone names: "UTC", "Asia/Singapore", "America/Argentina/Buenos_Aires", "Etc/GMT+8". */
-const TIME_ZONE = /^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+){0,2}$/;
-
-export const eventRequestSchema = z
-  .object({
-    type: z.enum(EVENT_TYPES),
-    /** May include a query string; tagged-link parameters (?ref=, utm_*) are kept from it. */
-    path: z.string().max(512).startsWith('/', 'must start with "/"'),
-    referrer: z
-      .preprocess(
-        emptyStringToNull,
-        z
-          .url({ protocol: /^https?$/ })
-          .max(1024)
-          .nullable(),
-      )
-      .optional(),
-    sessionId: z
-      .string()
-      .regex(/^[A-Za-z0-9_-]{8,64}$/, 'must be 8-64 letters, digits, "_" or "-"'),
-    name: z
-      .string()
-      .regex(/^[a-z0-9:_-]{1,64}$/, 'must be 1-64 lowercase letters, digits, ":", "_" or "-"')
-      .nullable()
-      .optional(),
-    /** The browser's time zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`). */
-    timezone: z
-      .string()
-      .max(64)
-      .regex(TIME_ZONE, 'must be an IANA time zone such as "Asia/Singapore"')
-      .nullable()
-      .optional(),
-  })
-  .superRefine((event, context) => {
-    // Mirrors the SQL CHECK `analytics_events_name_iff_interaction`, so a bad event is
-    // rejected with a 400 here instead of failing later in the worker.
-    const hasName = event.name !== null && event.name !== undefined;
-    if (event.type === 'interaction' && !hasName) {
-      context.addIssue({ code: 'custom', path: ['name'], message: 'is required for interactions' });
-    }
-    if (event.type === 'page_view' && hasName) {
-      context.addIssue({ code: 'custom', path: ['name'], message: 'must be null for page views' });
-    }
-  });
-
-export type EventRequest = z.infer<typeof eventRequestSchema>;
+// The request body and the response are the public contract (the web app's beacon builds
+// them), so they live in `@portfolio/shared`.
+export {
+  EVENT_TYPES,
+  eventRequestSchema,
+  type EventAccepted,
+  type EventRequest,
+  type EventType,
+} from '@portfolio/shared';
 
 // ---------------------------------------------------------------------------------------------
 // 2. Visitor details (services/visitor-details.manager.ts). Every field is null when unknown.
@@ -177,12 +129,3 @@ export const deadLetteredEventSchema = z.object({
 });
 
 export type DeadLetteredEvent = z.infer<typeof deadLetteredEventSchema>;
-
-// ---------------------------------------------------------------------------------------------
-// 5. Response
-// ---------------------------------------------------------------------------------------------
-
-/** `202 Accepted` body: the id the event will have in `analytics_events`. */
-export interface EventAccepted {
-  eventId: string;
-}

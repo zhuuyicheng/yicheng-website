@@ -25,7 +25,7 @@ npm run geoip:download   # free IP → organisation/location files (~65 MB downl
 
 npm run dev:api          # API    → http://localhost:4000/api/v1/projects
 npm run dev:worker       # Worker → analytics events to Postgres, contact notifications
-npm run dev:web          # Web    → http://localhost:3000   (each in its own terminal)
+npm run dev:web          # Web    → http://localhost:3000, the site itself (each in its own terminal)
 ```
 
 ## Common commands
@@ -65,7 +65,8 @@ and don't need to: tables come from migrations and content from `portfolio.json`
 ## Repository layout
 
 ```
-apps/api   Fastify API (controllers → managers → DAL, with dao/, schema/, views/) and the
-           background worker (src/worker.ts, workers/)
-apps/web   Next.js + Tailwind frontend
+packages/shared  The API contract: Zod schemas both apps import
+apps/api         Fastify API (controllers → managers → DAL, with dao/, schema/, views/) and the
+                 background worker (src/worker.ts, workers/)
+apps/web         Next.js + Tailwind website (portfolio pages, contact form, page-view beacon)
 ```

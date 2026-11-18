@@ -1,17 +1,15 @@
-/** Every error code the API can return. See DESIGN.md §7.2. */
-export const ErrorCode = {
-  VALIDATION_ERROR: 'VALIDATION_ERROR',
-  BAD_REQUEST: 'BAD_REQUEST',
-  UNAUTHORIZED: 'UNAUTHORIZED',
-  NOT_FOUND: 'NOT_FOUND',
-  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
-  UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',
-  RATE_LIMITED: 'RATE_LIMITED',
-  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
-  INTERNAL_ERROR: 'INTERNAL_ERROR',
-} as const;
+import {
+  errorCodeSchema,
+  type ErrorCode as SharedErrorCode,
+  type ValidationIssue,
+} from '@portfolio/shared';
 
-export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
+/**
+ * Every error code the API can return (DESIGN.md §7.2), as `ErrorCode.NOT_FOUND` etc. The list
+ * itself is part of the shared contract, so the web app knows every code it may receive.
+ */
+export const ErrorCode = errorCodeSchema.enum;
+export type ErrorCode = SharedErrorCode;
 
 export const HTTP_STATUS_BY_ERROR_CODE: Record<ErrorCode, number> = {
   VALIDATION_ERROR: 400,
@@ -26,10 +24,7 @@ export const HTTP_STATUS_BY_ERROR_CODE: Record<ErrorCode, number> = {
 };
 
 /** One invalid field, returned in `error.details` of a VALIDATION_ERROR. */
-export interface ValidationIssue {
-  path: string;
-  message: string;
-}
+export type { ValidationIssue } from '@portfolio/shared';
 
 export interface AppErrorOptions extends ErrorOptions {
   details?: ValidationIssue[];

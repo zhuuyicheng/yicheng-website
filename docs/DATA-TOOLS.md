@@ -441,10 +441,46 @@ Restart `npm run dev:api` to load the new code, then:
    hide the answer from that site's script. curl itself ignores all this: CORS protects
    browser users, it is not a password.
 
-### 7.4 Later phases
+### 7.4 Phase 5b: the website feeds the pipelines
 
-- **Phase 5b/5c (website and dashboard):** the pages call the same endpoints you have been
-  calling by hand, and the dashboard polls the status endpoint every few seconds.
+Until now you played the browser with `curl`. Now a real browser sends the same requests.
+Run `npm run dev:api`, `npm run dev:worker`, `npm run dev:web` and `MONITOR`, and open
+http://localhost:3000 in Chrome or Firefox with the developer tools open (F12).
+
+1. **Your own page view.** On load, the Network tab shows a `POST` to
+   `localhost:4000/api/v1/events` (`202`). Just one request: the beacon sends its JSON as
+   `text/plain`, which browsers treat as a "simple" request that needs no CORS preflight.
+   (The contact form in step 4 sends `application/json`, and there you will see the
+   `OPTIONS` preflight first: the browser asking whether localhost:3000 may POST JSON.) `MONITOR` shows the bounded-enqueue `evalsha`; within 5 s the worker
+   flushes it. In `analytics_events` the newest row now has a real `browser`, `os` and
+   `device_type` (not curl's empty values) and your `timezone`. The Request payload in the
+   Network tab shows exactly what was sent, including the `sessionId` from session storage
+   (Application tab → Session storage → `portfolio.sessionId`).
+2. **A tagged link.** Open http://localhost:3000/?ref=acme&utm_source=linkedin: the row has
+   `ref = acme` and `utm_source = linkedin`. Click to a project page and back: more page views
+   with the same `session_id`, and `referrer_host` empty after the first one (only the first
+   view says where you came from).
+3. **A click.** Click the GitHub link in the hero: an `interaction` row with
+   `event_name = click:github-link`. It is sent with `keepalive`, so it arrives even though
+   the click opened another tab.
+4. **The contact form.** Send a message from the "Get in touch" section: `202`, a new
+   `contact_messages` row, the worker's `notification sent` (or your Discord channel). Send
+   four: the fourth shows "Too many messages for now. Please try again in 10 minutes", read
+   from the `Retry-After` header (readable only because the API exposes it, §7.3 step 7).
+   Delete the `ratelimit:contact:…` key to reset. Try an invalid email: the error appears
+   instantly, before any request (the form uses the API's own schema from `packages/shared`).
+5. **The API goes away.** Stop `dev:api` and reload: the "the backend did not answer" page
+   with a retry button (`app/error.tsx`). Start it again and press retry.
+6. **Every device.** In the developer tools, toggle the device toolbar (Ctrl+Shift+M) and try
+   a phone, a tablet and a desktop width: one column and a `menu` button on phones, two to
+   three project columns on wider screens, nothing scrolling sideways. Under Rendering, set
+   "Emulate CSS prefers-reduced-motion" to `reduce` and reload: no animation, all content
+   visible.
+
+### 7.5 Later phases
+
+- **Phase 5c (dashboard):** a `/status` page polls the status endpoint every few seconds and
+  shows the numbers you have been reading by hand.
 
 ## 8. Troubleshooting
 
