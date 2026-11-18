@@ -236,3 +236,9 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
 - [x] Bugs: the name in the header did nothing on the home page (now scrolls to the top);
       "About" stayed highlighted after scrolling back to the hero (scrollspy now clears);
       regression tests for both (302 API + 74 web tests)
+- [x] `/admin` explains its numbers: what visits, page views and link clicks are (plus a
+      "How they are counted" note), what each list and status tile measures, a content-cache
+      card (hit, miss, why a low ratio is fine) and a plain-words queue card with Redis keys
+      and replay commands; stale "IP never stored" footnote fixed
+- [x] Faint lines (1.3:1, nearly invisible in Chrome on Windows): `line` and `line-strong`
+      darkened, form inputs outlined in a new `field` token at 3.3:1 (WCAG 1.4.11)

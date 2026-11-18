@@ -8,12 +8,23 @@ export interface RankedRow {
   value: number;
 }
 
-/** A top-N list: label and count on one line, a thin bar under it scaled to the largest. */
-export function RankedList(props: { title: string; rows: readonly RankedRow[]; empty: string }) {
+/**
+ * A top-N list: label and count on one line, a thin bar under it scaled to the largest. The
+ * optional `description` says what the list measures, so the counts mean something.
+ */
+export function RankedList(props: {
+  title: string;
+  description?: string;
+  rows: readonly RankedRow[];
+  empty: string;
+}) {
   const max = Math.max(0, ...props.rows.map((row) => row.value));
   return (
     <section className="rounded-xl border border-line bg-surface p-4 sm:p-5">
       <h3 className="text-sm text-body">{props.title}</h3>
+      {props.description !== undefined && (
+        <p className="mt-1 text-xs leading-relaxed text-muted">{props.description}</p>
+      )}
       {props.rows.length === 0 ? (
         <p className="mt-4 text-sm text-muted">{props.empty}</p>
       ) : (

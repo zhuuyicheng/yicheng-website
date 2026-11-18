@@ -13,10 +13,18 @@ import {
   secondsAgo,
   type Sample,
 } from '@/lib/status';
+import { CacheCard } from './admin/cache-card';
+import { QueueCard } from './admin/queue-card';
 import { LiveChart } from './live-chart';
 
 /** The API caches its status for 5 s, so polling faster would only repeat the same numbers. */
 const POLL_MS = 5_000;
+
+/** What each datastore holds, so "postgres: down" says what stops working. */
+const DEPENDENCY_ROLES: Partial<Record<string, string>> = {
+  postgres: 'The database: content, visits and contact messages, kept for good.',
+  redis: 'In-memory store: the content cache, the queues below and the contact-form limit.',
+};
 /** The owner-only route that asks the API for its status (app/admin/system-status). */
 const STATUS_URL = '/admin/system-status';
 
@@ -103,21 +111,37 @@ export function StatusDashboard() {
 
   const health = overallHealth(status);
   const age = updatedAt === null ? 0 : secondsAgo(updatedAt, now);
-  const queues = status.queues;
 
   return (
     <div className="space-y-6">
       <Banner failed={failed} level={health.level} down={health.down} age={age} />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Tile label="uptime" value={formatUptime(status.uptimeSeconds)} />
-        <Tile label="requests · 5 min" value={String(status.http.requestCount)} />
-        <Tile label="latency p50" value={formatMs(status.http.latencyMs.p50)} />
-        <Tile label="latency p95" value={formatMs(status.http.latencyMs.p95)} />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Tile
+          label="uptime"
+          value={formatUptime(status.uptimeSeconds)}
+          description="Time since the API last started. A restart or deploy resets it, along with the request and cache counts."
+        />
+        <Tile
+          label="requests · 5 min"
+          value={String(status.http.requestCount)}
+          description="Requests the API answered in the last 5 minutes: content for page loads, analytics from browsers, contact messages. This dashboard's own checks are left out."
+        />
+        <Tile
+          label="latency p50"
+          value={formatMs(status.http.latencyMs.p50)}
+          description="Typical response time: half of those requests were answered faster than this."
+        />
+        <Tile
+          label="latency p95"
+          value={formatMs(status.http.latencyMs.p95)}
+          description="The slow end: 95 in 100 requests were faster than this. It is what the unluckiest visitors feel."
+        />
         <Tile
           label="cache hit ratio"
           value={formatRatio(status.cache.hitRatio)}
           note={`${String(status.cache.hits)} hits · ${String(status.cache.misses)} misses`}
+          description="Share of content reads answered from Redis without asking the database. Explained below."
         />
         <Tile
           label="page views · 24 h"
@@ -126,6 +150,7 @@ export function StatusDashboard() {
               ? '—'
               : String(status.analytics.pageViewsLast24h)
           }
+          description="Page views saved to the database in the last 24 hours, crawlers included, so it can differ from the Visitors numbers. If people visit but this stands still, saving is stuck."
         />
       </div>
 
@@ -135,40 +160,37 @@ export function StatusDashboard() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card title="dependencies">
+          <p className="-mt-2 mb-4 text-xs leading-relaxed text-muted">
+            The two datastores the API needs: whether each answers, and how long one round trip
+            took.
+          </p>
           <ul className="space-y-3">
             {Object.entries(status.dependencies).map(([name, dependency]) => (
-              <li key={name} className="flex items-center justify-between font-mono text-sm">
-                <span className="text-body">{name}</span>
-                {dependency.status === 'up' ? (
-                  <span className="text-body">
-                    <span className="text-emerald-700">● up</span> · {dependency.latencyMs} ms
-                  </span>
-                ) : (
-                  <span className="text-rose-700">✕ down</span>
+              <li key={name}>
+                <div className="flex items-center justify-between font-mono text-sm">
+                  <span className="text-body">{name}</span>
+                  {dependency.status === 'up' ? (
+                    <span className="text-body">
+                      <span className="text-emerald-700">● up</span> · {dependency.latencyMs} ms
+                    </span>
+                  ) : (
+                    <span className="text-rose-700">✕ down</span>
+                  )}
+                </div>
+                {DEPENDENCY_ROLES[name] !== undefined && (
+                  <p className="mt-0.5 text-xs leading-relaxed text-muted">
+                    {DEPENDENCY_ROLES[name]}
+                  </p>
                 )}
               </li>
             ))}
           </ul>
         </Card>
 
-        <Card title="queues (redis)">
-          {queues === null ? (
-            <p className="font-mono text-sm text-muted">unknown: Redis did not answer</p>
-          ) : (
-            <ul className="space-y-3 font-mono text-sm">
-              <Queue name="telemetry buffer" count={queues.telemetryBuffer} />
-              <Queue name="telemetry dead letters" count={queues.telemetryDeadLetter} deadLetter />
-              <Queue name="notifications ready" count={queues.notificationsReady} />
-              <Queue name="notifications delayed" count={queues.notificationsDelayed} />
-              <Queue
-                name="notification dead letters"
-                count={queues.notificationsDeadLetter}
-                deadLetter
-              />
-            </ul>
-          )}
-        </Card>
+        <CacheCard cache={status.cache} />
       </div>
+
+      <QueueCard queues={status.queues} />
 
       <p className="font-mono text-xs leading-relaxed text-faint">
         answered by <span className="text-muted">{status.instance}</span> · polled every 5 s while
@@ -231,12 +253,15 @@ function Banner(props: {
   );
 }
 
-function Tile({ label, value, note }: { label: string; value: string; note?: string }) {
+function Tile(props: { label: string; value: string; note?: string; description: string }) {
   return (
     <div className="rounded-xl border border-line bg-surface p-4">
-      <p className="font-mono text-[11px] text-muted">{label}</p>
-      <p className="mt-2 font-mono text-xl text-ink sm:text-2xl">{value}</p>
-      {note !== undefined && <p className="mt-1 font-mono text-[10px] text-faint">{note}</p>}
+      <p className="font-mono text-[11px] text-muted">{props.label}</p>
+      <p className="mt-2 font-mono text-xl text-ink sm:text-2xl">{props.value}</p>
+      {props.note !== undefined && (
+        <p className="mt-1 font-mono text-[10px] text-faint">{props.note}</p>
+      )}
+      <p className="mt-2 text-xs leading-relaxed text-muted">{props.description}</p>
     </div>
   );
 }
@@ -247,26 +272,5 @@ function Card({ title, children }: { title: string; children: ReactNode }) {
       <h2 className="mb-4 font-mono text-xs text-muted">{title}</h2>
       {children}
     </section>
-  );
-}
-
-function Queue({
-  name,
-  count,
-  deadLetter = false,
-}: {
-  name: string;
-  count: number;
-  deadLetter?: boolean;
-}) {
-  const attention = deadLetter && count > 0;
-  return (
-    <li className="flex items-center justify-between">
-      <span className="text-muted">{name}</span>
-      <span className="text-ink">
-        {attention && <span className="mr-2 text-amber-700">! needs attention</span>}
-        {count}
-      </span>
-    </li>
   );
 }

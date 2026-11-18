@@ -255,7 +255,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │       │   │   ├── admin/                owner dashboard + its status route (password-protected)
 │       │   │   ├── error.tsx             "API unreachable" + retry
 │       │   │   ├── not-found.tsx
-│       │   │   └── globals.css           theme, grid/glow, reveal, reduced motion
+│       │   │   └── globals.css           theme tokens, reveal, reduced motion
 │       │   ├── components/               sections and effects ('use client' only where needed)
 │       │   └── lib/                      logic without React: api (server fetch), telemetry
 │       │                                 (beacon), contact, sliding-window, format, config
@@ -1217,8 +1217,11 @@ failures each have their own message. The wording lives in `lib/contact.ts`
 warm grey text, and a terracotta accent taken from the photos, with a soft green for
 education. Headings use Fraunces, a soft serif (loaded by `next/font` at build time and served
 from the site itself), body text the system sans-serif. Colors are named theme tokens in
-`globals.css` (`canvas`, `surface`, `ink`, `body`, `muted`, `line`, `brand`, `moss`); components
-never use raw palette colors, so a theme change is one block of CSS. No terminal imitation
+`globals.css` (`canvas`, `surface`, `ink`, `body`, `muted`, `line`, `field`, `brand`, `moss`);
+components never use raw palette colors, so a theme change is one block of CSS. Lines that
+only separate areas (`line` 1.6:1, `line-strong` 2:1 on white) may be soft, but form inputs
+are outlined in `field` (3.3:1, WCAG 1.4.11): the outline shows where to type. A 1.3:1 line
+color vanished on some screens (Chrome on Windows draws thinner than Firefox). No terminal imitation
 (prompts, `./` prefixes, fake commands); monospace remains only for the owner dashboard's
 numbers. Status colors keep their meaning (green healthy, amber degraded, red down).
 
@@ -1304,6 +1307,20 @@ UTC day (tooltip with page views, a screen-reader table with the same numbers); 
 links, organisations (with when each was last seen), places, devices, browsers, pages and link
 clicks; a table of the 50 newest visits (when, came from, where and which network, device,
 pages in order); then the system dashboard.
+
+**Every number says what it means.** The page is read rarely, so its terms must not need
+remembering. Each total and status tile has a one-line plain-English description; each ranked
+list says what it measures, and section notes say the lists count visits. A closed
+`<details>` ("How visits, page views and clicks are counted", `components/admin/explainer.tsx`)
+holds the fine print: a visit is a tab's session id, reloads are page views but section jumps
+are not, only links leaving the site are clicks, unique visitors are per UTC day (why there is
+no period total), and what is never counted. Under the status tiles, a "content cache" card
+explains hit and miss (§8.1) and why a low ratio is normal at low traffic, and the queue card
+names each queue in plain words with its Redis key, what it holds, that 0 is normal, and the
+`dlq:replay` command for the two dead-letter lists. The queue texts are a `Record` over the
+contract's queue fields (`components/admin/queue-card.tsx`), so a queue added to §7.7 without
+an explanation fails the typecheck. Texts quote the default settings (cache copies kept about
+5 minutes).
 
 **The owner is not a visitor.** The page-view beacon never sends `/admin` pages, and opening
 `/admin` marks the browser as the owner's (`localStorage`, with a checkbox to undo it): the

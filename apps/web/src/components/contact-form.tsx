@@ -203,7 +203,7 @@ function Field({
 function inputClass(error: string | undefined): string {
   return `w-full rounded-md border bg-surface px-3 py-2.5 text-sm text-ink placeholder-faint outline-none transition focus:ring-2 ${
     error === undefined
-      ? 'border-line focus:border-brand/60 focus:ring-brand/20'
+      ? 'border-field focus:border-brand/60 focus:ring-brand/20'
       : 'border-rose-500/60 focus:ring-rose-500/20'
   }`;
 }
