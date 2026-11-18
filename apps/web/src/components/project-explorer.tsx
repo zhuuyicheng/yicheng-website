@@ -38,8 +38,8 @@ export function ProjectExplorer({ projects }: { projects: ProjectSummary[] }) {
         }}
         className={`rounded-full border px-3.5 py-1.5 text-xs transition ${
           active
-            ? 'border-emerald-400 bg-emerald-400/10 text-emerald-300'
-            : 'border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200'
+            ? 'border-brand bg-brand-soft text-brand'
+            : 'border-line text-muted hover:border-line-strong hover:text-ink'
         }`}
       >
         {label}

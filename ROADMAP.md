@@ -210,3 +210,18 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
       older events left out), manager ranking and day filling, login check, `shouldRecord`,
       time ticks and gaps (300 API + 57 web total)
 - [ ] Production: Caddy refuses `/api/v1/admin/*` from outside (in `deploy/Caddyfile`, 6b)
+
+### Warmer design and photos (2026-11-18)
+
+- [x] Light, warm theme from named tokens (`globals.css`), Fraunces headings, terracotta
+      accent; no graph-paper grid or pointer glow
+- [x] Photos: portrait in the hero, avatar in the header, "Outside work" gallery
+      (`content/photos.ts`); web copies resized and stripped of metadata
+- [x] Icons: section titles, timeline (work / study), cards, buttons; `app/icon.svg` tab icon
+      and `app/apple-icon.png`
+- [x] Bug: a second click on a header section link did nothing (Next.js `<Link>` and an
+      unchanged `#hash`); `SectionLink` scrolls on every click + regression test
+- [x] Contact form explains the spam limit ("3 messages per person every 10 minutes, so you
+      can send 2 more"): new `X-RateLimit-Window` header
+- [x] Flaky test fixed: the notification retry test now moves a fake clock instead of racing
+      a 10 ms backoff (300 API + 63 web tests)

@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { formatWait, interpretContactResponse, sendContact, validateContact } from '@/lib/contact';
+import {
+  formatWait,
+  interpretContactResponse,
+  rateLimitedMessage,
+  sendContact,
+  sentMessage,
+  validateContact,
+} from '@/lib/contact';
 
 const headers = (values: Record<string, string> = {}) => new Headers(values);
 
@@ -24,12 +31,17 @@ describe('validateContact (the API schema, in the browser)', () => {
 });
 
 describe('interpretContactResponse', () => {
-  it('202: sent, with how many messages are left in the window', () => {
+  it('202: sent, with how many messages are left and the limit they count against', () => {
     const body = { data: { id: 'abc', status: 'PENDING' } };
+    const limits = { 'x-ratelimit-limit': '3', 'x-ratelimit-window': '600' };
 
-    expect(interpretContactResponse(202, headers({ 'x-ratelimit-remaining': '2' }), body)).toEqual({
+    expect(
+      interpretContactResponse(202, headers({ ...limits, 'x-ratelimit-remaining': '2' }), body),
+    ).toEqual({ kind: 'sent', remaining: 2, policy: { limit: 3, windowSeconds: 600 } });
+    expect(interpretContactResponse(202, headers(), body)).toEqual({
       kind: 'sent',
-      remaining: 2,
+      remaining: null,
+      policy: null,
     });
   });
 
@@ -39,6 +51,7 @@ describe('interpretContactResponse', () => {
     expect(interpretContactResponse(429, headers({ 'retry-after': '540' }), body)).toEqual({
       kind: 'rate_limited',
       retryAfterSeconds: 540,
+      policy: null,
     });
   });
 
@@ -89,5 +102,30 @@ describe('formatWait', () => {
     expect(formatWait(45)).toBe('45 seconds');
     expect(formatWait(61)).toBe('2 minutes');
     expect(formatWait(570)).toBe('10 minutes');
+  });
+});
+
+describe('what the form says about the spam limit', () => {
+  const policy = { limit: 3, windowSeconds: 600 };
+
+  it('explains the limit and how many messages are left', () => {
+    expect(sentMessage(2, policy)).toBe(
+      'Message sent. Thank you, I will get back to you soon. To keep spam out, the form accepts 3 messages per person every 10 minutes, so you can send 2 more in that time.',
+    );
+    expect(sentMessage(0, policy)).toContain('and that was your last one for now.');
+  });
+
+  it('just says thank you when the limit is unknown', () => {
+    expect(sentMessage(null, policy)).toBe('Message sent. Thank you, I will get back to you soon.');
+    expect(sentMessage(2, null)).toBe('Message sent. Thank you, I will get back to you soon.');
+  });
+
+  it('says why a message was refused and when to try again', () => {
+    expect(rateLimitedMessage(540, policy)).toBe(
+      'To keep spam out, the form accepts 3 messages per person every 10 minutes. Please try again in 9 minutes.',
+    );
+    expect(rateLimitedMessage(30, null)).toBe(
+      'Too many messages for now. Please try again in 30 seconds.',
+    );
   });
 });

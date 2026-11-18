@@ -80,23 +80,27 @@ so the site never shows half an edit. Try it on purpose:
 
 ## 2. Page wording: the `.tsx` files
 
-| What you see                                                                       | File (in `apps/web/src/`)                                                                  |
-| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Section titles: About, Experience & education, Projects, Get in touch              | `app/page.tsx`, the `<SectionHeading title="…" />` lines                                   |
-| The "View projects" and "Get in touch" buttons, `scroll ↓`                         | `components/hero.tsx`                                                                      |
-| Header: your name and the section links                                            | `components/site-header.tsx` (`SECTIONS` at the top)                                       |
-| Project cards: "Read more", "Featured"                                             | `components/project-card.tsx`                                                              |
-| Project page: "Back to projects", "Next project", "On this page"                   | `app/projects/[slug]/page.tsx`, `components/project-contents.tsx`                          |
-| Footer links (Projects, Privacy)                                                   | `components/site-footer.tsx`                                                               |
-| Contact form: labels, hints, and replies such as "Message sent. Thanks, …"         | `components/contact-form.tsx`                                                              |
-| Browser-tab title of the other pages (`… · Portfolio`) and the default description | `app/layout.tsx` (`metadata`)                                                              |
-| The projects page, privacy notice, 404 page and your owner dashboard               | `app/projects/page.tsx`, `app/privacy/page.tsx`, `app/not-found.tsx`, `app/admin/page.tsx` |
+| What you see                                                                       | File (in `apps/web/src/`)                                                                                         |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Section titles: About, Experience & education, Projects, Get in touch              | `app/page.tsx`, the `<SectionHeading title="…" />` lines                                                          |
+| The "View projects" and "Get in touch" buttons, `scroll ↓`                         | `components/hero.tsx`                                                                                             |
+| Header: your name and the section links                                            | `components/site-header.tsx` (`SECTIONS` at the top)                                                              |
+| Project cards: "Read more", "Featured"                                             | `components/project-card.tsx`                                                                                     |
+| Project page: "Back to projects", "Next project", "On this page"                   | `app/projects/[slug]/page.tsx`, `components/project-contents.tsx`                                                 |
+| Footer links (Projects, Privacy)                                                   | `components/site-footer.tsx`                                                                                      |
+| Contact form: labels and hints                                                     | `components/contact-form.tsx`                                                                                     |
+| Contact form replies ("Message sent…", the spam-limit explanation, errors)         | `lib/contact.ts` (`sentMessage`, `rateLimitedMessage`, `sendContact`)                                             |
+| Photo captions and descriptions ("Outside work")                                   | `content/photos.ts`                                                                                               |
+| Section icons                                                                      | `app/page.tsx`, the `icon={…}` of each `<SectionHeading … />` (names from [lucide.dev](https://lucide.dev/icons)) |
+| Browser-tab icon                                                                   | `app/icon.svg` (the "YC" monogram)                                                                                |
+| Browser-tab title of the other pages (`… · Portfolio`) and the default description | `app/layout.tsx` (`metadata`)                                                                                     |
+| The projects page, privacy notice, 404 page and your owner dashboard               | `app/projects/page.tsx`, `app/privacy/page.tsx`, `app/not-found.tsx`, `app/admin/page.tsx`                        |
 
 **Editing JSX safely.** These files mix HTML-like tags with code. Change only the words:
 
 ```tsx
 <p>Built with Next.js, Fastify, PostgreSQL and Redis.</p>   ← words between tags: change freely
-<SectionHeading title="Get in touch" />
+<SectionHeading title="Get in touch" icon={Mail} />
                        ↑ words inside quotes: change freely
 ```
 
@@ -116,7 +120,28 @@ accurate (DESIGN.md §12).
 
 ---
 
-## 3. Getting a change onto the live site (once Phase 6 deploys it)
+## 3. Photos
+
+The photos live in `apps/web/src/content/photos/`, and `apps/web/src/content/photos.ts` lists
+the ones in the "Outside work" gallery: the image, a description for screen readers (`alt`),
+the caption shown on it, its tile shape (`wide`, `tall` or `square`) and its focal point. The
+hero portrait (`portrait.jpg`) and the header avatar (`avatar.jpg`) are crops of one photo.
+
+To add a photo, first make a web copy: at most 1,600 pixels on its long side, and **without
+its metadata**, because phone photos often carry the GPS position where they were taken and
+anything committed here is published. From the repository root:
+
+```bash
+node -e "require('sharp')(process.argv[1]).rotate().resize({ width: 1600, height: 1600, fit: 'inside' }).jpeg({ quality: 80, mozjpeg: true }).toFile(process.argv[2])" ~/Pictures/IMG_1234.jpg apps/web/src/content/photos/my-photo.jpg
+```
+
+(`sharp` comes with Next.js; it drops metadata unless told to keep it, and `.rotate()` first
+applies the phone's orientation.) Then add an entry to `photos.ts`, importing the file like
+the others. Saving updates the page; there is no seed step for photos.
+
+---
+
+## 4. Getting a change onto the live site (once Phase 6 deploys it)
 
 Both kinds of change travel the same way: commit → push → pull request → CI green → merge →
 approve the deploy. The deploy runs the seed itself

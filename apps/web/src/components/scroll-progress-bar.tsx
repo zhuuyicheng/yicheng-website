@@ -34,7 +34,7 @@ export function ScrollProgressBar() {
     <div
       ref={bar}
       aria-hidden
-      className="h-px w-full origin-left scale-x-0 bg-gradient-to-r from-emerald-400 via-cyan-400 to-emerald-400"
+      className="h-0.5 w-full origin-left scale-x-0 bg-gradient-to-r from-brand via-brand-strong to-brand"
     />
   );
 }

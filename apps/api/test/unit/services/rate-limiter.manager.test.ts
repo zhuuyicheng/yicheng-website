@@ -56,7 +56,13 @@ describe('RateLimiterManager.consume', () => {
 
     const outcome = await limiter.consume('203.0.113.7', log);
 
-    expect(outcome).toEqual({ allowed: true, limit: 3, remaining: 2, retryAfterSeconds: 0 });
+    expect(outcome).toEqual({
+      allowed: true,
+      limit: 3,
+      remaining: 2,
+      windowSeconds: 600,
+      retryAfterSeconds: 0,
+    });
     expect(
       await counterValue(metrics.rateLimitDecisions, { limiter: 'contact', decision: 'allowed' }),
     ).toBe(1);
@@ -68,7 +74,13 @@ describe('RateLimiterManager.consume', () => {
     const outcome = await limiter.consume('203.0.113.7', log);
 
     // 1.001 s rounded down would tell the client to come back a millisecond too early.
-    expect(outcome).toEqual({ allowed: false, limit: 3, remaining: 0, retryAfterSeconds: 2 });
+    expect(outcome).toEqual({
+      allowed: false,
+      limit: 3,
+      remaining: 0,
+      windowSeconds: 600,
+      retryAfterSeconds: 2,
+    });
     expect(
       await counterValue(metrics.rateLimitDecisions, { limiter: 'contact', decision: 'denied' }),
     ).toBe(1);

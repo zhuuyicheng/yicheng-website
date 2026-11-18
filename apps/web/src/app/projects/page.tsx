@@ -1,3 +1,4 @@
+import { FolderOpen } from 'lucide-react';
 import type { Metadata } from 'next';
 import { ProjectExplorer } from '@/components/project-explorer';
 import { SectionHeading } from '@/components/section-heading';
@@ -11,9 +12,9 @@ export default async function ProjectsPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-      <SectionHeading title="Projects" />
+      <SectionHeading title="Projects" icon={FolderOpen} />
       {projects.length === 0 ? (
-        <p className="text-sm text-zinc-500">No projects yet.</p>
+        <p className="text-sm text-muted">No projects yet.</p>
       ) : (
         <ProjectExplorer projects={projects} />
       )}

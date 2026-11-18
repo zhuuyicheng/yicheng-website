@@ -56,17 +56,17 @@ export function OwnerBrowserToggle() {
 
   if (mark === 'blocked') {
     return (
-      <p className="text-xs text-amber-300">
+      <p className="text-xs text-amber-700">
         This browser blocks local storage, so your own visits from it are counted.
       </p>
     );
   }
 
   return (
-    <label className="flex items-center gap-2 text-xs text-zinc-400">
+    <label className="flex items-center gap-2 text-xs text-muted">
       <input
         type="checkbox"
-        className="size-4 accent-emerald-400"
+        className="size-4 accent-brand"
         checked={mark === 'excluded'}
         disabled={mark === 'unknown' || mark === 'unset'}
         onChange={(event) => {

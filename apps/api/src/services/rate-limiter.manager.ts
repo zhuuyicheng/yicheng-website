@@ -11,6 +11,8 @@ export interface RateLimitOutcome {
   allowed: boolean;
   limit: number;
   remaining: number;
+  /** The window `limit` counts over, so a client can say "3 messages every 10 minutes". */
+  windowSeconds: number;
   /** When denied: whole seconds until a retry can succeed (rounded up). 0 when allowed. */
   retryAfterSeconds: number;
 }
@@ -78,6 +80,7 @@ export function createRateLimiterManager(deps: RateLimiterManagerDependencies): 
         allowed: window.allowed,
         limit: max,
         remaining: window.remaining,
+        windowSeconds,
         // Rounded up: retrying after a rounded-down value could arrive a moment too early.
         retryAfterSeconds: window.allowed ? 0 : Math.max(1, Math.ceil(window.retryAfterMs / 1000)),
       };

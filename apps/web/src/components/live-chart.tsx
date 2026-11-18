@@ -61,14 +61,14 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
   const percent = (x: number) => `${String((x / WIDTH) * 100)}%`;
 
   return (
-    <figure className="rounded-xl border border-white/10 bg-zinc-900/40 p-4 sm:p-5">
+    <figure className="rounded-xl border border-line bg-surface p-4 sm:p-5">
       <figcaption className="flex items-baseline justify-between gap-3">
-        <span className="text-xs text-zinc-400">{title}</span>
-        <span className="text-sm text-zinc-100 tabular-nums">{format(latest)}</span>
+        <span className="text-xs text-muted">{title}</span>
+        <span className="text-sm text-ink tabular-nums">{format(latest)}</span>
       </figcaption>
 
       <div className="relative mt-4">
-        <span className="absolute -top-1 left-0 text-[10px] text-zinc-600 tabular-nums">
+        <span className="absolute -top-1 left-0 text-[10px] text-faint tabular-nums">
           {format(ceiling)}
         </span>
         <svg
@@ -90,7 +90,7 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
               x2={timeX(at, scale)}
               y1={0}
               y2={HEIGHT}
-              className="stroke-white/5"
+              className="stroke-line"
               vectorEffect="non-scaling-stroke"
             />
           ))}
@@ -101,7 +101,7 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
               x2={WIDTH}
               y1={HEIGHT - level * HEIGHT}
               y2={HEIGHT - level * HEIGHT}
-              className="stroke-white/5"
+              className="stroke-line"
               vectorEffect="non-scaling-stroke"
             />
           ))}
@@ -110,14 +110,14 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
             x2={WIDTH}
             y1={HEIGHT}
             y2={HEIGHT}
-            className="stroke-white/15"
+            className="stroke-line-strong"
             vectorEffect="non-scaling-stroke"
           />
           {path && (
             <path
               d={path}
               fill="none"
-              className="stroke-emerald-400"
+              className="stroke-brand"
               strokeWidth={2}
               strokeLinejoin="round"
               strokeLinecap="round"
@@ -130,7 +130,7 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
               x2={hoverX}
               y1={0}
               y2={HEIGHT}
-              className="stroke-zinc-500"
+              className="stroke-faint"
               vectorEffect="non-scaling-stroke"
             />
           )}
@@ -140,28 +140,28 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
         {hoverY !== null && (
           <span
             aria-hidden
-            className="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-400 ring-2 ring-canvas"
+            className="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand ring-2 ring-surface"
             style={{ left: percent(hoverX), top: `${String((hoverY / HEIGHT) * 100)}%` }}
           />
         )}
         {hover !== null && (
           <div
-            className={`pointer-events-none absolute -top-9 rounded border border-white/10 bg-zinc-950/95 px-2 py-1 text-[11px] whitespace-nowrap text-zinc-200 tabular-nums ${
+            className={`pointer-events-none absolute -top-9 rounded bg-ink px-2 py-1 text-[11px] whitespace-nowrap text-white tabular-nums shadow-md ${
               hoverX > WIDTH / 2 ? '-translate-x-full' : ''
             }`}
             style={{ left: percent(hoverX) }}
           >
-            {format(hover.value)} <span className="text-zinc-500">· {TIME.format(hover.at)}</span>
+            {format(hover.value)} <span className="text-white/70">· {TIME.format(hover.at)}</span>
           </div>
         )}
         {visible.length < 2 && (
-          <p className="absolute inset-0 flex items-center justify-center text-xs text-zinc-600">
+          <p className="absolute inset-0 flex items-center justify-center text-xs text-faint">
             Collecting samples…
           </p>
         )}
 
         {/* The time axis: a label under every 5-minute tick, inside the figure's height. */}
-        <div aria-hidden className="relative mt-2 h-4 text-[10px] text-zinc-500 tabular-nums">
+        <div aria-hidden className="relative mt-2 h-4 text-[10px] text-muted tabular-nums">
           {ticks.map((at) => {
             const x = timeX(at, scale);
             // Too close to an edge, a centred label would stick out of the card.

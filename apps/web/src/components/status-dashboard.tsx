@@ -91,9 +91,9 @@ export function StatusDashboard() {
 
   if (status === null) {
     return (
-      <p className="font-mono text-sm text-zinc-500" role="status">
+      <p className="font-mono text-sm text-muted" role="status">
         {failed ? (
-          <span className="text-rose-400">✕ The API is not answering. Retrying every 5 s…</span>
+          <span className="text-rose-700">✕ The API is not answering. Retrying every 5 s…</span>
         ) : (
           'connecting…'
         )}
@@ -138,13 +138,13 @@ export function StatusDashboard() {
           <ul className="space-y-3">
             {Object.entries(status.dependencies).map(([name, dependency]) => (
               <li key={name} className="flex items-center justify-between font-mono text-sm">
-                <span className="text-zinc-300">{name}</span>
+                <span className="text-body">{name}</span>
                 {dependency.status === 'up' ? (
-                  <span className="text-zinc-300">
-                    <span className="text-emerald-400">● up</span> · {dependency.latencyMs} ms
+                  <span className="text-body">
+                    <span className="text-emerald-700">● up</span> · {dependency.latencyMs} ms
                   </span>
                 ) : (
-                  <span className="text-rose-400">✕ down</span>
+                  <span className="text-rose-700">✕ down</span>
                 )}
               </li>
             ))}
@@ -153,7 +153,7 @@ export function StatusDashboard() {
 
         <Card title="queues (redis)">
           {queues === null ? (
-            <p className="font-mono text-sm text-zinc-500">unknown: Redis did not answer</p>
+            <p className="font-mono text-sm text-muted">unknown: Redis did not answer</p>
           ) : (
             <ul className="space-y-3 font-mono text-sm">
               <Queue name="telemetry buffer" count={queues.telemetryBuffer} />
@@ -170,10 +170,10 @@ export function StatusDashboard() {
         </Card>
       </div>
 
-      <p className="font-mono text-xs leading-relaxed text-zinc-600">
-        answered by <span className="text-zinc-400">{status.instance}</span> · polled every 5 s
-        while this tab is open · numbers are per API process since it started, latency over the last
-        5 minutes
+      <p className="font-mono text-xs leading-relaxed text-faint">
+        answered by <span className="text-muted">{status.instance}</span> · polled every 5 s while
+        this tab is open · numbers are per API process since it started, latency over the last 5
+        minutes
       </p>
     </div>
   );
@@ -205,25 +205,25 @@ function Banner(props: {
   down: string[];
   age: number;
 }) {
-  let tone = 'border-emerald-400/30 text-emerald-300';
+  let tone = 'border-emerald-600/30 text-emerald-700';
   let text = '✓ All systems operational';
   if (props.failed) {
-    tone = 'border-rose-500/40 text-rose-400';
+    tone = 'border-rose-500/40 text-rose-700';
     text = `✕ Lost contact with the API. Showing numbers from ${String(props.age)} s ago`;
   } else if (props.level === 'degraded') {
-    tone = 'border-amber-400/40 text-amber-300';
+    tone = 'border-amber-400/40 text-amber-700';
     text = `! Degraded: ${props.down.join(', ')} ${props.down.length === 1 ? 'is' : 'are'} down`;
   }
   return (
     <div
       role="status"
-      className={`flex flex-col gap-1 rounded-xl border bg-zinc-900/40 px-4 py-3 font-mono text-sm sm:flex-row sm:items-center sm:justify-between ${tone}`}
+      className={`flex flex-col gap-1 rounded-xl border bg-surface px-4 py-3 font-mono text-sm sm:flex-row sm:items-center sm:justify-between ${tone}`}
     >
       <span>{text}</span>
-      <span className="flex items-center gap-2 text-xs text-zinc-500">
+      <span className="flex items-center gap-2 text-xs text-muted">
         <span
           aria-hidden
-          className={`size-2 rounded-full ${props.failed ? 'bg-rose-500' : 'animate-pulse bg-emerald-400'}`}
+          className={`size-2 rounded-full ${props.failed ? 'bg-rose-500' : 'animate-pulse bg-emerald-500'}`}
         />
         updated {props.age} s ago
       </span>
@@ -233,18 +233,18 @@ function Banner(props: {
 
 function Tile({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-zinc-900/40 p-4">
-      <p className="font-mono text-[11px] text-zinc-500">{label}</p>
-      <p className="mt-2 font-mono text-xl text-zinc-50 sm:text-2xl">{value}</p>
-      {note !== undefined && <p className="mt-1 font-mono text-[10px] text-zinc-600">{note}</p>}
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <p className="font-mono text-[11px] text-muted">{label}</p>
+      <p className="mt-2 font-mono text-xl text-ink sm:text-2xl">{value}</p>
+      {note !== undefined && <p className="mt-1 font-mono text-[10px] text-faint">{note}</p>}
     </div>
   );
 }
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-xl border border-white/10 bg-zinc-900/40 p-4 sm:p-5">
-      <h2 className="mb-4 font-mono text-xs text-zinc-400">{title}</h2>
+    <section className="rounded-xl border border-line bg-surface p-4 sm:p-5">
+      <h2 className="mb-4 font-mono text-xs text-muted">{title}</h2>
       {children}
     </section>
   );
@@ -262,9 +262,9 @@ function Queue({
   const attention = deadLetter && count > 0;
   return (
     <li className="flex items-center justify-between">
-      <span className="text-zinc-400">{name}</span>
-      <span className="text-zinc-100">
-        {attention && <span className="mr-2 text-amber-300">! needs attention</span>}
+      <span className="text-muted">{name}</span>
+      <span className="text-ink">
+        {attention && <span className="mr-2 text-amber-700">! needs attention</span>}
         {count}
       </span>
     </li>

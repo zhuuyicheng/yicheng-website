@@ -17,8 +17,10 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <article className="mx-auto max-w-3xl px-4 py-16 sm:px-6 sm:py-24">
-      <h1 className="text-3xl font-semibold tracking-tight text-zinc-50 sm:text-5xl">Privacy</h1>
-      <p className="mt-5 text-lg text-zinc-400">
+      <h1 className="font-display text-3xl font-semibold tracking-tight text-ink sm:text-5xl">
+        Privacy
+      </h1>
+      <p className="mt-5 text-lg text-muted">
         This site records visits so I can see who reads it and what they look at. It uses no
         cookies, no advertising and no third-party analytics: everything below is stored on my own
         server.
@@ -101,7 +103,7 @@ export default function PrivacyPage() {
         </p>
       </Block>
 
-      <p className="mt-16 text-xs text-zinc-600">Last updated: 18 November 2026</p>
+      <p className="mt-16 text-xs text-faint">Last updated: 18 November 2026</p>
     </article>
   );
 }
@@ -109,8 +111,8 @@ export default function PrivacyPage() {
 function Block({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mt-12">
-      <h2 className="text-lg font-semibold text-zinc-50">{title}</h2>
-      <div className="mt-4 space-y-4 leading-relaxed text-zinc-300 [&_a]:text-emerald-300 [&_a]:underline [&_a]:underline-offset-2 [&_code]:font-mono [&_code]:text-sm [&_code]:text-zinc-200 [&_li]:pl-1 [&_ul]:list-disc [&_ul]:space-y-2 [&_ul]:pl-5">
+      <h2 className="font-display text-xl font-semibold text-ink">{title}</h2>
+      <div className="mt-4 space-y-4 leading-relaxed text-body [&_a]:text-brand [&_a]:underline [&_a]:underline-offset-2 [&_code]:font-mono [&_code]:text-sm [&_code]:text-ink [&_li]:pl-1 [&_ul]:list-disc [&_ul]:space-y-2 [&_ul]:pl-5">
         {children}
       </div>
     </section>

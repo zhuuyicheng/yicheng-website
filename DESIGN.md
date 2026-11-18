@@ -842,7 +842,8 @@ Limits: name 1–100, email valid ≤ 254, message 1–5000 chars (trimmed).
 `202 Accepted` → `{ "data": { "id": "uuid", "status": "PENDING" } }`
 
 Rate-limit headers on **every** response from this route once the limiter has run (all but a
-`503` caused by Redis being down): `X-RateLimit-Limit: 3`, `X-RateLimit-Remaining: 2`. On
+`503` caused by Redis being down): `X-RateLimit-Limit: 3`, `X-RateLimit-Remaining: 2`,
+`X-RateLimit-Window: 600` (seconds; so the form can say "3 messages every 10 minutes"). On
 `429`, additionally `Retry-After: <seconds, rounded up>`.
 
 | Status | When                                                                                   |
@@ -1185,19 +1186,41 @@ renders `error.tsx` with a retry button. `/privacy` has no data and is prerender
   ignored on purpose: analytics must never break the page.
 
 **Contact form** (`components/contact-form.tsx`, `lib/contact.ts`): validated in the browser
-with the API's schema, then sent. Every answer has a message: `202` (with the remaining count
-from `X-RateLimit-Remaining`), `400` (the API's field details under each field), `429` (the
-wait from `Retry-After`, rounded up), `503` and network failures.
+with the API's schema, then sent. Every answer has a message: `202` explains the spam limit
+from the `X-RateLimit-*` headers ("… the form accepts 3 messages per person every 10 minutes,
+so you can send 2 more in that time"), `400` puts the API's field details under each field,
+`429` gives the rule and the wait from `Retry-After` (rounded up), and `503` and network
+failures each have their own message. The wording lives in `lib/contact.ts`
+(`sentMessage`, `rateLimitedMessage`).
 
-**Look.** A plain, dark design: sans-serif text, section titles without decoration, and no
-terminal imitation (prompts, `./` prefixes, fake commands). Monospace is kept for the live
-dashboard's numbers only.
+**Look.** Warm and personal rather than technical: a light "paper" background, white cards,
+warm grey text, and a terracotta accent taken from the photos, with a soft green for
+education. Headings use Fraunces, a soft serif (loaded by `next/font` at build time and served
+from the site itself), body text the system sans-serif. Colors are named theme tokens in
+`globals.css` (`canvas`, `surface`, `ink`, `body`, `muted`, `line`, `brand`, `moss`); components
+never use raw palette colors, so a theme change is one block of CSS. No terminal imitation
+(prompts, `./` prefixes, fake commands); monospace remains only for the owner dashboard's
+numbers. Status colors keep their meaning (green healthy, amber degraded, red down).
+
+**Photos and icons.** The hero shows a portrait beside the name, the header a round avatar,
+and an "Outside work" section a gallery (`content/photos.ts`: image, description, caption,
+tile shape, focal point; wide tiles span two columns, tall ones two rows). Photos are static
+imports, so `next/image` knows their size, serves resized WebP/AVIF copies and shows a blurred
+preview while loading; the committed files are resized and stripped of metadata (camera and
+GPS data would otherwise be published). Section titles carry an icon (lucide-react; the
+LinkedIn mark from Simple Icons). The browser tab shows `app/icon.svg` (a "YC" monogram);
+phones saving the site get `app/apple-icon.png`, the avatar.
+
+**Section links.** Next.js's `<Link>` does nothing when the address already ends in the
+clicked `#hash`, so a second click on "Projects" after scrolling up used to do nothing.
+`components/section-link.tsx` scrolls explicitly on every click (`lib/section-scroll.ts`;
+`behavior: 'auto'` under reduced motion) and keeps the `#hash` in the address.
 
 **Effects.** Scroll-linked effects write one CSS variable (`--progress`,
 `components/use-scroll-progress.ts`) per animation frame instead of re-rendering React: the
 hero drifts and fades, the timeline line fills. Sections reveal once on entering the screen
-(IntersectionObserver), the header highlights the section being read, and the hero glow
-follows a precise pointer. Content is in the server-rendered HTML first; effects only enhance
+(IntersectionObserver), and the header highlights the section being read. Content is in the
+server-rendered HTML first; effects only enhance
 it, so without JavaScript or with `prefers-reduced-motion: reduce` everything is visible and
 still.
 
@@ -1421,7 +1444,8 @@ Other measures:
 - Error responses never leak internal messages or stack traces.
 - (P5) `@fastify/helmet` security headers on every response, and an explicit CORS allow-list
   (`CORS_ORIGINS`) for the web app: methods `GET`/`POST`, request headers `content-type` and
-  `x-request-id`, and the web app may read `x-request-id`, `x-ratelimit-*`, `retry-after` and
+  `x-request-id`, and the web app may read `x-request-id`, `x-ratelimit-*` (limit, remaining,
+  window), `retry-after` and
   `x-cache` (browsers hide other response headers from scripts). Preflights are cached for
   10 minutes and never reach the rate limiter. CORS only governs what browsers let scripts
   read; it is not access control (curl ignores it). In production the site and the API share

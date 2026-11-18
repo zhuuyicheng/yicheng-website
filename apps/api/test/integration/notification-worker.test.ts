@@ -59,7 +59,9 @@ describe('notification worker with live Postgres, Redis and a stub webhook', () 
   });
 
   /** The real manager, sending to the stub webhook, with a 10 ms backoff instead of 5 s. */
-  function createManager(options: { postgres?: PostgresPool; metrics?: Metrics } = {}) {
+  function createManager(
+    options: { postgres?: PostgresPool; metrics?: Metrics; now?: () => Date } = {},
+  ) {
     return createNotificationManager({
       contactMessageDal: createContactMessageDal(options.postgres ?? deps.postgres),
       queueDal: createNotificationQueueDal(deps.redis, blockingRedis),
@@ -68,6 +70,7 @@ describe('notification worker with live Postgres, Redis and a stub webhook', () 
       maxAttempts: 3,
       backoffBaseMs: 10,
       random: () => 0.5, // no jitter
+      now: options.now ?? (() => new Date()),
     });
   }
 
@@ -144,15 +147,20 @@ describe('notification worker with live Postgres, Redis and a stub webhook', () 
   it('fails twice with 500, retries after a backoff, then succeeds: SENT on attempt 3', async () => {
     const id = await queueMessage();
     webhook.statuses.push(500, 500);
-    const manager = createManager();
+    // A clock this test moves by hand. With real time, "not due yet" depended on the machine:
+    // under load more than the 10 ms backoff could pass before the check (a flaky test).
+    let clockMs = Date.now();
+    const manager = createManager({ now: () => new Date(clockMs) });
 
     expect(await manager.processNext(deps.logger)).toBe('retried');
     expect(await queueLengths()).toEqual({ ready: 0, processing: 0, delayed: 1, dlq: 0 });
     // Not due yet: the promoter leaves it alone.
     expect(await manager.promoteDue(deps.logger)).toBe(0);
-    await promoteRetry(manager);
+    clockMs += 1_000; // well past the backoff
+    expect(await manager.promoteDue(deps.logger)).toBe(1);
     expect(await manager.processNext(deps.logger)).toBe('retried');
-    await promoteRetry(manager);
+    clockMs += 1_000;
+    expect(await manager.promoteDue(deps.logger)).toBe(1);
     expect(await manager.processNext(deps.logger)).toBe('sent');
 
     expect(webhook.requests).toHaveLength(3);

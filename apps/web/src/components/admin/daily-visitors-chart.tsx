@@ -18,19 +18,19 @@ export function DailyVisitorsChart({ days }: { days: readonly Day[] }) {
   const hovered = hover === null ? undefined : days[hover];
 
   return (
-    <figure className="rounded-xl border border-white/10 bg-zinc-900/40 p-4 sm:p-5">
+    <figure className="rounded-xl border border-line bg-surface p-4 sm:p-5">
       <figcaption className="flex items-baseline justify-between gap-3">
-        <span className="text-sm text-zinc-300">Unique visitors per day</span>
-        <span className="text-xs text-zinc-500">UTC days</span>
+        <span className="text-sm text-body">Unique visitors per day</span>
+        <span className="text-xs text-muted">UTC days</span>
       </figcaption>
 
       <div className="relative mt-7">
-        <span className="absolute -top-5 left-0 text-[10px] text-zinc-600 tabular-nums">
+        <span className="absolute -top-5 left-0 text-[10px] text-faint tabular-nums">
           {ceiling}
         </span>
         <div
           aria-hidden
-          className="flex h-36 items-end border-b border-white/15"
+          className="flex h-36 items-end border-b border-line-strong"
           onPointerLeave={() => {
             setHover(null);
           }}
@@ -49,7 +49,7 @@ export function DailyVisitorsChart({ days }: { days: readonly Day[] }) {
             >
               <div
                 className={`w-full max-w-6 rounded-t transition-colors ${
-                  hover === index ? 'bg-emerald-300' : 'bg-emerald-400'
+                  hover === index ? 'bg-brand-strong' : 'bg-brand'
                 }`}
                 style={{ height: `${String((day.visitors / ceiling) * 100)}%` }}
               />
@@ -59,17 +59,17 @@ export function DailyVisitorsChart({ days }: { days: readonly Day[] }) {
 
         {hover !== null && hovered !== undefined && (
           <div
-            className={`pointer-events-none absolute -top-9 rounded border border-white/10 bg-zinc-950/95 px-2 py-1 text-[11px] whitespace-nowrap text-zinc-200 tabular-nums ${
+            className={`pointer-events-none absolute -top-9 rounded bg-ink px-2 py-1 text-[11px] whitespace-nowrap text-white tabular-nums shadow-md ${
               hover > days.length / 2 ? '-translate-x-full' : ''
             }`}
             style={{ left: `${String(((hover + 0.5) / days.length) * 100)}%` }}
           >
             {formatDay(hovered.day)} · {hovered.visitors} visitors ·{' '}
-            <span className="text-zinc-500">{hovered.pageViews} page views</span>
+            <span className="text-white/70">{hovered.pageViews} page views</span>
           </div>
         )}
 
-        <div aria-hidden className="mt-2 flex text-[10px] text-zinc-500">
+        <div aria-hidden className="mt-2 flex text-[10px] text-muted">
           {days.map((day, index) => (
             <span key={day.day} className="flex-1 text-center whitespace-nowrap">
               {index % labelEvery === 0 || index === days.length - 1 ? formatDay(day.day) : ''}

@@ -50,10 +50,10 @@ export default async function AdminPage(props: AdminPageProps) {
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
             Owner dashboard
           </h1>
-          <p className="mt-2 text-sm text-zinc-500">Only you can see this page.</p>
+          <p className="mt-2 text-sm text-muted">Only you can see this page.</p>
         </div>
         <PeriodPicker days={days} />
       </header>
@@ -63,7 +63,7 @@ export default async function AdminPage(props: AdminPageProps) {
 
       <Section title="Visitors">
         {summary.truncated && (
-          <p className="mb-4 text-sm text-amber-300">
+          <p className="mb-4 text-sm text-amber-700">
             This period had more visits than one summary reads; the numbers cover the newest 20,000.
           </p>
         )}
@@ -173,7 +173,7 @@ export default async function AdminPage(props: AdminPageProps) {
 
       <Section title="Recent visits">
         <RecentVisits visits={summary.recentVisits} now={now} />
-        <p className="mt-3 text-xs text-zinc-600">
+        <p className="mt-3 text-xs text-faint">
           One row per visit (a browser tab), newest first. Places and organisations come from the
           visitor&apos;s IP address, which is never stored. IP Geolocation by DB-IP.
         </p>
@@ -189,7 +189,7 @@ export default async function AdminPage(props: AdminPageProps) {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mt-14">
-      <h2 className="mb-5 text-xl font-semibold tracking-tight text-zinc-50">{title}</h2>
+      <h2 className="mb-5 font-display text-2xl font-semibold tracking-tight text-ink">{title}</h2>
       {children}
     </section>
   );
@@ -197,9 +197,9 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-zinc-900/40 p-4">
-      <p className="text-xs text-zinc-500">{label}</p>
-      <p className="mt-2 text-2xl text-zinc-50 tabular-nums sm:text-3xl">{value}</p>
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <p className="text-xs text-muted">{label}</p>
+      <p className="mt-2 text-2xl text-ink tabular-nums sm:text-3xl">{value}</p>
     </div>
   );
 }

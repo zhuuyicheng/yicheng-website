@@ -1,12 +1,14 @@
 'use client';
 
 import { CONTACT_LIMITS } from '@portfolio/shared';
+import { Send } from 'lucide-react';
 import Link from 'next/link';
 import { useState, type ReactNode, type SubmitEvent } from 'react';
 import { PUBLIC_API_BASE_URL } from '@/lib/config';
 import {
-  formatWait,
+  rateLimitedMessage,
   sendContact,
+  sentMessage,
   validateContact,
   type ContactField,
   type ContactOutcome,
@@ -64,7 +66,7 @@ export function ContactForm() {
   }
 
   return (
-    <div className="rounded-xl border border-white/10 bg-zinc-900/40">
+    <div className="rounded-2xl border border-line bg-surface shadow-sm">
       <form onSubmit={(event) => void onSubmit(event)} noValidate className="space-y-5 p-4 sm:p-6">
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="name" error={errors.name}>
@@ -121,9 +123,9 @@ export function ContactForm() {
         </Field>
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-muted">
             Stored and forwarded to me. See the{' '}
-            <Link href="/privacy" className="underline underline-offset-2 hover:text-zinc-300">
+            <Link href="/privacy" className="underline underline-offset-2 hover:text-body">
               privacy notice
             </Link>
             .
@@ -131,8 +133,9 @@ export function ContactForm() {
           <button
             type="submit"
             disabled={status.kind === 'sending'}
-            className="rounded-md bg-emerald-400 px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-emerald-300 disabled:cursor-wait disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-brand px-6 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-brand-strong disabled:cursor-wait disabled:opacity-60"
           >
+            <Send aria-hidden className="size-4" />
             {status.kind === 'sending' ? 'Sending…' : 'Send message'}
           </button>
         </div>
@@ -147,19 +150,10 @@ function StatusLine({ status }: { status: Status }) {
   let line: { ok: boolean; text: string } | null = null;
   switch (status.kind) {
     case 'sent':
-      line = {
-        ok: true,
-        text:
-          status.remaining === null
-            ? 'Message sent. Thanks, I will get back to you.'
-            : `Message sent. Thanks, I will get back to you. (${String(status.remaining)} more allowed for now)`,
-      };
+      line = { ok: true, text: sentMessage(status.remaining, status.policy) };
       break;
     case 'rate_limited':
-      line = {
-        ok: false,
-        text: `Too many messages for now. Please try again in ${formatWait(status.retryAfterSeconds)}.`,
-      };
+      line = { ok: false, text: rateLimitedMessage(status.retryAfterSeconds, status.policy) };
       break;
     case 'invalid':
       line = { ok: false, text: 'Please fix the highlighted fields.' };
@@ -175,7 +169,7 @@ function StatusLine({ status }: { status: Status }) {
   return (
     <p role="status" aria-live="polite" className="min-h-5 text-sm">
       {line && (
-        <span className={line.ok ? 'text-emerald-300' : 'text-rose-400'}>
+        <span className={line.ok ? 'text-brand' : 'text-rose-700'}>
           {line.ok ? '✓ ' : '✗ '}
           {line.text}
         </span>
@@ -198,14 +192,14 @@ function Field({
   return (
     <div>
       <div className="mb-1.5 flex items-baseline justify-between text-sm">
-        <label htmlFor={`contact-${label}`} className="text-zinc-300">
+        <label htmlFor={`contact-${label}`} className="text-body">
           {LABELS[label]}
         </label>
-        {aside !== undefined && <span className="text-xs text-zinc-600 tabular-nums">{aside}</span>}
+        {aside !== undefined && <span className="text-xs text-faint tabular-nums">{aside}</span>}
       </div>
       {children}
       {error !== undefined && (
-        <p id={`contact-${label}-error`} className="mt-1.5 text-xs text-rose-400">
+        <p id={`contact-${label}-error`} className="mt-1.5 text-xs text-rose-700">
           {LABELS[label]} {error}
         </p>
       )}
@@ -214,9 +208,9 @@ function Field({
 }
 
 function inputClass(error: string | undefined): string {
-  return `w-full rounded-md border bg-black/30 px-3 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition focus:ring-2 ${
+  return `w-full rounded-md border bg-surface px-3 py-2.5 text-sm text-ink placeholder-faint outline-none transition focus:ring-2 ${
     error === undefined
-      ? 'border-white/10 focus:border-emerald-400/60 focus:ring-emerald-400/20'
+      ? 'border-line focus:border-brand/60 focus:ring-brand/20'
       : 'border-rose-500/60 focus:ring-rose-500/20'
   }`;
 }

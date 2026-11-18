@@ -1,6 +1,7 @@
 'use client';
 
 import type { Education, Experience } from '@portfolio/shared';
+import { BriefcaseBusiness, GraduationCap } from 'lucide-react';
 import { useRef } from 'react';
 import { formatDuration, formatRange, monthsBetween } from '@/lib/format';
 import { Reveal } from './reveal';
@@ -18,21 +19,27 @@ export function ExperienceTimeline({ entries }: { entries: Entry[] }) {
 
   return (
     <div ref={ref} className="relative">
-      <div aria-hidden className="absolute top-2 bottom-2 left-[7px] w-px bg-zinc-800" />
+      <div aria-hidden className="absolute top-4 bottom-4 left-[17px] w-0.5 bg-line" />
       <div
         aria-hidden
-        className="absolute top-2 bottom-2 left-[7px] w-px origin-top bg-gradient-to-b from-emerald-400 to-cyan-400 [transform:scaleY(var(--progress,1))]"
+        className="absolute top-4 bottom-4 left-[17px] w-0.5 origin-top bg-gradient-to-b from-brand to-moss [transform:scaleY(var(--progress,1))]"
       />
 
       <ol className="space-y-12">
         {entries.map((entry) => (
-          <li key={entry.item.id} className="relative pl-10">
+          <li key={entry.item.id} className="relative pl-14">
             <span
               aria-hidden
-              className={`absolute top-1.5 left-0 size-[15px] rounded-full border-2 bg-canvas ${
-                entry.kind === 'work' ? 'border-emerald-400' : 'border-cyan-400'
+              className={`absolute top-0 left-0 flex size-9 items-center justify-center rounded-full ring-4 ring-surface ${
+                entry.kind === 'work' ? 'bg-brand-soft text-brand' : 'bg-moss-soft text-moss'
               }`}
-            />
+            >
+              {entry.kind === 'work' ? (
+                <BriefcaseBusiness className="size-4" strokeWidth={1.75} />
+              ) : (
+                <GraduationCap className="size-4" strokeWidth={1.75} />
+              )}
+            </span>
             <Reveal>
               <TimelineEntry entry={entry} />
             </Reveal>
@@ -51,18 +58,20 @@ function TimelineEntry({ entry }: { entry: Entry }) {
 
   return (
     <article className="md:grid md:grid-cols-[11rem_1fr] md:gap-8">
-      <p className="text-xs text-zinc-500 tabular-nums sm:text-sm">
+      <p className="text-xs text-muted tabular-nums sm:text-sm">
         {formatRange(item.startDate, item.endDate)}
-        <span className="block text-zinc-600">{formatDuration(months)}</span>
+        <span className="block text-faint">{formatDuration(months)}</span>
       </p>
       <div className="mt-2 md:mt-0">
-        <h3 className="text-lg font-medium text-zinc-100">{title}</h3>
-        <p className={entry.kind === 'work' ? 'text-emerald-300' : 'text-cyan-300'}>{place}</p>
+        <h3 className="font-display text-xl font-semibold text-ink">{title}</h3>
+        <p className={`font-medium ${entry.kind === 'work' ? 'text-brand' : 'text-moss'}`}>
+          {place}
+        </p>
         {item.highlights.length > 0 && (
-          <ul className="mt-3 space-y-2 text-sm leading-relaxed text-zinc-400 sm:text-base">
+          <ul className="mt-3 space-y-2 text-sm leading-relaxed text-muted sm:text-base">
             {item.highlights.map((highlight) => (
               <li key={highlight} className="flex gap-3">
-                <span aria-hidden className="mt-2.5 size-1.5 shrink-0 rounded-full bg-zinc-600" />
+                <span aria-hidden className="mt-2.5 size-1.5 shrink-0 rounded-full bg-faint" />
                 <span>{highlight}</span>
               </li>
             ))}

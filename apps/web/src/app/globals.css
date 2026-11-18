@@ -1,19 +1,39 @@
 @import 'tailwindcss';
 
 /*
- * Dark, developer-style theme: near-black background, zinc text, emerald as the "live/ok"
- * accent (like a terminal prompt), cyan as a second accent, rose for "denied/error".
- * Colors come from Tailwind's built-in palette; only effects that utilities cannot express
- * live here.
+ * Warm, light theme: paper-white background, white cards, warm grey ("stone") inks, and a
+ * terracotta accent taken from the photos (judo belts, orange sneakers). Components use these
+ * names (`bg-canvas`, `text-ink`, `border-line`, `bg-brand`, …), never raw palette colors,
+ * so changing the theme means changing this block only.
+ *
+ * Contrast on canvas: ink 16:1, body 9:1, muted 5.4:1 (all AA for small text); faint 3.6:1
+ * (large or decorative text only). White on brand 5.6:1.
  */
 
 @theme {
-  --color-canvas: #07090c;
+  --color-canvas: #faf7f2;
+  --color-surface: #ffffff;
+  --color-sunken: #f2ede5;
+  --color-line: #e8e1d6;
+  --color-line-strong: #d4cabb;
+  --color-ink: #1f1a15;
+  --color-body: #463f37;
+  --color-muted: #6b6259;
+  --color-faint: #8a8178;
+  --color-brand: #c2410c;
+  --color-brand-strong: #9a3412;
+  --color-brand-soft: #fdeadb;
+  /* A second, calm accent (the green fields in the photos): education on the timeline. */
+  --color-moss: #3f6b52;
+  --color-moss-soft: #e3eee6;
+
+  /* Headings: Fraunces (app/layout.tsx loads it), falling back to a system serif. */
+  --font-display: var(--font-fraunces), ui-serif, Georgia, 'Times New Roman', serif;
 }
 
 @layer base {
   html {
-    color-scheme: dark;
+    color-scheme: light;
     background-color: var(--color-canvas);
   }
 
@@ -25,34 +45,13 @@
   }
 
   ::selection {
-    background-color: color-mix(in oklab, var(--color-emerald-400) 35%, transparent);
+    background-color: color-mix(in oklab, var(--color-brand) 25%, transparent);
   }
 
   /* Sections reached through the sticky header's links should not hide under it. */
   section[id] {
     scroll-margin-top: 5rem;
   }
-}
-
-/* Faint graph-paper grid, faded out towards the edges. */
-@utility bg-grid {
-  background-image:
-    linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
-  background-size: 3rem 3rem;
-  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
-}
-
-/*
- * A soft glow behind the hero that follows the pointer. --mx/--my are set by
- * components/spotlight.tsx; without them it sits in the middle.
- */
-@utility spotlight {
-  background: radial-gradient(
-    36rem circle at var(--mx, 50%) var(--my, 40%),
-    color-mix(in oklab, var(--color-emerald-400) 13%, transparent),
-    transparent 60%
-  );
 }
 
 /* Reveal on scroll (components/reveal.tsx): hidden only once JavaScript has decided so. */
@@ -80,12 +79,6 @@
 }
 @utility animate-scroll-cue {
   animation: scroll-cue 2s ease-in-out infinite;
-}
-
-/* Range sliders in the theme's colors (the rate-limiter lab). */
-input[type='range'] {
-  accent-color: var(--color-emerald-400);
-  cursor: pointer;
 }
 
 /* Fewer moving parts for visitors who asked for it in their system settings. */

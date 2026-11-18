@@ -36,8 +36,8 @@ export function ProjectContents({ items }: { items: ContentsItem[] }) {
 
   return (
     <nav aria-label="On this page" className="text-sm">
-      <p className="mb-3 text-xs font-medium tracking-wide text-zinc-500 uppercase">On this page</p>
-      <ol className="border-l border-white/10">
+      <p className="mb-3 text-xs font-medium tracking-wide text-muted uppercase">On this page</p>
+      <ol className="border-l border-line">
         {items.map(({ id, heading }) => (
           <li key={id}>
             <a
@@ -45,8 +45,8 @@ export function ProjectContents({ items }: { items: ContentsItem[] }) {
               aria-current={active === id ? 'location' : undefined}
               className={`-ml-px block border-l-2 py-1.5 pl-4 transition-colors ${
                 active === id
-                  ? 'border-emerald-400 text-zinc-100'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                  ? 'border-brand text-ink'
+                  : 'border-transparent text-muted hover:text-body'
               }`}
             >
               {heading}
