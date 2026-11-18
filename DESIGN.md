@@ -111,7 +111,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 ```
 .
 ├── .github/workflows/ci.yml              (P2) format, lint, typecheck, unit + integration tests,
-│                                         (P5) web unit tests + the site's production build
+│                                         (P5) web unit tests + the site's production build,
+│                                         (P6) both Docker images built for linux/arm64
 ├── .github/workflows/deploy.yml          (P6) build images → approve → migrate → deploy → smoke test
 ├── .vscode/extensions.json               recommended extensions (PostgreSQL, Redis, ESLint, Prettier)
 ├── .dockerignore                         (P6)
@@ -732,6 +733,8 @@ because tools consume it directly.
 
 **`GET /health/live` (Phase 6)**: liveness check for the load balancer. `200 {"status":"ok"}`
 whenever the process can answer; checks no dependencies, on purpose (§14.5 explains why).
+Its route log level is `warn`: Caddy calls it every 5 s per replica, and Fastify's two
+info-level request lines would otherwise fill the logs.
 
 `200 OK`
 
@@ -911,7 +914,7 @@ has a 2 s timeout. Concurrent requests during a refresh share it (single-flight)
 
 Rolling percentiles come from an in-process ring buffer (10 000 samples) of the last 5 minutes
 of request durations (Prometheus histograms are cumulative, not rolling). Requests to `/health`,
-`/metrics` and the owner endpoints are left out of it (Prometheus still counts them), or a
+`/health/live` (the load balancer's check), `/metrics` and the owner endpoints are left out of it (Prometheus still counts them), or a
 dashboard polling every few seconds would mostly measure itself. `cache` counts content-cache lookups
 since the process started. Values are per API instance;
 `instance` (the container hostname) says which one answered, because with two replicas
@@ -1545,27 +1548,41 @@ gate once releases are routine.
 
 ### 14.2 Artifacts
 
-- `apps/api/Dockerfile`, multi-stage: install (`npm ci` for the workspaces, which also builds
-  `packages/shared` through `postinstall`) → `tsc` build → small runtime image with production
+- `apps/api/Dockerfile`, multi-stage: install (`npm ci` for the API and shared workspaces) →
+  `tsc` build of `packages/shared` and the API → small runtime image with production
   dependencies and `packages/shared/dist` only, running as the non-root `node` user. One image, several
   commands: `node dist/main.js` (API), `node dist/worker.js`, `node dist/cli/migrate.js`,
   `node dist/cli/seed-content.js`, `node dist/cli/replay-dlq.js`. It contains `migrations/` and
-  `content/`. The GeoIP files (§8.2) are not in Git: the image build runs
-  `node dist/cli/download-geoip.js`, so each image carries that month's files (an image older
-  than a month should be rebuilt to refresh them).
-- `apps/web/Dockerfile`: Next.js `output: 'standalone'` server (to add to `next.config.ts`,
+  `content/`. The GeoIP files (§8.2) are not in Git: a `geoip` build stage runs the downloader
+  (with `tsx`, from only its own source files, so a code change elsewhere reuses the cached
+  ~140 MB download), and each image carries that month's files. The build argument
+  `GEOIP_MONTH` (CI passes the current `YYYY-MM`) is part of the cache key, so a month's first
+  build fetches fresh files; an image older than a month should be rebuilt to refresh them.
+  `GEOIP_*_DB_PATH` default to those files in the image, and `NODE_OPTIONS=--enable-source-maps`
+  maps stack traces to the TypeScript lines.
+- Both images: `node:24-trixie-slim` (Debian, glibc, which the lockfile's prebuilt native
+  packages target; Alpine's musl is avoided). Package files are copied and installed before
+  the source, so a code change reuses the installed packages; `npm ci --ignore-scripts`, then
+  `packages/shared` is built explicitly (the root `postinstall` would run before its source is
+  copied). Files belong to `root` and the process runs as `node`. No `HEALTHCHECK` in the API
+  image, because the worker and CLIs use it too: compose checks the API service. Node runs as
+  PID 1 and handles `SIGTERM` itself (§10).
+- `apps/web/Dockerfile`: Next.js `output: 'standalone'` server (set in `next.config.ts`,
   with `outputFileTracingRoot` at the repo root so the workspace packages are traced).
   `NEXT_PUBLIC_API_BASE_URL` is copied into the browser bundle **at build time** (§4); the image
   is built with it empty, so browsers call `/api/v1/...` on the page's own origin (§14.5). The
   image therefore contains no hostname and runs unchanged under any hostname. `API_BASE_URL`
-  stays a runtime variable.
+  stays a runtime variable. `@portfolio/shared` is bundled into the server code, so the
+  standalone folder needs no copy of it; only `.next/cache` (resized images) is writable.
 - **CPU architecture**: the production server is an Arm machine (§14.5), so CI builds the
   images for `linux/arm64` on GitHub's Arm runners (free for public repositories), natively
   rather than under emulation. Local builds use the laptop's own architecture.
 - Images go to GitHub Container Registry, tagged with the **git commit SHA**
   (`ghcr.io/<owner>/portfolio-api:<sha>`). Every release is traceable to a commit, and a
   rollback is "deploy the previous SHA".
-- CI builds both images on every PR, so a broken Dockerfile fails before merge.
+- CI builds both images on every PR, so a broken Dockerfile fails before merge (job `images`,
+  on `ubuntu-24.04-arm`, layers cached in the GitHub Actions cache with one scope per image).
+  Guide: [docs/DOCKER.md](docs/DOCKER.md).
 
 ### 14.3 Pipeline (`.github/workflows/deploy.yml`)
 

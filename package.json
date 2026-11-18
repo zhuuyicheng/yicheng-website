@@ -29,6 +29,8 @@
     "content:seed": "npm run content:seed -w @portfolio/api",
     "dlq:replay": "npm run dlq:replay -w @portfolio/api --",
     "geoip:download": "npm run geoip:download -w @portfolio/api",
+    "image:api": "docker build -f apps/api/Dockerfile --build-arg GEOIP_MONTH=$(date -u +%Y-%m) -t portfolio-api:dev .",
+    "image:web": "docker build -f apps/web/Dockerfile -t portfolio-web:dev .",
     "infra:up": "docker compose up -d --wait",
     "infra:down": "docker compose down",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test"

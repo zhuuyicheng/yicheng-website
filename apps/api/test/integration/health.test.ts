@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
+import { pino } from 'pino';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { createPostgresPool } from '../../src/infra/postgres.js';
 import { closeRedis, createRedisClient } from '../../src/infra/redis.js';
-import type { HealthReport } from '../../src/schema/health.schema.js';
+import type { HealthReport, LivenessReport } from '../../src/schema/health.schema.js';
 import type { ErrorResponseBody } from '../../src/views/error.view.js';
 import {
   createTestDependencies,
@@ -38,6 +39,13 @@ describe('GET /health with live Postgres and Redis', () => {
     expect(report.checks.postgres?.status).toBe('up');
     expect(report.checks.redis?.status).toBe('up');
     expect(report.checks.postgres?.latencyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('GET /health/live returns 200 {"status":"ok"}', async () => {
+    const response = await app.inject({ method: 'GET', url: '/health/live' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<LivenessReport>()).toEqual({ status: 'ok' });
   });
 
   it('echoes a safe incoming x-request-id', async () => {
@@ -103,6 +111,35 @@ describe('GET /health with an unreachable dependency', () => {
     }
   });
 
+  // The reason /health/live exists (DESIGN.md §14.5): a shared dependency failing must not make
+  // the load balancer drop every replica.
+  it('GET /health/live still returns 200 with Postgres and Redis both unreachable', async () => {
+    const deadRedis = createRedisClient(
+      { url: UNREACHABLE_REDIS_URL, connectionName: 'dead-redis' },
+      deps.logger,
+      deps.metrics,
+    );
+    const deadPostgres = createPostgresPool(
+      { url: UNREACHABLE_POSTGRES_URL, poolMax: 1, applicationName: 'dead-postgres' },
+      deps.logger,
+      deps.metrics,
+    );
+    const app = buildApp({ ...deps, redis: deadRedis, postgres: deadPostgres });
+
+    try {
+      const live = await app.inject({ method: 'GET', url: '/health/live' });
+      const ready = await app.inject({ method: 'GET', url: '/health' });
+
+      expect(live.statusCode).toBe(200);
+      expect(live.json<LivenessReport>()).toEqual({ status: 'ok' });
+      expect(ready.statusCode).toBe(503); // readiness still tells the truth
+    } finally {
+      await app.close();
+      await closeRedis(deadRedis);
+      await deadPostgres.end();
+    }
+  });
+
   it('returns 503 when Postgres is unreachable', async () => {
     const deadPostgres = createPostgresPool(
       { url: UNREACHABLE_POSTGRES_URL, poolMax: 1, applicationName: 'dead-postgres' },
@@ -121,6 +158,41 @@ describe('GET /health with an unreachable dependency', () => {
     } finally {
       await app.close();
       await deadPostgres.end();
+    }
+  });
+});
+
+describe('request logs for the load balancer check', () => {
+  let deps: TestDependencies;
+
+  beforeAll(async () => {
+    deps = await createTestDependencies();
+  });
+
+  afterAll(async () => {
+    await deps.close();
+  });
+
+  it('logs no info lines for /health/live, unlike /health', async () => {
+    const lines: { msg?: string; req?: { url?: string } }[] = [];
+    const logger = pino(
+      { level: 'info' },
+      {
+        write: (line: string) => {
+          lines.push(JSON.parse(line) as (typeof lines)[number]);
+        },
+      },
+    );
+    const app = buildApp({ ...deps, logger });
+
+    try {
+      await app.inject({ method: 'GET', url: '/health/live' });
+      await app.inject({ method: 'GET', url: '/health' });
+
+      const incoming = lines.filter((line) => line.msg === 'incoming request');
+      expect(incoming.map((line) => line.req?.url)).toEqual(['/health']);
+    } finally {
+      await app.close();
     }
   });
 });

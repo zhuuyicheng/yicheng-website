@@ -20,6 +20,7 @@ section before changing behaviour, and update it in the same change when a desig
 | Publish `apps/api/content/portfolio.json`            | `npm run content:seed`                                           |
 | Retry dead-lettered events / notifications           | `npm run dlq:replay -- telemetry` (or `-- notifications`)        |
 | Download / refresh the GeoIP databases               | `npm run geoip:download` (gitignored `apps/api/data/geoip/`)     |
+| Build the Docker images locally (docs/DOCKER.md)     | `npm run image:api` / `npm run image:web`                        |
 | Lint / fix                                           | `npm run lint` / `npm run lint:fix`                              |
 | Typecheck                                            | `npm run typecheck`                                              |
 | Format                                               | `npm run format` / `npm run format:check`                        |

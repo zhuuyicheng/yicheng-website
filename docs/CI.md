@@ -95,6 +95,11 @@ The integration tests need no extra configuration: their default connection stri
 (`localhost:5432`, user `portfolio`, Redis DB 1) match the service containers, and the test
 setup creates the `portfolio_test` database itself.
 
+**Second job, `images` (Phase 6a).** Next to `check`, two more jobs build the Docker images,
+`image (api)` and `image (web)`, on GitHub's Arm machines for the production server's CPU.
+They push nothing yet; they only prove both Dockerfiles still build. Details, and how to build
+the same images on your laptop: [DOCKER.md](DOCKER.md) §7.
+
 ---
 
 ## 3. Day-to-day workflow with CI
@@ -149,6 +154,7 @@ Common causes:
 | `npm ci`                          | `package.json` changed without updating the lockfile       | `npm install`, commit `package-lock.json`      |
 | `build -w @portfolio/web`         | A page that needs the API while building, or a build error | `npm run build -w @portfolio/web`              |
 | Integration tests only fail in CI | Test depends on local state (data left in your DB, timing) | Make the test create its own data and clean up |
+| `image (api)` / `image (web)`     | A Dockerfile step fails (missing file, new dependency)     | `npm run image:api` / `npm run image:web`      |
 
 ---
 
@@ -157,7 +163,7 @@ Common causes:
 On GitHub: **Settings → Branches → Add branch ruleset** for `main`:
 
 - ✅ Require a pull request before merging
-- ✅ Require status checks to pass → select `check`
+- ✅ Require status checks to pass → select `check`, `image (api)` and `image (web)`
 - ✅ Block force pushes
 
 After this, nothing can reach `main` without a green CI run, including your own pushes.

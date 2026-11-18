@@ -55,3 +55,34 @@ jobs:
       - run: npm run build -w @portfolio/web
         env:
           NEXT_TELEMETRY_DISABLED: '1'
+
+  # Phase 6a: build both Docker images for the production server's Arm CPU (DESIGN.md §14.2),
+  # so a broken Dockerfile fails the PR instead of the deploy. Nothing is pushed yet (6c).
+  images:
+    name: image (${{ matrix.image }})
+    # GitHub's Arm machines (free for public repositories): native arm64 builds, no emulation.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false # a broken API image should not hide the state of the web image
+      matrix:
+        image: [api, web]
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4 # BuildKit, which the cache below needs
+      # The API image downloads this month's GeoIP files; the month is part of the cache key.
+      - id: month
+        run: echo "value=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/${{ matrix.image }}/Dockerfile
+          platforms: linux/arm64
+          push: false
+          # Only the API image has this argument (the web image would warn about an unused one).
+          build-args: ${{ matrix.image == 'api' && format('GEOIP_MONTH={0}', steps.month.outputs.value) || '' }}
+          # Layers are kept in GitHub's Actions cache between runs (one scope per image);
+          # mode=max keeps the intermediate stages too (dependencies, GeoIP download).
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

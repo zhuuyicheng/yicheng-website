@@ -155,13 +155,14 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
       and everything else to the website; no purchased domain
 - [ ] Server ready: VM, both firewalls, Docker, DuckDNS hostname, HTTPS test page
       ([docs/HOSTING.md](docs/HOSTING.md))
-- [ ] `apps/api/Dockerfile` (multi-stage, non-root; one image for api/worker/migrate/seed;
+- [x] `apps/api/Dockerfile` (multi-stage, non-root; one image for api/worker/migrate/seed;
       builds `packages/shared`; downloads the GeoIP files during the build),
       `apps/web/Dockerfile` (Next.js `output: 'standalone'`; built with an empty
       `NEXT_PUBLIC_API_BASE_URL`, so browsers call the same origin, DESIGN.md §14.2),
-      `.dockerignore`
-- [ ] CI: build both images for `linux/arm64` on GitHub's Arm runners on every PR (a broken
-      Dockerfile fails before merge)
+      `.dockerignore`; both built and run locally (API, worker, CLIs, site), guide
+      [docs/DOCKER.md](docs/DOCKER.md), `npm run image:api` / `image:web`
+- [x] CI: build both images for `linux/arm64` on GitHub's Arm runners on every PR (a broken
+      Dockerfile fails before merge); layers cached in the Actions cache
 - [ ] On merge to `main`: push images to GHCR tagged with the git SHA
 - [ ] `deploy/compose.prod.yml` + `Caddyfile` (path routing, internal `:8080` listener for the
       web server); production env file kept on the host only
@@ -169,7 +170,9 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
       behind a `production` GitHub Environment with a required reviewer (continuous **delivery**)
 - [ ] Load balancing ([DESIGN.md §14.5](DESIGN.md#145-hosting-oracle-cloud-free-tier-one-hostname)):
   - [ ] Two API replicas (`api-1`, `api-2`) behind Caddy: round robin, active health checks
-  - [ ] `GET /health/live` liveness endpoint for the load balancer (no dependency checks) + tests
+  - [x] `GET /health/live` liveness endpoint for the load balancer (no dependency checks) + tests
+        (200 with both datastores down, no info logs, left out of the dashboard's latency;
+        305 API + 74 web tests)
   - [ ] Rolling update: worker → api-1 (wait for `/health` = 200) → api-2 → web
   - [ ] Per-replica numbers: Prometheus scrapes each replica directly (`instance` in the system
         status already exists since Phase 5; set each container's hostname to `api-1`/`api-2`)

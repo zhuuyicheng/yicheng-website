@@ -55,6 +55,7 @@ describe('observability and security with live Postgres and Redis', () => {
     await app.inject({ method: 'GET', url: '/api/v1/projects' });
     await app.inject({ method: 'GET', url: '/api/v1/projects' }); // a cache hit
     await app.inject({ method: 'GET', url: '/does-not-exist' });
+    await app.inject({ method: 'GET', url: '/health/live' }); // the load balancer: not counted
     const pageView = bufferedEventSchema.parse(JSON.parse(bufferedEventJson()));
     await createAnalyticsEventDal(deps.postgres).insertBatch([pageView]);
     await deps.redis.rpush(TELEMETRY_BUFFER_KEYS.buffer, bufferedEventJson(), bufferedEventJson());
@@ -65,7 +66,8 @@ describe('observability and security with live Postgres and Redis', () => {
       postgres: { status: 'up', latencyMs: expect.any(Number) as unknown },
       redis: { status: 'up', latencyMs: expect.any(Number) as unknown },
     });
-    // The 3 requests above; the status request itself is not counted (monitors don't count).
+    // The 3 visitor requests above; the liveness check and the status request itself are not
+    // counted (monitors don't count).
     expect(status.http.requestCount).toBe(3);
     expect(status.http.latencyMs.p95).toBeGreaterThan(0);
     expect(status.cache.hits).toBeGreaterThanOrEqual(1);

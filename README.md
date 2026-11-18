@@ -8,7 +8,7 @@ background jobs with retries and dead-letter queues, and live observability.
 - **Progress**: [ROADMAP.md](ROADMAP.md)
 - **New here? Start with the hands-on [Guided Tour](docs/GUIDED-TOUR.md)**
 - **Guides**: [Editing the site's text](docs/EDITING-THE-SITE.md) · [Testing](docs/TESTING.md) · [CI](docs/CI.md) · [Content & cache](docs/CONTENT-AND-CACHE.md) ·
-  [Seeing the data in VS Code](docs/DATA-TOOLS.md) · [Hosting (server setup)](docs/HOSTING.md)
+  [Seeing the data in VS Code](docs/DATA-TOOLS.md) · [Docker images](docs/DOCKER.md) · [Hosting (server setup)](docs/HOSTING.md)
 
 ## Quick start
 
@@ -39,6 +39,7 @@ npm run dev:web          # Web    → http://localhost:3000 (owner dashboard: /a
 | `npm run dlq:replay -- telemetry`     | Retry dead-lettered analytics events after a fix     |
 | `npm run dlq:replay -- notifications` | Retry failed contact notifications after a fix       |
 | `npm run geoip:download`              | Refresh the IP databases (monthly), then restart API |
+| `npm run image:api` / `image:web`     | Build the production Docker images (docs/DOCKER.md)  |
 | `npm run infra:down`                  | Stop the Docker datastores (data is kept)            |
 
 ## Working on another machine

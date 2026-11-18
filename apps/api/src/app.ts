@@ -9,7 +9,11 @@ import {
 import { registerContactController } from './controllers/contact.controller.js';
 import { registerContentController } from './controllers/content.controller.js';
 import { registerEventsController } from './controllers/events.controller.js';
-import { registerHealthController } from './controllers/health.controller.js';
+import {
+  HEALTH_PATH,
+  LIVENESS_PATH,
+  registerHealthController,
+} from './controllers/health.controller.js';
 import { METRICS_PATH, registerSystemController } from './controllers/system.controller.js';
 import { createAnalyticsEventDal } from './dal/analytics-event.dal.js';
 import { createContactMessageDal } from './dal/contact-message.dal.js';
@@ -85,8 +89,15 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   registerHttpMetrics(app, {
     metrics,
     latency,
-    // Monitoring and the owner's pages: neither is visitor traffic, so neither skews p95.
-    latencyIgnoredRoutes: ['/health', METRICS_PATH, ADMIN_SYSTEM_STATUS_PATH, ADMIN_VISITORS_PATH],
+    // Monitoring, the load balancer's checks and the owner's pages: none of them is visitor
+    // traffic, so none of them skews p95.
+    latencyIgnoredRoutes: [
+      HEALTH_PATH,
+      LIVENESS_PATH,
+      METRICS_PATH,
+      ADMIN_SYSTEM_STATUS_PATH,
+      ADMIN_VISITORS_PATH,
+    ],
   });
 
   // Wiring, one module at a time:
