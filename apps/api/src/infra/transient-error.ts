@@ -4,7 +4,8 @@
  *
  * Two places act on the answer:
  *   - the API answers 503 SERVICE_UNAVAILABLE instead of 500 (DESIGN.md §7.2);
- *   - the telemetry flusher (Phase 3, step 4) retries a batch instead of dead-lettering it.
+ *   - the telemetry flusher retries a batch instead of dead-lettering it
+ *     (services/telemetry-flush.manager.ts, workers/telemetry-flusher.worker.ts).
  *
  * pg and ioredis report failures in three different ways, so all three are checked.
  */

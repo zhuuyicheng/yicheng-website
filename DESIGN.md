@@ -45,6 +45,7 @@ flowchart LR
   Web -->|server-side fetch| API[API process<br/>Fastify]
   API -->|cache-aside, rate limit,<br/>event buffer, job enqueue| Redis[(Redis 7)]
   API -->|content reads,<br/>contact inserts| PG[(PostgreSQL 16)]
+  API -->|IP lookup, in memory| GeoIP[(GeoIP .mmdb files)]
   Worker[Worker process<br/>flusher + notifier] -->|claim batches / jobs| Redis
   Worker -->|bulk insert / status updates| PG
   Worker -->|webhook| Notify[Discord webhook / log stub]
@@ -53,11 +54,12 @@ flowchart LR
 
 ### 2.1 Process model
 
-| Process    | Entrypoint                         | Responsibilities                                                                 |
-| ---------- | ---------------------------------- | -------------------------------------------------------------------------------- |
-| API        | `apps/api/src/main.ts`             | HTTP routes, cache-aside, ingestion enqueue, contact + rate limit, `/metrics`    |
-| Worker     | `apps/api/src/worker.ts` (Phase 3) | Telemetry batch flusher, notification consumer, delayed-job promoter, reconciler |
-| Migrations | `apps/api/src/cli/migrate.ts`      | Applies SQL migrations; run as a deploy step, **never** on API boot              |
+| Process    | Entrypoint                         | Responsibilities                                                                         |
+| ---------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| API        | `apps/api/src/main.ts`             | HTTP routes, cache-aside, ingestion enqueue, contact + rate limit, `/metrics`            |
+| Worker     | `apps/api/src/worker.ts` (Phase 3) | Telemetry batch flusher; (P4) notification consumer, delayed-job promoter, reconciler    |
+| Migrations | `apps/api/src/cli/migrate.ts`      | Applies SQL migrations; run as a deploy step, **never** on API boot                      |
+| Other CLIs | `apps/api/src/cli/*.ts`            | `content:seed` (P2), `dlq:replay` and `geoip:download` (P3): one-off commands, then exit |
 
 The API and worker share one codebase but run as separate processes, so a slow webhook or
 flush never competes with request latency.
@@ -82,7 +84,11 @@ controller ──────► manager ──────► DAL ────�
 | DAO           | `src/dao/`                | `*.dao.ts`        | Row types: one interface per table, column for column (`snake_case`).                                           |
 | Schema        | `src/schema/`             | `*.schema.ts`     | The contract: Zod schemas + types for API responses, requests and input files (`camelCase`).                    |
 | Views         | `src/views/`              | `*.view.ts`       | Turn schema types into response bodies (`{ data }` / `{ error }`, no internal fields).                          |
+| Workers       | `src/workers/`            | `*.worker.ts`     | Background loops started by `worker.ts`: decide _when_ to run, call one manager method, back off on failure.    |
 | Cross-cutting | `middleware/`, `errors/`… | —                 | Request ids, error handling, config, logging, lifecycle.                                                        |
+
+A worker loop is the background equivalent of a controller: time (an interval, a backoff), not
+an HTTP request, triggers it, and the manager it calls holds the business rules.
 
 Why DAO and schema are separate: the database and the API change for different reasons. A
 column rename touches a DAO row type and one mapping function in the DAL; the API (and its
@@ -110,7 +116,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 ├── DESIGN.md                             this document
 ├── ROADMAP.md                            phases, branches, progress checklists
 ├── docs/                                 how-to guides (testing, CI, content & cache, data viewers)
-│   └── sql/                              read-only queries to run from the VS Code PostgreSQL extension
+│   └── sql/                              read-only queries for the VS Code PostgreSQL extension
+│                                         (content.sql, (P3) telemetry.sql)
 ├── deploy/                               (P6) compose.prod.yml + Caddyfile for the production host
 ├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests
 ├── eslint.config.mjs                     one flat config for the whole repo
@@ -124,14 +131,16 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   ├── tsconfig.build.json           emit (src → dist)
 │   │   ├── vitest.config.ts              "unit" and "integration" projects
 │   │   ├── content/portfolio.json        (P2) source of truth for portfolio content
+│   │   ├── data/geoip/                   (P3, gitignored) npm run geoip:download puts the .mmdb files here
 │   │   ├── migrations/                   NNNN_snake_case_name.sql, applied in order
 │   │   │   ├── 0001_portfolio_content.sql        (P2)
 │   │   │   ├── 0002_education.sql                (P2)
 │   │   │   ├── 0003_analytics_events.sql         (P3)
-│   │   │   └── 0004_contact_messages.sql         (P4)
+│   │   │   ├── 0004_analytics_visitor_details.sql (P3)
+│   │   │   └── 0005_contact_messages.sql         (P4)
 │   │   ├── src/
 │   │   │   ├── main.ts                   API composition root + process lifecycle
-│   │   │   ├── worker.ts                 (P3) worker composition root
+│   │   │   ├── worker.ts                 (P3) worker composition root + process lifecycle
 │   │   │   ├── app.ts                    buildApp(): wires DAL → managers → controllers
 │   │   │   ├── controllers/              endpoints (method + path) + input validation
 │   │   │   │   ├── health.controller.ts          GET /health, (P6) GET /health/live
@@ -145,21 +154,26 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── health.manager.ts
 │   │   │   │   ├── cache-aside.manager.ts        (P2) generic cache-aside + single-flight + TTL jitter
 │   │   │   │   ├── content.manager.ts            (P2) profile/projects reads, publish (seed)
-│   │   │   │   ├── telemetry.manager.ts          (P3) validation, hashing, enqueue
+│   │   │   │   ├── telemetry.manager.ts          (P3) ingestion: normalise, hash, enqueue
+│   │   │   │   ├── visitor-details.manager.ts    (P3) what the link, browser and IP reveal
+│   │   │   │   ├── telemetry-flush.manager.ts    (P3) one flush: claim → insert → ack, DLQ routing
+│   │   │   │   ├── telemetry-dlq.manager.ts      (P3) dead-letter replay
 │   │   │   │   ├── contact.manager.ts            (P4)
 │   │   │   │   ├── rate-limiter.manager.ts       (P4)
 │   │   │   │   └── system-status.manager.ts      (P5)
 │   │   │   ├── dal/                      the only datastore code
 │   │   │   │   ├── content.dal.ts                (P2) Postgres
 │   │   │   │   ├── content-cache.dal.ts          (P2) Redis
-│   │   │   │   ├── analytics-event.dal.ts        (P3) Postgres
-│   │   │   │   ├── event-buffer.dal.ts           (P3) Redis
+│   │   │   │   ├── analytics-event.dal.ts        (P3) Postgres: bulk insert with unnest
+│   │   │   │   ├── event-buffer.dal.ts           (P3) Redis: buffer, in-flight batch, DLQ
 │   │   │   │   ├── telemetry-salt.dal.ts         (P3) Redis
+│   │   │   │   ├── ip-location.dal.ts            (P3) local GeoIP files: IP → organisation, location
 │   │   │   │   ├── contact-message.dal.ts        (P4) Postgres
 │   │   │   │   ├── rate-limit.dal.ts             (P4) Redis
 │   │   │   │   ├── notification-queue.dal.ts     (P4) Redis
 │   │   │   │   └── lua/                          (P3/P4) Lua scripts as TS string constants
-│   │   │   │       └── bounded-enqueue.lua.ts    (P3) + its typed ioredis command
+│   │   │   │       ├── bounded-enqueue.lua.ts    (P3) + its typed ioredis command
+│   │   │   │       └── claim-batch.lua.ts        (P3) + its typed ioredis command
 │   │   │   ├── dao/                      row types, one per table
 │   │   │   │   ├── content.dao.ts                (P2) profile, experiences, education, projects
 │   │   │   │   ├── analytics-event.dao.ts        (P3)
@@ -167,7 +181,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   ├── schema/                   API + input contract: Zod schemas and their types
 │   │   │   │   ├── health.schema.ts
 │   │   │   │   ├── content.schema.ts             (P2) responses + content/portfolio.json
-│   │   │   │   ├── analytics-event.schema.ts     (P3)
+│   │   │   │   ├── analytics-event.schema.ts     (P3) request, visitor details, buffered event, dead letter
 │   │   │   │   ├── contact-message.schema.ts     (P4)
 │   │   │   │   └── notification-job.schema.ts    (P4)
 │   │   │   ├── views/
@@ -177,7 +191,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── telemetry.view.ts     (P3) { data: { eventId } }
 │   │   │   │   └── system-status.view.ts (P5)
 │   │   │   ├── workers/                  (P3/P4) background loops started by worker.ts
-│   │   │   │   ├── telemetry-flusher.worker.ts   (P3)
+│   │   │   │   ├── telemetry-flusher.worker.ts   (P3) when to flush: interval, backoff, drain on stop
 │   │   │   │   ├── notification.worker.ts        (P4) consumer + delayed-job promoter
 │   │   │   │   └── notification-reconciler.worker.ts (P4)
 │   │   │   ├── middleware/
@@ -190,12 +204,15 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   ├── cli/
 │   │   │   │   ├── migrate.ts            npm run db:migrate
 │   │   │   │   ├── seed-content.ts       (P2) npm run content:seed
-│   │   │   │   └── replay-dlq.ts         (P3) npm run dlq:replay
+│   │   │   │   ├── replay-dlq.ts         (P3) npm run dlq:replay -- telemetry
+│   │   │   │   └── download-geoip.ts     (P3) npm run geoip:download
 │   │   │   ├── infra/
 │   │   │   │   ├── logger.ts             Pino root logger
 │   │   │   │   ├── postgres.ts           pg Pool factory + ping
 │   │   │   │   ├── redis.ts              ioredis factory + ping
 │   │   │   │   ├── with-timeout.ts       bound any promise by a deadline
+│   │   │   │   ├── sleep.ts              (P3) a wait that a stopping worker can cut short
+│   │   │   │   ├── ip-databases.ts       (P3) opens the GeoIP files at API startup
 │   │   │   │   ├── transient-error.ts    (P3) outage vs bug: 503 in the API, retry vs DLQ in the worker
 │   │   │   │   ├── metrics.ts            (P2) prom-client registry + metric definitions
 │   │   │   │   └── notifiers/            (P4) log + Discord notification senders
@@ -203,6 +220,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │       └── graceful-shutdown.ts  signal handling, ordered close, forced exit
 │   │   └── test/
 │   │       ├── helpers/                  test app builder, datastore helpers
+│   │       ├── fixtures/geoip/           (P3) MaxMind's tiny test .mmdb files (Apache-2.0/MIT)
 │   │       ├── unit/                     mirrors src/ folders; pure logic, no I/O
 │   │       └── integration/              real Postgres + Redis (docker compose)
 │   └── web/
@@ -237,9 +255,11 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `SHUTDOWN_TIMEOUT_MS`               | 1     | `10000`                 | Hard deadline for graceful shutdown before forced exit.                   |
 | `CACHE_TTL_SECONDS`                 | 2     | `300`                   | ±10 % jitter applied per write.                                           |
 | `TRUST_PROXY`                       | 3     | `false`                 | Set when behind a reverse proxy so `request.ip` is the client IP.         |
-| `TELEMETRY_BATCH_SIZE`              | 3     | `50`                    | 1–1000.                                                                   |
-| `TELEMETRY_FLUSH_INTERVAL_MS`       | 3     | `5000`                  |                                                                           |
+| `TELEMETRY_BATCH_SIZE`              | 3     | `50`                    | 1–1000 events per `INSERT`.                                               |
+| `TELEMETRY_FLUSH_INTERVAL_MS`       | 3     | `5000`                  | 100–300000. The worker's pause once it has caught up.                     |
 | `TELEMETRY_BUFFER_MAX_LENGTH`       | 3     | `100000`                | Ingestion returns `503` beyond this.                                      |
+| `GEOIP_ASN_DB_PATH`                 | 3     | unset                   | IP → organisation `.mmdb` file. Unset = lookup off. Relative to apps/api. |
+| `GEOIP_LOCATION_DB_PATH`            | 3     | unset                   | IP → country/city `.mmdb` file. Set but missing = API refuses to start.   |
 | `IP_HASH_SECRET`                    | 4     | — (required)            | ≥ 32 chars. Keyed hash for rate-limit / abuse identifiers.                |
 | `CONTACT_RATE_LIMIT_MAX`            | 4     | `3`                     |                                                                           |
 | `CONTACT_RATE_LIMIT_WINDOW_SECONDS` | 4     | `600`                   |                                                                           |
@@ -374,7 +394,36 @@ CREATE INDEX analytics_events_received_at_brin ON analytics_events USING BRIN (r
 CREATE INDEX analytics_events_path_received_at_idx ON analytics_events (path, received_at DESC);
 ```
 
-### 5.4 `0004_contact_messages.sql` (Phase 4)
+### 5.3b `0004_analytics_visitor_details.sql` (Phase 3)
+
+Added after 0003 had been applied: what we learn about each visitor (§8.2), in three groups.
+
+```sql
+ALTER TABLE analytics_events
+  -- From the link: tagged links such as /?ref=acme&utm_source=linkedin
+  ADD COLUMN ref           TEXT,
+  ADD COLUMN utm_source    TEXT,
+  ADD COLUMN utm_medium    TEXT,
+  ADD COLUMN utm_campaign  TEXT,
+  -- From the browser: parsed user agent, Accept-Language header, the page's timezone
+  ADD COLUMN browser       TEXT,          -- e.g. 'Chrome'
+  ADD COLUMN os            TEXT,          -- e.g. 'macOS'
+  ADD COLUMN device_type   TEXT,          -- 'desktop' | 'mobile' | 'tablet' | 'tv' | 'bot'
+  ADD COLUMN language      TEXT,          -- e.g. 'en-SG'
+  ADD COLUMN timezone      TEXT,          -- e.g. 'Asia/Singapore'
+  -- From the IP address, looked up in local GeoIP database files
+  ADD COLUMN country_code  TEXT,          -- ISO 3166-1 alpha-2, e.g. 'SG'
+  ADD COLUMN city          TEXT,
+  ADD COLUMN organization  TEXT;          -- who owns the network, e.g. 'Google LLC'
+```
+
+Every column is nullable: older rows, and details that are unknown (no GeoIP file, a private
+IP, `curl`), are `NULL`. Adding nullable columns is backward compatible (§14.4). No new indexes:
+the table is small, and these columns are read by occasional ad-hoc queries
+(`docs/sql/telemetry.sql`), not by request paths. `device_type` has no `CHECK`, because a new
+value from the user-agent parser must not make inserts fail.
+
+### 5.4 `0005_contact_messages.sql` (Phase 4)
 
 ```sql
 CREATE TABLE contact_messages (
@@ -515,9 +564,15 @@ redis.call('RPUSH', KEYS[2], unpack(batch))
 return batch
 ```
 
-**Acknowledge**: `DEL telemetry:events:inflight` after the Postgres transaction commits.
-Because event ids are assigned at ingestion and inserts use `ON CONFLICT (id) DO NOTHING`,
-re-processing a batch after a crash never creates duplicates.
+**Acknowledge** (after the insert commits): `RPUSH telemetry:events:dlq <dead letters…>` (if
+any), **then** `DEL telemetry:events:inflight`. Because event ids are assigned at ingestion and
+inserts use `ON CONFLICT (id) DO NOTHING`, re-processing a batch after a crash never creates
+duplicate rows. That is also why these two commands need no script: a crash between them
+re-claims the batch, re-inserts its good events as no-ops and dead-letters its bad ones a
+second time. Delivery is **at least once**: a duplicate, never a loss.
+
+**Replay** (`npm run dlq:replay -- telemetry`): for each DLQ entry, `RPUSH` its original
+payload to the buffer, **then** `LREM` the entry. The same reasoning makes the order safe.
 
 ### 6.6 Notification queue scripts (Phase 4)
 
@@ -670,22 +725,26 @@ All three set `X-Cache: hit | miss`.
 ```json
 {
   "type": "page_view",
-  "path": "/projects/telemetry-platform?utm_source=x",
-  "referrer": "https://news.ycombinator.com/item?id=1",
+  "path": "/projects/portfolio-telemetry-platform?ref=acme&utm_source=linkedin",
+  "referrer": "https://www.linkedin.com/",
   "sessionId": "k3J9xQ2mP0aZ",
-  "name": null
+  "name": null,
+  "timezone": "Asia/Singapore"
 }
 ```
 
-| Field       | Rule                                                                            |
-| ----------- | ------------------------------------------------------------------------------- |
-| `type`      | `page_view` \| `interaction`                                                    |
-| `path`      | starts with `/`, ≤ 512 chars; query string and fragment stripped before storage |
-| `referrer`  | optional absolute URL, ≤ 1024 chars; only the host is stored                    |
-| `sessionId` | `^[A-Za-z0-9_-]{8,64}$`, random per browser tab                                 |
-| `name`      | required iff `type = interaction`; `^[a-z0-9:_-]{1,64}$`                        |
+| Field       | Rule                                                                                                                                      |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`      | `page_view` \| `interaction`                                                                                                              |
+| `path`      | starts with `/`, ≤ 512 chars. Stored without query string and fragment; `ref`, `utm_source`, `utm_medium`, `utm_campaign` get own columns |
+| `referrer`  | optional `http(s)` URL, ≤ 1024 chars; the host is stored                                                                                  |
+| `sessionId` | `^[A-Za-z0-9_-]{8,64}$`, random per browser tab                                                                                           |
+| `name`      | required iff `type = interaction`; `^[a-z0-9:_-]{1,64}$`                                                                                  |
+| `timezone`  | optional IANA name (`Intl.DateTimeFormat().resolvedOptions().timeZone`), ≤ 64 chars                                                       |
 
-The server records its own receive time; client clocks are not trusted.
+The server also reads the `User-Agent` and `Accept-Language` headers and the client IP
+(`X-Forwarded-For` only when `TRUST_PROXY=true`), and records its own receive time; client
+clocks are not trusted.
 
 `202 Accepted` → `{ "data": { "eventId": "uuid" } }`. Never touches Postgres.
 `503 SERVICE_UNAVAILABLE` when Redis is down or the buffer is at `TELEMETRY_BUFFER_MAX_LENGTH`.
@@ -773,41 +832,94 @@ which key, schema and DAL query to use.
 
 ### 8.2 Module B: Telemetry pipeline
 
-**Ingestion** (API process):
+**Ingestion** (API process, `services/telemetry.manager.ts`):
 
-1. Validate body (§7.5). Normalise `path` (strip query/fragment) and `referrer` (host only).
-2. Get today's salt: in-process memo keyed by UTC date → else `GET` → else `SET NX EX 172800`
+1. Validate body (§7.5).
+2. Describe the visitor (`services/visitor-details.manager.ts`); every field is `null` when
+   unknown:
+   - **campaign**, from the link: `ref`, `utm_source`, `utm_medium`, `utm_campaign` in the
+     path's query string;
+   - **device**, from the browser: browser, OS and device type parsed from `User-Agent`
+     (`bowser`), the preferred language from `Accept-Language`, and `timezone` from the body;
+   - **network**, from the IP address: country, city and organisation (local GeoIP files, below).
+3. Normalise `path` (strip query/fragment) and `referrer` (host only).
+4. Get today's salt: in-process memo keyed by UTC date → else `GET` → else `SET NX EX 172800`
    with 32 random bytes, then `GET` (whoever won the race defines the salt).
-3. `visitorHash = sha256(salt, ip, userAgent joined by newlines)`; the separator keeps the parts
-   unambiguous. Raw IP/UA are never stored or logged.
-4. Build `{ id: uuidv4, type, name, path, referrerHost, sessionId, visitorHash, receivedAt }`.
-5. Bounded enqueue script → `202`, or `503` (+ `telemetry_events_rejected_total{reason}`).
+5. `visitorHash = sha256(salt, ip, userAgent joined by newlines)`; the separator keeps the parts
+   unambiguous. It counts unique visitors per day; a new salt each day means the same person
+   cannot be linked across days.
+6. Build the buffered event: `id` (a new UUID), `type`, `name`, `path`, `referrerHost`,
+   `sessionId`, `visitorHash`, `receivedAt`, plus the `campaign`, `device` and `network` groups.
+7. Bounded enqueue script → `202`, or `503` (+ `telemetry_events_rejected_total{reason}`).
 
-**Flusher** (worker process):
+The raw IP and user agent are used in steps 2 and 5, then discarded: they reach neither Redis,
+nor Postgres, nor the logs.
+
+#### Visitor details: what is (and is not) possible
+
+- **A browser never says who the visitor is.** No header or browser API reveals a name or an
+  email. The reliable way to know _which company_ is looking is a **tagged link**: share
+  `https://<site>/?ref=acme` with Acme, and the first event of that visit carries
+  `ref = 'acme'`. `docs/sql/telemetry.sql` follows the `session_id` to show every page they
+  viewed afterwards. Linking contact-form emails to browsing sessions is on hold.
+- **Referrers are reduced to the host because browsers send little more.** Since about 2021
+  browsers default to `Referrer-Policy: strict-origin-when-cross-origin`, so a click from
+  another site sends only its origin (`https://www.linkedin.com/`), never the page or profile.
+- **IP → organisation and location, offline.** The API loads two MaxMind-format (`.mmdb`)
+  files into memory at startup: DB-IP Lite ASN (who owns the network) and City (country and
+  city). They are free, updated monthly (`npm run geoip:download`, then restart), and licensed
+  CC BY 4.0: anything that shows the data publicly must credit "IP Geolocation by DB-IP"
+  (https://db-ip.com). A lookup is an in-memory tree search (~0.5 µs), with no external calls.
+  Cost: ~140 MB of RAM per API process (the City file is 127 MB; a country-only file is a
+  drop-in replacement if memory is tight). The organisation is a company's name for visitors on
+  its own network, and an ISP for people at home or on mobile data; VPNs change both.
+- **Why look up at ingestion, not in the worker:** the raw IP never has to leave the API
+  process, and the lookup cannot fail because a server is down.
+- **Configuration**: a path that is unset turns that lookup off (a `warn` at startup, the
+  columns stay `NULL`); a path that is set but unreadable stops the API from starting.
+- **Queued data outlives the code that wrote it.** Events buffered before migration 0004 have
+  no `campaign`/`device`/`network`. The buffered-event schema defaults them to all-null, so the
+  flusher inserts those events instead of dead-lettering them.
+
+**Flusher** (worker process). The loop decides _when_ to flush
+(`workers/telemetry-flusher.worker.ts`); one flush is a manager call
+(`services/telemetry-flush.manager.ts`):
 
 ```
 loop until stopping:
-  batch = claimBatch(BATCH_SIZE)               # returns any un-acked in-flight batch first
-  if batch is empty: sleep FLUSH_INTERVAL_MS; continue
-  parse each item; unparseable → DLQ (reason: invalid_payload)
+  try:
+    outcome = flushOnce()
+    consecutiveFailures = 0
+  except error:                                # flushOnce only throws for outages and bugs
+    consecutiveFailures += 1
+    metric kind = transient (outage) | unexpected (bug); log warn | error
+    sleep backoff(consecutiveFailures)         # 0.5 s, 1 s, 2 s, … 30 s cap
+    continue
+  if outcome.claimed < BATCH_SIZE: sleep FLUSH_INTERVAL_MS   # caught up (or empty)
+  # a full batch: flush again immediately, draining at full speed under load
+
+flushOnce():
+  batch = claimBatch(BATCH_SIZE)               # the un-acked in-flight batch first (§6.5)
+  if batch is empty: return
+  parse each entry; invalid JSON or schema → dead letter (reason invalid_payload)
   try:
     INSERT … SELECT * FROM unnest(…) ON CONFLICT (id) DO NOTHING   # one statement, one round trip
-    DEL inflight                                                    # ack
-    consecutiveFailures = 0
   except transient error:                      # connection errors, SQLSTATE 08*, 53*, 57P*, 40001, 40P01
-    log warn + metric; sleep backoff(consecutiveFailures)  # 0.5 s → 30 s cap; batch stays in-flight
+    raise                                      # the batch stays in flight and is retried
   except permanent error:                      # data/constraint errors, e.g. 22*, 23*
-    insert rows one by one; failing rows → DLQ with error code; then ack
-  if batch was full: continue immediately (drain at full speed under load)
-  else: sleep FLUSH_INTERVAL_MS
+    metric kind = permanent; insert rows one at a time;
+    failing rows → dead letter (reason insert_failed, with the SQLSTATE); an outage still raises
+  acknowledge(dead letters)                    # RPUSH dlq …, then DEL inflight (§6.5)
 ```
 
 At low traffic events land within `FLUSH_INTERVAL_MS`; under load the loop drains full
 batches back-to-back. During a Postgres outage events wait safely in Redis rather than
 flooding the DLQ, which is reserved for poison data.
 
-DLQ entries: `{ "payload": "<original JSON>", "reason": "...", "errorCode": "23502", "failedAt": "…" }`.
-`npm run dlq:replay -- telemetry` moves DLQ entries back into the buffer after a fix.
+DLQ entries: `{ "payload": "<original JSON>", "reason": "invalid_payload" | "insert_failed",
+"errorCode": "23514" | null, "errorMessage": "…", "failedAt": "…" }`.
+`npm run dlq:replay -- telemetry` moves them back into the buffer after a fix; an event that
+still fails returns to the DLQ. Unreadable entries are left in place, and the command exits `1`.
 
 ### 8.3 Module C: Contact + notifications
 
@@ -855,9 +967,9 @@ retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics
 | `postgres_pool_errors_total`                     | counter   | —                                                         | 2     |
 | `telemetry_events_ingested_total`                | counter   | `type`                                                    | 3     |
 | `telemetry_events_rejected_total`                | counter   | `reason`                                                  | 3     |
-| `telemetry_events_flushed_total`                 | counter   | —                                                         | 3     |
-| `telemetry_flush_failures_total`                 | counter   | `kind` (`transient`\|`permanent`)                         | 3     |
-| `telemetry_events_dead_lettered_total`           | counter   | `reason`                                                  | 3     |
+| `telemetry_events_flushed_total`                 | counter   | — (new rows; re-inserted duplicates not counted)          | 3     |
+| `telemetry_flush_failures_total`                 | counter   | `kind` (`transient`\|`permanent`\|`unexpected`)           | 3     |
+| `telemetry_events_dead_lettered_total`           | counter   | `reason` (`invalid_payload`\|`insert_failed`)             | 3     |
 | `rate_limit_decisions_total`                     | counter   | `limiter`, `decision`                                     | 4     |
 | `rate_limit_errors_total`                        | counter   | `limiter`                                                 | 4     |
 | `notification_jobs_total`                        | counter   | `outcome` (`sent`\|`retried`\|`dead_lettered`\|`skipped`) | 4     |
@@ -885,9 +997,13 @@ retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics
 | Postgres down → content                    | Cached entries still served; cache misses return `503 SERVICE_UNAVAILABLE` (`infra/transient-error.ts`)                    | `error` log                                                   |
 | One API replica down (P6)                  | Caddy's health check removes it within 5 s; meanwhile `lb_try_duration` retries refused connections on the other replica   | Caddy log, container restart count                            |
 | Redis down → ingestion                     | `503` (no in-process fallback buffer; it would be lost on crash)                                                           | `telemetry_events_rejected_total{reason="redis_unavailable"}` |
+| GeoIP path set but file unreadable at boot | API exits 1 naming the variable (`npm run geoip:download`)                                                                 | `fatal` log                                                   |
+| GeoIP path not set                         | API starts; `country_code`, `city`, `organization` stay `NULL`                                                             | `warn` log at startup                                         |
 | Redis down → contact                       | `503` (fail closed)                                                                                                        | `rate_limit_errors_total`                                     |
-| Postgres down → flusher                    | Events stay in Redis; retry with capped backoff; ingestion continues until buffer cap                                      | `telemetry_flush_failures_total{kind="transient"}`            |
-| Poison event                               | Isolated row-by-row, sent to DLQ, batch acknowledged                                                                       | `telemetry_events_dead_lettered_total`                        |
+| Postgres or Redis down → flusher           | The batch stays in the in-flight list; retried with backoff (0.5 s → 30 s); ingestion continues until the buffer cap       | `telemetry_flush_failures_total{kind="transient"}`            |
+| Poison event                               | Batch insert fails → rows retried one by one → failing rows to the DLQ with their SQLSTATE, the rest inserted              | `telemetry_events_dead_lettered_total{reason}`                |
+| Unexpected flush error (a bug)             | Logged at `error`, retried with the same backoff (never a crash loop, never dropped)                                       | `telemetry_flush_failures_total{kind="unexpected"}`           |
+| Event buffered by the previous version     | Missing visitor details default to `NULL`; the event is inserted, not dead-lettered                                        | —                                                             |
 | Worker crash mid-batch                     | In-flight batch re-claimed on restart; duplicates ignored by `ON CONFLICT`                                                 | —                                                             |
 | Worker crash mid-job                       | Job moved back from `processing` on startup; status check prevents re-processing finished messages                         | —                                                             |
 | Webhook down                               | Retries with exponential backoff, then DLQ + `FAILED`                                                                      | `notification_jobs_total{outcome}`                            |
@@ -912,9 +1028,15 @@ retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics
    step is logged and does not prevent later steps.
 4. Log `shutdown complete`; exit `0` if every step succeeded, else `1`.
 
-**Worker process** (Phase 3+): stop claiming new work → finish the current batch/job → drain
-the remaining telemetry buffer until it is empty or the deadline nears → close connections.
-Anything not drained is still safe in Redis (AOF) and is picked up on the next start.
+**Worker process** (Phase 3+), same signal handling and deadline:
+
+1. `telemetry-flusher`: wake the flush loop if it is sleeping, let the current flush finish,
+   then flush back to back (no interval, no backoff) until the buffer is empty, a flush fails,
+   or `SHUTDOWN_TIMEOUT_MS − 1 s` has passed. The last second is kept for the next steps.
+2. Close Redis, then the Postgres pool.
+
+Anything not drained is still safe in Redis (AOF) and is picked up on the next start. Draining
+matters most for deploys: the old worker empties the buffer before the new one starts (§14.5).
 
 ---
 
@@ -929,7 +1051,10 @@ Anything not drained is still safe in Redis (AOF) and is picked up on the next s
   steps and a fake `exit`), health manager.
 - (P2) Cache-aside and content managers: hit, miss, Redis error fallback, corrupt entry,
   single-flight.
-- (P3) Flusher: error classification, backoff schedule, DLQ routing, full-batch draining.
+- (P3) Error classification; flush manager with fake DALs (DLQ routing, poison-row isolation,
+  no acknowledge on an outage); flush loop with a fake `sleep` and clock (interval, backoff
+  schedule, full-batch draining, drain on stop); visitor details (tagged links, user agents,
+  languages); buffered-event defaults for events from the previous version.
 - (P4) Backoff/jitter bounds, notifier HTTP-status classification.
 - (P5) Rolling percentile tracker.
 
@@ -942,8 +1067,10 @@ compose, run serially):
   envelope; migrator (order, idempotent re-run, checksum mismatch, rollback) in an isolated
   schema; **real process** test: spawn the API, call `/health`, send `SIGTERM`, expect exit `0`.
 - (P2) Cache-aside round trip; seed CLI invalidation.
-- (P3) Ingest → flush → rows; crash simulation (pre-populated in-flight list) → no duplicate
-  rows; poison event → DLQ; buffer cap → 503; worker `SIGTERM` drains the buffer.
+- (P3) Ingest → flush → rows with every column; crash simulation (a claimed batch already
+  inserted) → no duplicate rows; poison events → DLQ (invalid JSON, CHECK violation `23514`);
+  Postgres down → batch stays in flight; buffer cap → 503; IP lookup on MaxMind's test
+  databases; `dlq:replay` CLI; **real worker process**: `SIGTERM` drains the buffer, exit `0`.
 - (P4) Rate limiter: limit, sliding expiry, `Retry-After`, **20 concurrent requests admit
   exactly 3**; notification worker against a local stub HTTP server (fail twice then succeed
   → `SENT`; always 500 → DLQ + `FAILED`; 400 → immediate DLQ); reconciler re-enqueue.
@@ -956,9 +1083,25 @@ See [docs/CI.md](docs/CI.md).
 
 ## 12. Security & Privacy
 
-- No raw IPs or user agents are stored or logged. Analytics uses a daily-rotating salted hash
-  (unlinkable across days); abuse controls use a keyed HMAC.
-- Referrers are reduced to host; paths lose query strings.
+**What the analytics keep (decided in Phase 3).** The goal is to learn who visits, so every
+event stores what the visitor's link, browser and IP address reveal (§8.2): campaign parameters
+(`ref`, `utm_*`), browser, OS, device type, language, time zone, and the country, city and
+organisation of the IP address. Raw IP addresses and full user-agent strings are still neither
+stored nor logged, only what is derived from them, plus a daily-salted visitor hash (unlinkable
+across days) for counting unique visitors. Referrers keep their host, which is nearly all
+browsers send (§8.2). Contact-form emails are not linked to browsing sessions (on hold).
+
+Consequences:
+
+- Derived details such as organisation and city still count as personal data under the GDPR
+  (for EU/UK visitors) and similar laws. (P5) The site gets a short privacy notice saying what is
+  collected and why, plus the DB-IP attribution wherever the data is shown publicly.
+- Visitor details are for the site owner, who reads them with SQL (`docs/sql/telemetry.sql`).
+  They never appear on the public status dashboard, which shows counts only (§7.7).
+
+Other measures:
+
+- Abuse controls (P4) use a keyed HMAC of the IP, never the IP itself.
 - Docker ports bind to `127.0.0.1` only (Redis has no password in local dev).
 - Logs redact `authorization` and `cookie` headers.
 - Error responses never leak internal messages or stack traces.
@@ -972,7 +1115,7 @@ See [docs/CI.md](docs/CI.md).
 | ----- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | 1     | `main` (initial scaffold)    | Monorepo, Docker infra, config, logging, migrator, graceful shutdown, `/health`                                           |
 | 2     | `feat/portfolio-cache-api`   | CI workflow; Module A: profile/projects endpoints, Redis cache-aside, cache metrics                                       |
-| 3     | `feat/telemetry-pipeline`    | Module B: event ingestion, Redis buffer, batch flusher worker, DLQ, SIGTERM test                                          |
+| 3     | `feat/telemetry-pipeline`    | Module B: event ingestion, visitor details, Redis buffer, batch flusher worker, DLQ + replay, SIGTERM drain               |
 | 4     | `feat/contact-rate-limiter`  | Module C: Lua sliding-window limiter, contact endpoint, notification worker + backoff                                     |
 | 5     | `feat/metrics-and-dashboard` | Module D: `/metrics`, system status API, Next.js portfolio + live dashboard                                               |
 | 6     | `feat/continuous-delivery`   | Docker images, GHCR, deploy with approval gate, two API replicas behind Caddy, rolling update, smoke test, rollback (§14) |
@@ -1006,7 +1149,10 @@ gate once releases are routine.
 - `apps/api/Dockerfile`, multi-stage: install → `tsc` build → small runtime image with
   production dependencies only, running as the non-root `node` user. One image, several
   commands: `node dist/main.js` (API), `node dist/worker.js`, `node dist/cli/migrate.js`,
-  `node dist/cli/seed-content.js`. It contains `migrations/` and `content/`.
+  `node dist/cli/seed-content.js`, `node dist/cli/replay-dlq.js`. It contains `migrations/` and
+  `content/`. The GeoIP files (§8.2) are not in Git: the image build runs
+  `node dist/cli/download-geoip.js`, so each image carries that month's files (an image older
+  than a month should be rebuilt to refresh them).
 - `apps/web/Dockerfile`: Next.js `output: 'standalone'` server.
 - Images go to GitHub Container Registry, tagged with the **git commit SHA**
   (`ghcr.io/<owner>/portfolio-api:<sha>`). Every release is traceable to a commit, and a
@@ -1040,8 +1186,11 @@ merge to main ─► CI green ─► build + push images (tag = SHA)
 - **Redis is a datastore, not only a cache**: production Redis must keep AOF persistence and
   the `volatile-lru` policy. This rules out hosted plans that disable persistence or force
   `allkeys-lru` (which would evict queued events).
-- Production settings: `NODE_ENV=production`, `TRUST_PROXY=true`, `CORS_ORIGINS=https://<domain>`,
-  `METRICS_TOKEN` set.
+- Production settings: `NODE_ENV=production`, `TRUST_PROXY=true` (without it every visitor
+  would have Caddy's IP, and the IP lookup would find nothing), `CORS_ORIGINS=https://<domain>`,
+  `METRICS_TOKEN` set, `GEOIP_ASN_DB_PATH` / `GEOIP_LOCATION_DB_PATH` pointing into the image.
+- **Memory**: each API replica holds ~140 MB of GeoIP data (§8.2); size the VPS for two
+  replicas, or switch to the country-only file.
 
 ### 14.5 Hosting (decided at the start of Phase 6)
 
@@ -1093,6 +1242,7 @@ The worker and web stay single instances.
 | Cache entries                             | Redis                        | Shared; a hit on one replica is a hit on both                     |
 | Rate-limit windows (P4)                   | Redis, one atomic Lua script | Shared; two replicas cannot both admit the request over the limit |
 | Telemetry salt (P3)                       | Redis `SET NX`               | Whoever creates it first wins; both use the same salt             |
+| GeoIP data (P3)                           | Per process, read-only       | Same files in the same image, so both give the same answers       |
 | Single-flight (§8.1)                      | Per process                  | At most one Postgres query per key **per replica**: harmless      |
 | Metrics, rolling percentiles, status (P5) | Per process                  | Each replica reports its own numbers (see below)                  |
 

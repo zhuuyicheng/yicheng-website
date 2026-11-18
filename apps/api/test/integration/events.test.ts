@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { TELEMETRY_BUFFER_KEYS } from '../../src/dal/event-buffer.dal.js';
 import { telemetrySaltKey } from '../../src/dal/telemetry-salt.dal.js';
+import { openIpDatabases } from '../../src/infra/ip-databases.js';
 import { closeRedis, createRedisClient } from '../../src/infra/redis.js';
 import {
   bufferedEventSchema,
@@ -11,12 +12,15 @@ import {
 } from '../../src/schema/analytics-event.schema.js';
 import type { DataResponseBody } from '../../src/views/data.view.js';
 import type { ErrorResponseBody } from '../../src/views/error.view.js';
+import { GEOIP_FIXTURES } from '../helpers/geoip-fixtures.js';
 import { counterValue } from '../helpers/metrics.js';
 import {
   createTestDependencies,
   UNREACHABLE_REDIS_URL,
   type TestDependencies,
 } from '../helpers/test-dependencies.js';
+
+const FIREFOX_ON_LINUX = 'Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0';
 
 const PAGE_VIEW = {
   type: 'page_view',
@@ -105,7 +109,7 @@ describe('POST /api/v1/events with live Redis', () => {
   it('answers 503 once the buffer holds TELEMETRY_BUFFER_MAX_LENGTH events', async () => {
     const tinyBuffer = buildApp({
       ...deps,
-      config: { ...deps.config, telemetry: { bufferMaxLength: 2 } },
+      config: { ...deps.config, telemetry: { ...deps.config.telemetry, bufferMaxLength: 2 } },
     });
 
     try {
@@ -143,6 +147,48 @@ describe('POST /api/v1/events with live Redis', () => {
       expect(hashes[2]).not.toBe(hashes[3]);
     } finally {
       await behindProxy.close();
+    }
+  });
+
+  it('records visitor details from the link, the browser and the IP address', async () => {
+    const withGeoIp = buildApp({
+      ...deps,
+      config: { ...deps.config, server: { ...deps.config.server, trustProxy: true } },
+      ipDatabases: await openIpDatabases(GEOIP_FIXTURES, deps.logger),
+    });
+
+    try {
+      const response = await withGeoIp.inject({
+        method: 'POST',
+        url: '/api/v1/events',
+        payload: {
+          ...PAGE_VIEW,
+          path: '/?ref=acme&utm_source=email',
+          timezone: 'Europe/Stockholm',
+        },
+        headers: {
+          'user-agent': FIREFOX_ON_LINUX,
+          'accept-language': 'sv-SE,sv;q=0.9,en;q=0.8',
+          'x-forwarded-for': '89.160.20.115', // in both MaxMind test databases
+        },
+      });
+
+      expect(response.statusCode).toBe(202);
+      const [event] = await bufferedEvents();
+      expect(event).toMatchObject({
+        path: '/',
+        campaign: { ref: 'acme', utmSource: 'email', utmMedium: null, utmCampaign: null },
+        device: {
+          browser: 'Firefox',
+          os: 'Linux',
+          type: 'desktop',
+          language: 'sv-SE',
+          timezone: 'Europe/Stockholm',
+        },
+        network: { countryCode: 'SE', city: 'Linköping', organization: 'Bredband2 AB' },
+      });
+    } finally {
+      await withGeoIp.close();
     }
   });
 

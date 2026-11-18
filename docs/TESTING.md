@@ -46,6 +46,20 @@ docker compose ps
 Before integration tests run, `test/integration/global-setup.ts` checks that Docker is
 reachable, creates `portfolio_test` if needed, and applies all migrations to it.
 
+Three techniques worth knowing when you read the tests:
+
+- **Real processes.** Some integration tests start an entrypoint exactly as `npm run` would
+  (`node --import tsx src/…`) and talk to it the way the outside world does: HTTP, signals
+  (`SIGTERM`), exit codes and its JSON log lines. `api-process.test.ts` and
+  `worker-process.test.ts` cover graceful shutdown; `seed-content.test.ts` and
+  `replay-dlq.test.ts` cover the CLIs.
+- **Injected time.** Code that waits (the worker's flush loop) or reads the clock (the daily
+  salt) takes `sleep` / `now` as optional dependencies. Unit tests pass fakes, so "back off for
+  30 seconds" is checked instantly: see `test/unit/workers/telemetry-flusher.worker.test.ts`.
+- **Fixture files.** `test/fixtures/geoip/` holds MaxMind's tiny public test databases, so the
+  IP lookup is tested with real `.mmdb` files without downloading the production ones. The IP
+  addresses they know are listed in `test/helpers/geoip-fixtures.ts`.
+
 ---
 
 ## 3. Everyday commands
@@ -73,8 +87,8 @@ A passing run ends like this:
  ✓ |unit| test/unit/config/env.test.ts (8 tests) 6ms
  ✓ |integration| test/integration/health.test.ts (6 tests) 52ms
  ...
- Test Files  8 passed (8)
-      Tests  44 passed (44)
+ Test Files  27 passed (27)
+      Tests  175 passed (175)
 ```
 
 `|unit|` and `|integration|` show which Vitest project each file belongs to (configured in

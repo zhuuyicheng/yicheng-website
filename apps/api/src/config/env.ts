@@ -14,7 +14,9 @@ export interface AppConfig {
   postgres: { url: string; poolMax: number };
   redis: { url: string };
   cache: { ttlSeconds: number };
-  telemetry: { bufferMaxLength: number };
+  telemetry: { bufferMaxLength: number; batchSize: number; flushIntervalMs: number };
+  /** GeoIP database files; `null` = that lookup is disabled (its fields stay null). */
+  ipLookup: { asnDbPath: string | null; locationDbPath: string | null };
   shutdown: { timeoutMs: number };
 }
 
@@ -39,6 +41,10 @@ const envSchema = z.object({
   // Only "true"/"false" (and 1/0, yes/no, on/off): a typo must fail, not silently mean false.
   TRUST_PROXY: z.stringbool().default(false),
   TELEMETRY_BUFFER_MAX_LENGTH: z.coerce.number().int().min(1).max(10_000_000).default(100_000),
+  TELEMETRY_BATCH_SIZE: z.coerce.number().int().min(1).max(1_000).default(50),
+  TELEMETRY_FLUSH_INTERVAL_MS: z.coerce.number().int().min(100).max(300_000).default(5_000),
+  GEOIP_ASN_DB_PATH: z.string().optional(),
+  GEOIP_LOCATION_DB_PATH: z.string().optional(),
 });
 
 export class ConfigError extends Error {
@@ -74,7 +80,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     postgres: { url: vars.DATABASE_URL, poolMax: vars.DATABASE_POOL_MAX },
     redis: { url: vars.REDIS_URL },
     cache: { ttlSeconds: vars.CACHE_TTL_SECONDS },
-    telemetry: { bufferMaxLength: vars.TELEMETRY_BUFFER_MAX_LENGTH },
+    telemetry: {
+      bufferMaxLength: vars.TELEMETRY_BUFFER_MAX_LENGTH,
+      batchSize: vars.TELEMETRY_BATCH_SIZE,
+      flushIntervalMs: vars.TELEMETRY_FLUSH_INTERVAL_MS,
+    },
+    ipLookup: {
+      asnDbPath: vars.GEOIP_ASN_DB_PATH ?? null,
+      locationDbPath: vars.GEOIP_LOCATION_DB_PATH ?? null,
+    },
     shutdown: { timeoutMs: vars.SHUTDOWN_TIMEOUT_MS },
   };
 }

@@ -1,0 +1,93 @@
+import { spawn, type ChildProcess } from 'node:child_process';
+import path from 'node:path';
+import { createInterface } from 'node:readline';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { TELEMETRY_BUFFER_KEYS } from '../../src/dal/event-buffer.dal.js';
+import { bufferedEventJson } from '../helpers/telemetry-events.js';
+import { createTestDependencies, type TestDependencies } from '../helpers/test-dependencies.js';
+import { integrationTestEnv } from './test-env.js';
+
+const API_ROOT = path.resolve(import.meta.dirname, '../..');
+
+interface LogLine {
+  msg?: string;
+}
+
+/**
+ * Starts the real worker entrypoint as a child process, with a flush interval so long that it
+ * would never flush again by itself: anything flushed after SIGTERM was flushed by draining.
+ */
+function startWorkerProcess() {
+  const child = spawn(process.execPath, ['--import', 'tsx', 'src/worker.ts'], {
+    cwd: API_ROOT,
+    env: {
+      ...process.env,
+      ...integrationTestEnv,
+      LOG_LEVEL: 'debug', // to see "telemetry buffer empty"
+      TELEMETRY_BATCH_SIZE: '2',
+      TELEMETRY_FLUSH_INTERVAL_MS: '300000',
+    },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+
+  const logs: LogLine[] = [];
+  const idle = new Promise<void>((resolve, reject) => {
+    child.once('exit', (code) => {
+      reject(new Error(`worker exited early with code ${String(code)}`));
+    });
+    createInterface({ input: child.stdout }).on('line', (line) => {
+      const entry = JSON.parse(line) as LogLine;
+      logs.push(entry);
+      if (entry.msg === 'telemetry buffer empty') {
+        resolve(); // the loop has checked the buffer once and is now sleeping
+      }
+    });
+  });
+  const exited = new Promise<number | null>((resolve) => {
+    child.once('exit', resolve);
+  });
+
+  return { child, logs, idle, exited };
+}
+
+describe('worker process lifecycle', () => {
+  let deps: TestDependencies;
+  let child: ChildProcess | undefined;
+
+  beforeAll(async () => {
+    deps = await createTestDependencies();
+  });
+
+  afterEach(() => {
+    if (child?.exitCode === null) {
+      child.kill('SIGKILL');
+    }
+  });
+
+  afterAll(async () => {
+    await deps.close();
+  });
+
+  it('on SIGTERM, drains the whole buffer into Postgres, then exits with code 0', async () => {
+    await deps.redis.flushdb(); // Redis DB 1 (tests) only
+    await deps.postgres.query('TRUNCATE analytics_events');
+    const worker = startWorkerProcess();
+    child = worker.child;
+    await worker.idle;
+
+    // Five events arrive while the worker sleeps: three batches of at most two.
+    const events = Array.from({ length: 5 }, () => bufferedEventJson());
+    await deps.redis.rpush(TELEMETRY_BUFFER_KEYS.buffer, ...events);
+    worker.child.kill('SIGTERM');
+
+    expect(await worker.exited).toBe(0);
+    const rows = await deps.postgres.query('SELECT 1 FROM analytics_events');
+    expect(rows.rowCount).toBe(5);
+    expect(await deps.redis.llen(TELEMETRY_BUFFER_KEYS.buffer)).toBe(0);
+    expect(await deps.redis.llen(TELEMETRY_BUFFER_KEYS.inflight)).toBe(0);
+    const messages = worker.logs.map((entry) => entry.msg);
+    expect(messages).toEqual(
+      expect.arrayContaining(['shutdown started', 'telemetry buffer drained', 'shutdown complete']),
+    );
+  });
+});

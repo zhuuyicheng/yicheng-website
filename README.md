@@ -21,20 +21,24 @@ cp .env.example .env
 npm run infra:up         # Postgres 16 + Redis 7 in Docker
 npm run db:migrate       # create the tables
 npm run content:seed     # load apps/api/content/portfolio.json
+npm run geoip:download   # free IP → organisation/location files (~65 MB download)
 
-npm run dev:api          # API  → http://localhost:4000/api/v1/projects
-npm run dev:web          # Web  → http://localhost:3000   (in a second terminal)
+npm run dev:api          # API    → http://localhost:4000/api/v1/projects
+npm run dev:worker       # Worker → moves analytics events from Redis to Postgres
+npm run dev:web          # Web    → http://localhost:3000   (each in its own terminal)
 ```
 
 ## Common commands
 
-| Command                | What it does                                       |
-| ---------------------- | -------------------------------------------------- |
-| `npm test`             | Unit + integration tests (needs `infra:up`)        |
-| `npm run test:unit`    | Unit tests only (no Docker needed)                 |
-| `npm run check`        | Everything CI runs: format, lint, typecheck, tests |
-| `npm run content:seed` | Publish edits to `apps/api/content/portfolio.json` |
-| `npm run infra:down`   | Stop the Docker datastores (data is kept)          |
+| Command                           | What it does                                         |
+| --------------------------------- | ---------------------------------------------------- |
+| `npm test`                        | Unit + integration tests (needs `infra:up`)          |
+| `npm run test:unit`               | Unit tests only (no Docker needed)                   |
+| `npm run check`                   | Everything CI runs: format, lint, typecheck, tests   |
+| `npm run content:seed`            | Publish edits to `apps/api/content/portfolio.json`   |
+| `npm run dlq:replay -- telemetry` | Retry dead-lettered analytics events after a fix     |
+| `npm run geoip:download`          | Refresh the IP databases (monthly), then restart API |
+| `npm run infra:down`              | Stop the Docker datastores (data is kept)            |
 
 ## Working on another machine
 
@@ -53,12 +57,14 @@ and don't need to: tables come from migrations and content from `portfolio.json`
    npm ci
    cp .env.example .env           # .env is never committed
    npm run infra:up && npm run db:migrate && npm run content:seed
+   npm run geoip:download         # the IP databases are downloaded, not committed
    npm run check                  # confirms the new machine is set up correctly
    ```
 
 ## Repository layout
 
 ```
-apps/api   Fastify API (controllers → managers → DAL, with dao/, schema/, views/)
+apps/api   Fastify API (controllers → managers → DAL, with dao/, schema/, views/) and the
+           background worker (src/worker.ts, workers/)
 apps/web   Next.js + Tailwind frontend
 ```

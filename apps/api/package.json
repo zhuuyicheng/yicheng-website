@@ -5,19 +5,25 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "dev:worker": "tsx watch --env-file-if-exists=../../.env src/worker.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
+    "start:worker": "node dist/worker.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest --project unit",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "db:migrate": "tsx --env-file-if-exists=../../.env src/cli/migrate.ts",
-    "content:seed": "tsx --env-file-if-exists=../../.env src/cli/seed-content.ts"
+    "content:seed": "tsx --env-file-if-exists=../../.env src/cli/seed-content.ts",
+    "dlq:replay": "tsx --env-file-if-exists=../../.env src/cli/replay-dlq.ts",
+    "geoip:download": "tsx src/cli/download-geoip.ts"
   },
   "dependencies": {
+    "bowser": "^2.15.0",
     "fastify": "^5.12.8",
     "ioredis": "^6.0.0",
+    "maxmind": "^5.0.8",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "prom-client": "^15.1.3",

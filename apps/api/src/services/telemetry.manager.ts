@@ -10,12 +10,7 @@ import type {
   EventAccepted,
   EventRequest,
 } from '../schema/analytics-event.schema.js';
-
-/** The raw inputs to the visitor hash. Used once, then discarded: never stored or logged. */
-export interface Visitor {
-  ip: string;
-  userAgent: string;
-}
+import type { Visitor, VisitorDetailsManager } from './visitor-details.manager.js';
 
 /**
  * Telemetry ingestion (DESIGN.md §8.2). Accepting an event only appends it to a Redis list;
@@ -26,8 +21,10 @@ export interface TelemetryManager {
 }
 
 export interface TelemetryManagerDependencies {
-  bufferDal: EventBufferDal;
+  /** Ingestion only ever appends; claiming and acknowledging belong to the flusher. */
+  bufferDal: Pick<EventBufferDal, 'enqueue'>;
   saltDal: TelemetrySaltDal;
+  visitorDetails: VisitorDetailsManager;
   metrics: Metrics;
   bufferMaxLength: number;
   /** Injectable for tests. */
@@ -42,6 +39,7 @@ export function createTelemetryManager(deps: TelemetryManagerDependencies): Tele
   const {
     bufferDal,
     saltDal,
+    visitorDetails,
     metrics,
     bufferMaxLength,
     now = () => new Date(),
@@ -82,6 +80,7 @@ export function createTelemetryManager(deps: TelemetryManagerDependencies): Tele
           sessionId: request.sessionId,
           visitorHash: hashVisitor(salt, visitor),
           receivedAt: receivedAt.toISOString(),
+          ...visitorDetails.describe(request, visitor), // campaign, device, network
         };
         accepted = await bufferDal.enqueue(JSON.stringify(event), bufferMaxLength);
       } catch (error) {
@@ -124,6 +123,6 @@ export function hostOf(referrer: string | null | undefined): string | null {
  * days), and the hash cannot be reversed to the IP. The newline separators keep the parts
  * unambiguous ("1.2.3.4" + "5x" must not equal "1.2.3.45" + "x"); headers cannot contain one.
  */
-export function hashVisitor(salt: string, visitor: Visitor): string {
+export function hashVisitor(salt: string, visitor: Pick<Visitor, 'ip' | 'userAgent'>): string {
   return createHash('sha256').update(`${salt}\n${visitor.ip}\n${visitor.userAgent}`).digest('hex');
 }

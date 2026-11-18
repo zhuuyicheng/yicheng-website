@@ -1,4 +1,5 @@
 import { loadConfig, type AppConfig } from '../../src/config/env.js';
+import { NO_IP_DATABASES, type IpDatabases } from '../../src/dal/ip-location.dal.js';
 import { createLogger, type Logger } from '../../src/infra/logger.js';
 import { createMetrics, type Metrics } from '../../src/infra/metrics.js';
 import { createPostgresPool, type PostgresPool } from '../../src/infra/postgres.js';
@@ -10,10 +11,14 @@ export interface TestDependencies {
   metrics: Metrics;
   postgres: PostgresPool;
   redis: Redis;
+  ipDatabases: IpDatabases;
   close: () => Promise<void>;
 }
 
-/** Real, connected Postgres + Redis clients configured from the integration test env. */
+/**
+ * Real, connected Postgres + Redis clients configured from the integration test env. IP lookup
+ * is off (no GeoIP files); tests that need it open the fixtures in test/fixtures/geoip.
+ */
 export async function createTestDependencies(): Promise<TestDependencies> {
   const config = loadConfig();
   const logger = createLogger(config);
@@ -37,6 +42,7 @@ export async function createTestDependencies(): Promise<TestDependencies> {
     metrics,
     postgres,
     redis,
+    ipDatabases: NO_IP_DATABASES,
     close: async () => {
       await closeRedis(redis);
       await postgres.end();

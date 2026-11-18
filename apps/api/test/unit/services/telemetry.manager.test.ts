@@ -1,6 +1,7 @@
 import { pino } from 'pino';
 import { describe, expect, it } from 'vitest';
 import type { EventBufferDal } from '../../../src/dal/event-buffer.dal.js';
+import type { IpLocationDal } from '../../../src/dal/ip-location.dal.js';
 import type { TelemetrySaltDal } from '../../../src/dal/telemetry-salt.dal.js';
 import { AppError } from '../../../src/errors/app-error.js';
 import { createMetrics } from '../../../src/infra/metrics.js';
@@ -14,21 +15,25 @@ import {
   hostOf,
   stripQueryAndFragment,
 } from '../../../src/services/telemetry.manager.js';
+import { createVisitorDetailsManager } from '../../../src/services/visitor-details.manager.js';
 import { counterValue } from '../../helpers/metrics.js';
 
 const log = pino({ level: 'silent' });
-const VISITOR = { ip: '203.0.113.7', userAgent: 'Mozilla/5.0 (test)' };
+const CHROME_ON_MAC =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const VISITOR = { ip: '203.0.113.7', userAgent: CHROME_ON_MAC, acceptLanguage: 'en-SG,en;q=0.9' };
 const PAGE_VIEW: EventRequest = {
   type: 'page_view',
-  path: '/projects/x?utm_source=hn#top',
+  path: '/projects/x?ref=acme&utm_source=hn#top',
   referrer: 'https://news.ycombinator.com/item?id=1',
   sessionId: 'k3J9xQ2mP0aZ',
+  timezone: 'Asia/Singapore',
 };
 
 function setup(options: { capacity?: number; failWith?: Error } = {}) {
   const buffer: string[] = [];
   const saltRequests: string[] = [];
-  const bufferDal: EventBufferDal = {
+  const bufferDal: Pick<EventBufferDal, 'enqueue'> = {
     enqueue: (eventJson, maxLength) => {
       if (options.failWith) return Promise.reject(options.failWith);
       if (buffer.length >= Math.min(maxLength, options.capacity ?? Infinity)) {
@@ -44,11 +49,15 @@ function setup(options: { capacity?: number; failWith?: Error } = {}) {
       return Promise.resolve(`salt-for-${date}`);
     },
   };
+  const ipLocationDal: IpLocationDal = {
+    lookup: () => ({ countryCode: 'SG', city: 'Singapore', organization: 'Example Corp' }),
+  };
   let clock = new Date('2026-11-17T10:00:00.000Z');
   const metrics = createMetrics();
   const manager = createTelemetryManager({
     bufferDal,
     saltDal,
+    visitorDetails: createVisitorDetailsManager({ ipLocationDal }),
     metrics,
     bufferMaxLength: 100,
     now: () => clock,
@@ -61,7 +70,7 @@ function setup(options: { capacity?: number; failWith?: Error } = {}) {
 }
 
 describe('TelemetryManager.ingest', () => {
-  it('buffers a normalised, hashed event and returns its id', async () => {
+  it('buffers a normalised, hashed event with visitor details, and returns its id', async () => {
     const { manager, buffer, metrics } = setup();
 
     const accepted = await manager.ingest(PAGE_VIEW, VISITOR, log);
@@ -78,6 +87,15 @@ describe('TelemetryManager.ingest', () => {
       sessionId: 'k3J9xQ2mP0aZ',
       visitorHash: hashVisitor('salt-for-2026-11-17', VISITOR),
       receivedAt: '2026-11-17T10:00:00.000Z',
+      campaign: { ref: 'acme', utmSource: 'hn', utmMedium: null, utmCampaign: null },
+      device: {
+        browser: 'Chrome',
+        os: 'macOS',
+        type: 'desktop',
+        language: 'en-SG',
+        timezone: 'Asia/Singapore',
+      },
+      network: { countryCode: 'SG', city: 'Singapore', organization: 'Example Corp' },
     });
     expect(await counterValue(metrics.telemetryEventsIngested, { type: 'page_view' })).toBe(1);
   });

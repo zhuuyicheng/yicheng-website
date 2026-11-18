@@ -16,7 +16,11 @@ export function registerEventsController(
    */
   app.post(`${API_V1}/events`, async (request, reply) => {
     const event = parseRequest(eventRequestSchema, request.body);
-    const visitor = { ip: request.ip, userAgent: request.headers['user-agent'] ?? '' };
+    const visitor = {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? '',
+      acceptLanguage: request.headers['accept-language'] ?? '',
+    };
     const accepted = await telemetryManager.ingest(event, visitor, request.log);
     return reply.status(202).send(renderEventAccepted(accepted));
   });
