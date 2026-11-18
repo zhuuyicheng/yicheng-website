@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { scrollToSection } from '@/lib/section-scroll';
+import { scrollToPageTop, scrollToSection } from '@/lib/section-scroll';
 
 function environment(options: { hasSection: boolean; reducedMotion?: boolean }) {
   const scrollIntoView = vi.fn();
@@ -40,5 +40,25 @@ describe('scrollToSection (regression: a second click on a header link did nothi
 
     expect(scrollToSection('projects', env)).toBe(false);
     expect(setHash).not.toHaveBeenCalled();
+  });
+});
+
+describe('scrollToPageTop (regression: clicking the name on the home page did nothing)', () => {
+  it('scrolls to the top and drops the #hash from the address', () => {
+    const scrollTo = vi.fn();
+    const clearHash = vi.fn();
+
+    scrollToPageTop({ scrollTo, prefersReducedMotion: () => false, clearHash });
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+    expect(clearHash).toHaveBeenCalledOnce();
+  });
+
+  it('jumps without animation when the visitor asked for less motion', () => {
+    const scrollTo = vi.fn();
+
+    scrollToPageTop({ scrollTo, prefersReducedMotion: () => true, clearHash: vi.fn() });
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'auto' });
   });
 });

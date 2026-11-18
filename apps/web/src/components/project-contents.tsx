@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
+import { useScrollSpy } from './use-scroll-spy';
 
 export interface ContentsItem {
   id: string;
@@ -12,27 +13,8 @@ export interface ContentsItem {
  * section crossing the upper part of the screen). Without JavaScript the links still work.
  */
 export function ProjectContents({ items }: { items: ContentsItem[] }) {
-  const [active, setActive] = useState<string | null>(null);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            setActive(entry.target.id);
-          }
-        }
-      },
-      { rootMargin: '-20% 0px -70% 0px' },
-    );
-    for (const { id } of items) {
-      const section = document.getElementById(id);
-      if (section) observer.observe(section);
-    }
-    return () => {
-      observer.disconnect();
-    };
-  }, [items]);
+  const ids = useMemo(() => items.map((item) => item.id), [items]);
+  const active = useScrollSpy(ids, '-20% 0px -70% 0px');
 
   return (
     <nav aria-label="On this page" className="text-sm">

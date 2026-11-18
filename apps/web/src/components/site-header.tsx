@@ -6,8 +6,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import avatar from '@/content/photos/avatar.jpg';
+import { browserTopEnvironment, scrollToPageTop } from '@/lib/section-scroll';
 import { ScrollProgressBar } from './scroll-progress-bar';
 import { SectionLink } from './section-link';
+import { useScrollSpy } from './use-scroll-spy';
 
 /** Sections of the home page, in page order. Each is a `<section id="…">`. */
 export const SECTIONS = [
@@ -18,6 +20,9 @@ export const SECTIONS = [
   { id: 'contact', label: 'Contact' },
 ] as const;
 
+/** Module-level, so the scrollspy's observer is built once, not on every render. */
+const SECTION_IDS = SECTIONS.map((section) => section.id);
+
 /**
  * Sticky header: photo and name, section links (highlighting the one you are reading), a menu
  * button on small screens, and the scroll progress bar. Section links scroll on every click
@@ -25,32 +30,9 @@ export const SECTIONS = [
  */
 export function SiteHeader() {
   const pathname = usePathname();
-  const [active, setActive] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-
-  // "Scrollspy": the section crossing the middle of the screen is the one being read.
-  useEffect(() => {
-    if (pathname !== '/') {
-      return undefined;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            setActive(entry.target.id);
-          }
-        }
-      },
-      { rootMargin: '-45% 0px -50% 0px' },
-    );
-    for (const { id } of SECTIONS) {
-      const section = document.getElementById(id);
-      if (section) observer.observe(section);
-    }
-    return () => {
-      observer.disconnect();
-    };
-  }, [pathname]);
+  // The section crossing the middle of the screen is the one being read; none above "About".
+  const active = useScrollSpy(SECTION_IDS, '-45% 0px -50% 0px', pathname === '/');
 
   // Escape closes the mobile menu.
   useEffect(() => {
@@ -75,8 +57,14 @@ export function SiteHeader() {
         <Link
           href="/"
           className="flex items-center gap-3 font-display text-lg font-semibold tracking-tight text-ink"
-          onClick={() => {
+          onClick={(event) => {
             setMenuOpen(false);
+            // Already on the home page, <Link href="/"> would do nothing: scroll up instead.
+            const modified = event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+            if (pathname === '/' && !modified) {
+              event.preventDefault();
+              scrollToPageTop(browserTopEnvironment());
+            }
           }}
         >
           {/* Decorative: the name next to it says who it is. */}

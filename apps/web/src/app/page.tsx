@@ -45,7 +45,7 @@ export default async function HomePage() {
       <Hero profile={profile} />
 
       <Section id="about">
-        <SectionHeading title="About" icon={Smile} />
+        <SectionHeading title="About Me" icon={Smile} />
         <Reveal className="grid gap-10 md:grid-cols-[1.6fr_1fr]">
           <div className="space-y-4 text-base leading-relaxed text-body sm:text-lg">
             {paragraphs(profile.summary).map((paragraph) => (

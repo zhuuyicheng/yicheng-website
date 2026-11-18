@@ -1238,7 +1238,12 @@ phones saving the site get `app/apple-icon.png`, the avatar.
 **Section links.** Next.js's `<Link>` does nothing when the address already ends in the
 clicked `#hash`, so a second click on "Projects" after scrolling up used to do nothing.
 `components/section-link.tsx` scrolls explicitly on every click (`lib/section-scroll.ts`;
-`behavior: 'auto'` under reduced motion) and keeps the `#hash` in the address.
+`behavior: 'auto'` under reduced motion) and keeps the `#hash` in the address. For the same
+reason the name in the header scrolls to the top itself when already on `/`
+(`scrollToPageTop`, which also drops the `#hash`). The header and a project page's contents
+list highlight the section being read with one scrollspy (`components/use-scroll-spy.ts`,
+`lib/scroll-spy.ts`): it tracks every section inside the band and highlights the first, or
+none, so nothing stays lit above the first section.
 
 **Effects.** Scroll-linked effects write one CSS variable (`--progress`,
 `components/use-scroll-progress.ts`) per animation frame instead of re-rendering React: the

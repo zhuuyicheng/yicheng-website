@@ -233,3 +233,6 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
 - [x] IP addresses stored (owner's choice): migration `0007_analytics_ip_address.sql` (`INET`),
       buffered event `ipAddress`, shown per visit on `/admin` (302 API + 68 web tests)
 - [ ] Retention rule for IP addresses (e.g. clear after 30 days)
+- [x] Bugs: the name in the header did nothing on the home page (now scrolls to the top);
+      "About" stayed highlighted after scrolling back to the hero (scrollspy now clears);
+      regression tests for both (302 API + 74 web tests)

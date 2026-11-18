@@ -36,3 +36,36 @@ export function browserScrollEnvironment(): ScrollEnvironment {
     },
   };
 }
+
+/**
+ * Back to the top of the home page (the name in the header). Next.js's <Link href="/"> does
+ * nothing when you are already on `/`, so clicking the name there did nothing. The `#hash` is
+ * removed too, so the address no longer points at a section.
+ */
+export interface TopEnvironment {
+  scrollTo: (options: ScrollToOptions) => void;
+  prefersReducedMotion: () => boolean;
+  clearHash: () => void;
+}
+
+export function scrollToPageTop(environment: TopEnvironment): void {
+  environment.scrollTo({
+    top: 0,
+    behavior: environment.prefersReducedMotion() ? 'auto' : 'smooth',
+  });
+  environment.clearHash();
+}
+
+/** The real browser, for components. */
+export function browserTopEnvironment(): TopEnvironment {
+  return {
+    scrollTo: (options) => {
+      window.scrollTo(options);
+    },
+    prefersReducedMotion: () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    clearHash: () => {
+      const { pathname, search } = window.location;
+      window.history.replaceState(window.history.state, '', `${pathname}${search}`);
+    },
+  };
+}
