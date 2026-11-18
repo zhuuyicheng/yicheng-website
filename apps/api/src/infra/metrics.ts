@@ -1,10 +1,10 @@
-import { collectDefaultMetrics, Counter, Registry } from 'prom-client';
+import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from 'prom-client';
 
 /**
  * Every Prometheus metric the API records, on one registry. See DESIGN.md §8.5.
  *
  * Created by the composition root and passed down (no global registry), so each test gets a
- * fresh set of counters. Phase 5 exposes `registry` on `GET /metrics`.
+ * fresh set of counters. `GET /metrics` exposes `registry` (Phase 5).
  */
 export interface Metrics {
   registry: Registry;
@@ -23,7 +23,14 @@ export interface Metrics {
   notificationJobs: Counter<'outcome'>;
   notificationJobsRequeued: Counter<'reason'>;
   workerLoopFailures: Counter<'loop' | 'kind'>;
+  httpRequestDuration: Histogram<'method' | 'route' | 'status_code'>;
+  httpRequests: Counter<'method' | 'route' | 'status_code'>;
+  queueDepth: Gauge<'queue'>;
+  observabilityReadErrors: Counter<'source'>;
 }
+
+/** What the system status endpoint and GET /metrics could not read (the rest is still served). */
+export type ObservabilitySource = 'queue_depths' | 'page_views';
 
 /** Why POST /api/v1/events refused an event (every refusal is a 503). */
 export type TelemetryRejectReason = 'buffer_full' | 'redis_unavailable';
@@ -148,6 +155,35 @@ export function createMetrics(options: MetricsOptions = {}): Metrics {
       name: 'worker_loop_failures_total',
       help: 'Failed iterations of a worker loop, by loop and kind (transient, unexpected).',
       labelNames: ['loop', 'kind'],
+      registers: [registry],
+    }),
+    httpRequestDuration: new Histogram({
+      name: 'http_request_duration_seconds',
+      help: 'HTTP request duration, by method, route template and status code.',
+      labelNames: ['method', 'route', 'status_code'],
+      // From "served from memory" (5 ms) to "something is wrong" (5 s).
+      buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+      registers: [registry],
+    }),
+    httpRequests: new Counter({
+      name: 'http_requests_total',
+      help: 'HTTP requests answered, by method, route template and status code.',
+      labelNames: ['method', 'route', 'status_code'],
+      registers: [registry],
+    }),
+    // A gauge: a current value, refreshed from Redis each time /metrics is read. One metric
+    // with a `queue` label (not one metric per queue), so that resetting it removes every
+    // sample: prom-client reports a label-less gauge as 0 even after a reset.
+    queueDepth: new Gauge({
+      name: 'queue_depth',
+      help: 'Items waiting per Redis queue (telemetry_buffer, telemetry_dlq, notifications_*).',
+      labelNames: ['queue'],
+      registers: [registry],
+    }),
+    observabilityReadErrors: new Counter({
+      name: 'observability_read_errors_total',
+      help: 'Status/metrics reads that failed and were left out, by source.',
+      labelNames: ['source'],
       registers: [registry],
     }),
   };

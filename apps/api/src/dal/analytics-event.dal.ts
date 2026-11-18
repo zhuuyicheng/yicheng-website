@@ -2,7 +2,10 @@ import type { AnalyticsEventRow } from '../dao/analytics-event.dao.js';
 import type { PostgresPool } from '../infra/postgres.js';
 import type { BufferedEvent } from '../schema/analytics-event.schema.js';
 
-/** Postgres DAL for `analytics_events` (DESIGN.md §5.3). The worker's flusher writes through it. */
+/**
+ * Postgres DAL for `analytics_events` (DESIGN.md §5.3). The worker's flusher writes through
+ * it; the system status endpoint reads a count.
+ */
 export interface AnalyticsEventDal {
   /**
    * Inserts the events with ONE statement and returns how many rows were new. Ids already in
@@ -10,6 +13,8 @@ export interface AnalyticsEventDal {
    * crash) is harmless. All or nothing: one bad row makes the whole statement fail.
    */
   insertBatch: (events: readonly BufferedEvent[]) => Promise<number>;
+  /** Page views received in the last `hours` hours. */
+  countPageViews: (hours: number) => Promise<number>;
 }
 
 /** `inserted_at` is left to its DEFAULT now(). */
@@ -65,6 +70,17 @@ export function createAnalyticsEventDal(pool: PostgresPool): AnalyticsEventDal {
       const valuesPerColumn = COLUMNS.map((column) => rows.map((row) => row[column]));
       const result = await pool.query(INSERT_EVENTS, valuesPerColumn);
       return result.rowCount ?? 0;
+    },
+
+    async countPageViews(hours) {
+      // The BRIN index on received_at makes "the last 24 hours" a cheap scan. count(*) is a
+      // bigint, which pg returns as a string; ::int makes it a JS number.
+      const result = await pool.query<{ count: number }>(
+        `SELECT count(*)::int AS count FROM analytics_events
+          WHERE event_type = 'page_view' AND received_at > now() - make_interval(hours => $1)`,
+        [hours],
+      );
+      return result.rows[0]?.count ?? 0;
     },
   };
 }

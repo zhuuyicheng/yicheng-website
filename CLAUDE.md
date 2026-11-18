@@ -85,8 +85,9 @@ Phases and live progress checklists: [ROADMAP.md](ROADMAP.md). Tick items there 
 3. `feat/telemetry-pipeline`: event ingestion, visitor details, Redis buffer, batch flusher
    worker, DLQ + replay (done)
 4. `feat/contact-rate-limiter`: Lua sliding-window limiter, contact API, notification worker
-   (built; PR in review)
+   (done)
 5. `feat/metrics-and-dashboard`: `/metrics`, system status API, Next.js portfolio + dashboard
+   (in progress)
 6. `feat/continuous-delivery`: Docker images, GHCR, deploy workflow with approval gate, rollback
 
 One phase per branch → pull request → CI green → merge. Stop for review between phases.

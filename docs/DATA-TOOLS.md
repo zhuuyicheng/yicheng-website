@@ -361,10 +361,90 @@ rate limiter answers `429`, delete the `ratelimit:contact:…` key in the Redis 
     `BLMOVE`; closing its connection ends the wait. Then the telemetry drain, and
     `shutdown complete`.
 
-### 7.3 Later phases
+### 7.3 Phase 5: metrics and the status endpoint
 
-- **Phase 5 (dashboard):** the live dashboard shows the same numbers you have been reading by
-  hand here.
+Two ways to ask the API how it is doing (DESIGN.md §7.7):
+
+- `GET /metrics`: the Prometheus text format, for a monitoring server that collects it every
+  few seconds. Counters add up from the moment the process started.
+- `GET /api/v1/system/status`: JSON, for people. The dashboard (Phase 5c) shows it.
+
+Restart `npm run dev:api` to load the new code, then:
+
+1. **Read the Prometheus format.** Make a few requests, then look at one metric:
+
+   ```bash
+   curl -s localhost:4000/api/v1/projects > /dev/null
+   curl -s localhost:4000/metrics | grep -A4 'TYPE http_requests_total'
+   ```
+
+   ```
+   # TYPE http_requests_total counter
+   http_requests_total{method="GET",route="/api/v1/projects",status_code="200"} 1
+   ```
+
+   Each line is a name, labels in `{}`, and a value. A **counter** only ever goes up (a restart
+   starts it from 0 again); Prometheus works out rates like "requests per second" by comparing
+   two readings. Request the projects again and re-run the `grep`: 1 becomes 2.
+
+2. **A histogram is a row of counters.**
+   `curl -s localhost:4000/metrics | grep 'duration_seconds_bucket.*route="/api/v1/projects"'`
+   prints one line per bucket: `le="0.005"` counts requests that took at most 5 ms, `le="0.01"`
+   at most 10 ms, up to `le="+Inf"` (all of them). Each bucket includes the smaller ones, which
+   is how Prometheus estimates a p95 later (`histogram_quantile`). The first request, a cache
+   miss that went to Postgres, may land in a slower bucket than the cache hits after it.
+
+3. **Templates, not URLs.** `curl -s localhost:4000/api/v1/projects/nope` and
+   `curl -s localhost:4000/wp-login.php`, then `grep http_requests_total` again: you get
+   `route="/api/v1/projects/:slug"` and `route="unmatched"`, never `nope` or `wp-login.php`.
+   Every distinct label value is a separate series that Prometheus stores forever, so a bot
+   trying a million URLs must not create a million series.
+
+4. **A gauge is a current value.** `curl -s localhost:4000/metrics | grep queue_depth` lists
+   five queues. Stop the worker, send an event (§7.1 step 2) and re-run:
+   `queue_depth{queue="telemetry_buffer"} 1`. Start the worker: back to 0. `MONITOR` shows what
+   each scrape costs: four `llen` and one `zcard`, sent together. Now
+   `docker compose stop redis` and scrape again: the `queue_depth` lines are **gone** (unknown,
+   not zero) and `observability_read_errors_total{source="queue_depths"}` went up.
+   `docker compose start redis`.
+
+5. **The status endpoint.**
+
+   ```bash
+   curl -s localhost:4000/api/v1/system/status | python3 -m json.tool
+   ```
+
+   Uptime, Postgres and Redis latency, p50/p95 of the last 5 minutes, cache hits and misses,
+   page views in the last 24 h, and every queue's length. Run it twice within 5 s:
+   `generatedAt` is the same (served from the 5 s cache). Your status calls do not raise
+   `http.requestCount`: the monitors' own requests are left out, or watching would change what
+   is watched. Stop Postgres: still `200`, `postgres` is `down` and `pageViewsLast24h` is
+   `null`.
+
+6. **Protect `/metrics`.** Restart with a token: `METRICS_TOKEN=local-test-token-1234 npm run dev:api`.
+   `curl -si localhost:4000/metrics | head -5` answers `401` with `www-authenticate: Bearer`;
+   `curl -s -H 'authorization: Bearer local-test-token-1234' localhost:4000/metrics | head -3`
+   works. The status endpoint stays public: it shows counts only.
+
+7. **Security headers and CORS.** `curl -si localhost:4000/api/v1/projects | head -20` shows
+   Helmet's headers (`x-content-type-options: nosniff`, `strict-transport-security`, …). Then
+   ask the question a browser asks before the web app may POST JSON (a "preflight"):
+
+   ```bash
+   curl -si -X OPTIONS localhost:4000/api/v1/contact -H 'origin: http://localhost:3000' \
+     -H 'access-control-request-method: POST' -H 'access-control-request-headers: content-type'
+   ```
+
+   `204` with `access-control-allow-origin: http://localhost:3000` and
+   `access-control-max-age: 600` (the browser may skip asking again for 10 minutes). With
+   `-H 'origin: https://evil.example'` the allow-origin header is missing, so a browser would
+   hide the answer from that site's script. curl itself ignores all this: CORS protects
+   browser users, it is not a password.
+
+### 7.4 Later phases
+
+- **Phase 5b/5c (website and dashboard):** the pages call the same endpoints you have been
+  calling by hand, and the dashboard polls the status endpoint every few seconds.
 
 ## 8. Troubleshooting
 

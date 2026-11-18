@@ -33,6 +33,8 @@ describe('loadConfig', () => {
       ipHash: { secret: REQUIRED_ENV.IP_HASH_SECRET },
       contact: { rateLimitMax: 3, rateLimitWindowSeconds: 600 },
       notifications: { notifier: { driver: 'log' }, maxAttempts: 3, backoffBaseMs: 5_000 },
+      cors: { origins: ['http://localhost:3000'] },
+      metrics: { token: null },
       shutdown: { timeoutMs: 10_000 },
     });
   });
@@ -119,6 +121,31 @@ describe('loadConfig', () => {
 
     expect(error.problems).toEqual(['DISCORD_WEBHOOK_URL: must be an https:// URL']);
     expect(error.message).not.toContain('secret-token');
+  });
+
+  it('reads the CORS allow-list and the metrics token', () => {
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      CORS_ORIGINS: 'https://example.com, http://localhost:3000',
+      METRICS_TOKEN: 'a-long-enough-metrics-token',
+    });
+
+    expect(config.cors.origins).toEqual(['https://example.com', 'http://localhost:3000']);
+    expect(config.metrics.token).toBe('a-long-enough-metrics-token');
+  });
+
+  it('refuses CORS origins with a path or trailing slash, and a short metrics token', () => {
+    // A browser sends "https://example.com", which would never equal "https://example.com/".
+    const error = captureConfigError({
+      ...REQUIRED_ENV,
+      CORS_ORIGINS: 'https://example.com/',
+      METRICS_TOKEN: 'short',
+    });
+
+    expect(error.problems).toEqual([
+      expect.stringMatching(/^CORS_ORIGINS: must be comma-separated origins/),
+      'METRICS_TOKEN: must be at least 16 characters',
+    ]);
   });
 
   it('parses TRUST_PROXY strictly and the telemetry buffer cap as a number', () => {

@@ -8,8 +8,8 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | 1     | `main` (initial scaffold)    | —      | ✅ Done        |
 | 2     | `feat/portfolio-cache-api`   | A      | ✅ Done        |
 | 3     | `feat/telemetry-pipeline`    | B      | ✅ Done        |
-| 4     | `feat/contact-rate-limiter`  | C      | 🔍 In review   |
-| 5     | `feat/metrics-and-dashboard` | D      | ⬜ Not started |
+| 4     | `feat/contact-rate-limiter`  | C      | ✅ Done        |
+| 5     | `feat/metrics-and-dashboard` | D      | 🚧 In progress |
 | 6     | `feat/continuous-delivery`   | —      | ⬜ Not started |
 
 ---
@@ -79,7 +79,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
       `docs/sql/telemetry.sql`
 - [x] PR #4 merged (CI green)
 
-## Phase 4: Contact API + rate limiter (`feat/contact-rate-limiter`)
+## Phase 4: Contact API + rate limiter (`feat/contact-rate-limiter`) ✅
 
 Not in scope: linking contact-form emails to browsing sessions (on hold by decision; the form
 stays optional and is never required to view the site).
@@ -107,14 +107,23 @@ Built in two steps, one commit each: **4a** the API side (limiter, endpoint, job
       integration total)
 - [x] DATA-TOOLS.md §7.2: watching the rate-limit sorted set and the ready queue fill up
 - [x] DATA-TOOLS.md §7.2: watching the worker drain the job queues, retries and the DLQ (4b)
-- [ ] PR merged (CI green)
+- [x] PR #5 merged (CI green)
 
 ## Phase 5: Metrics & dashboard (`feat/metrics-and-dashboard`)
 
-- [ ] HTTP metrics hook (duration histogram, request counter) + queue depth gauges
-- [ ] `GET /metrics` (Prometheus, optional bearer token)
-- [ ] `GET /api/v1/system/status` (uptime, health, p50/p95, cache ratio, page views, queues)
-- [ ] Helmet security headers + CORS allow-list
+Built in three steps, one commit each: **5a** the API side (metrics, status, security
+headers), **5b** the website (shared schemas, pages, contact form, beacon, privacy notice),
+**5c** the live dashboard.
+
+- [x] HTTP metrics hook (duration histogram, request counter, route templates) + `queue_depth`
+      gauge refreshed from Redis on every scrape
+- [x] `GET /metrics` (Prometheus, optional bearer token compared in constant time)
+- [x] `GET /api/v1/system/status` (uptime, health, p50/p95 over 5 min, cache ratio, page views,
+      queues; 5 s cache; unreadable parts are `null`, still `200`)
+- [x] Helmet security headers + CORS allow-list (`CORS_ORIGINS`, exposes the rate-limit headers)
+- [x] Tests (5a): status with live datastores and Redis down, `/metrics`, token, Helmet, CORS
+      (207 unit + 75 integration total)
+- [x] DATA-TOOLS.md §7.3: reading `/metrics` and the status endpoint
 - [ ] `packages/shared` API contract schemas
 - [ ] Next.js portfolio pages (profile, projects, contact form) + page-view beacon (sends the
       path with its query string, so tagged links work, plus referrer, session id, time zone)

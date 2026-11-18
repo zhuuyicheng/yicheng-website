@@ -20,6 +20,8 @@
     "geoip:download": "tsx src/cli/download-geoip.ts"
   },
   "dependencies": {
+    "@fastify/cors": "~11.3.1",
+    "@fastify/helmet": "^13.2.0",
     "bowser": "^2.15.0",
     "fastify": "^5.12.8",
     "ioredis": "^6.0.0",

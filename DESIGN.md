@@ -166,7 +166,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── rate-limiter.manager.ts       (P4) sliding window per hashed IP, fail closed
 │   │   │   │   ├── notification.manager.ts       (P4) one job: send → sent / retry / DLQ; promote; reconcile
 │   │   │   │   ├── notification-dlq.manager.ts   (P4) dead-letter replay: reopen FAILED messages
-│   │   │   │   └── system-status.manager.ts      (P5)
+│   │   │   │   └── system-status.manager.ts      (P5) status JSON (5 s cache) + Prometheus text
 │   │   │   ├── dal/                      the only datastore code
 │   │   │   │   ├── content.dal.ts                (P2) Postgres
 │   │   │   │   ├── content-cache.dal.ts          (P2) Redis
@@ -177,6 +177,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── contact-message.dal.ts        (P4) Postgres
 │   │   │   │   ├── rate-limit.dal.ts             (P4) Redis
 │   │   │   │   ├── notification-queue.dal.ts     (P4) Redis
+│   │   │   │   ├── queue-depth.dal.ts            (P5) Redis: LLEN/ZCARD of every queue, one round trip
+│   │   │   │   ├── redis-exec.ts                 (P4) MULTI/pipeline that throws if any command failed
 │   │   │   │   └── lua/                          (P3/P4) Lua scripts as TS string constants
 │   │   │   │       ├── bounded-enqueue.lua.ts    (P3) + its typed ioredis command
 │   │   │   │       ├── claim-batch.lua.ts        (P3) + its typed ioredis command
@@ -191,14 +193,15 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── content.schema.ts             (P2) responses + content/portfolio.json
 │   │   │   │   ├── analytics-event.schema.ts     (P3) request, visitor details, buffered event, dead letter
 │   │   │   │   ├── contact-message.schema.ts     (P4)
-│   │   │   │   └── notification-job.schema.ts    (P4)
+│   │   │   │   ├── notification-job.schema.ts    (P4)
+│   │   │   │   └── system-status.schema.ts       (P5)
 │   │   │   ├── views/
 │   │   │   │   ├── data.view.ts          (P3) the { data } envelope type
 │   │   │   │   ├── error.view.ts         { error: { code, message, requestId } }
 │   │   │   │   ├── content.view.ts       (P2) { data } bodies for profile/projects
 │   │   │   │   ├── telemetry.view.ts     (P3) { data: { eventId } }
 │   │   │   │   ├── contact.view.ts       (P4) { data: { id, status } }
-│   │   │   │   └── system-status.view.ts (P5)
+│   │   │   │   └── system-status.view.ts (P5) { data: { … } } for the dashboard
 │   │   │   ├── workers/                  (P3/P4) background loops started by worker.ts
 │   │   │   │   ├── telemetry-flusher.worker.ts   (P3) when to flush: interval, backoff, drain on stop
 │   │   │   │   ├── notification-consumer.worker.ts (P4) one job after another; backoff on outages
@@ -208,7 +211,9 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── request-id.ts         x-request-id accept/generate/echo
 │   │   │   │   ├── error-handler.ts      maps any error to the error view
 │   │   │   │   ├── rate-limit.ts         (P4) onRequest hook: X-RateLimit-* headers, 429
-│   │   │   │   └── http-metrics.ts       (P5) request duration histogram hook
+│   │   │   │   ├── http-metrics.ts       (P5) onResponse hook: duration histogram, counter, rolling window
+│   │   │   │   ├── bearer-token.ts       (P5) onRequest hook for /metrics: constant-time token check
+│   │   │   │   └── security.ts           (P5) Helmet headers + CORS allow-list
 │   │   │   ├── errors/app-error.ts       AppError + ErrorCode catalog
 │   │   │   ├── config/env.ts             Zod env schema → typed AppConfig (fail-fast)
 │   │   │   ├── db/migrator.ts            reads .sql files, applies pending ones
@@ -226,6 +231,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── ip-databases.ts       (P3) opens the GeoIP files at API startup
 │   │   │   │   ├── transient-error.ts    (P3) outage vs bug: 503 in the API, retry vs DLQ in the worker
 │   │   │   │   ├── ip-hash.ts            (P4) HMAC-SHA256(IP_HASH_SECRET, ip)
+│   │   │   │   ├── rolling-latency.ts    (P5) ring buffer of the last 5 min of durations → p50/p95
 │   │   │   │   ├── metrics.ts            (P2) prom-client registry + metric definitions
 │   │   │   │   └── notifiers/            (P4) log + Discord senders, NotificationError (retryable?)
 │   │   │   └── lifecycle/
@@ -279,8 +285,8 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `DISCORD_WEBHOOK_URL`               | 4     | unset                   | `https://`; required when `NOTIFIER_DRIVER=discord`. A secret (token).    |
 | `NOTIFY_MAX_ATTEMPTS`               | 4     | `3`                     | 1–10. Total attempts including the first.                                 |
 | `NOTIFY_BACKOFF_BASE_MS`            | 4     | `5000`                  | Delay = base × 2^(attempt−1) ± 20 % jitter, capped at 4 min.              |
-| `METRICS_TOKEN`                     | 5     | unset                   | If set, `/metrics` requires `Authorization: Bearer <token>`.              |
-| `CORS_ORIGINS`                      | 5     | `http://localhost:3000` | Comma-separated allow-list.                                               |
+| `METRICS_TOKEN`                     | 5     | unset                   | ≥ 16 chars. If set, `/metrics` requires `Authorization: Bearer <token>`.  |
+| `CORS_ORIGINS`                      | 5     | `http://localhost:3000` | Comma-separated origins (`https://host[:port]`, no path, no `/`).         |
 | `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side).                                              |
 | `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API (beacons, contact form).                                    |
 
@@ -801,7 +807,10 @@ Rate-limit headers on **every** response from this route once the limiter has ru
 
 ### 7.7 Observability (Phase 5)
 
-`GET /metrics` → Prometheus text exposition (`text/plain; version=0.0.4`).
+`GET /metrics` → Prometheus text exposition (`text/plain; version=0.0.4`). With
+`METRICS_TOKEN` set, a request without `Authorization: Bearer <token>` gets `401 UNAUTHORIZED`
+and `WWW-Authenticate: Bearer`. The token is compared in constant time (both sides hashed,
+then `timingSafeEqual`), so response timing reveals nothing about it.
 
 `GET /api/v1/system/status` → `200`, served from a 5 s in-process cache:
 
@@ -833,8 +842,16 @@ Rate-limit headers on **every** response from this route once the limiter has ru
 }
 ```
 
-Rolling percentiles come from an in-process ring buffer of the last 5 minutes of request
-durations (Prometheus histograms are cumulative, not rolling). Values are per API instance;
+Always `200`, even with a datastore down: a source that cannot be read becomes `null`
+(`queues` when Redis is down, `analytics.pageViewsLast24h` when Postgres is) and is counted in
+`observability_read_errors_total{source}`; `dependencies` says which one is down. Each read
+has a 2 s timeout. Concurrent requests during a refresh share it (single-flight).
+
+Rolling percentiles come from an in-process ring buffer (10 000 samples) of the last 5 minutes
+of request durations (Prometheus histograms are cumulative, not rolling). Requests to `/health`,
+`/metrics` and this endpoint are left out of it (Prometheus still counts them), or a dashboard
+polling every few seconds would mostly measure itself. `cache` counts content-cache lookups
+since the process started. Values are per API instance;
 `instance` (the container hostname) says which one answered, because with two replicas
 (§14.5) consecutive polls can reach different instances.
 
@@ -1020,30 +1037,38 @@ dead worker's items.
 The metric registry (`infra/metrics.ts`) is created in Phase 2 so every phase can count its
 retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics are enabled.
 
-| Metric                                           | Type      | Labels                                                    | Phase |
-| ------------------------------------------------ | --------- | --------------------------------------------------------- | ----- |
-| `cache_requests_total`                           | counter   | `cache`, `result` (`hit`\|`miss`)                         | 2     |
-| `cache_errors_total`                             | counter   | `operation` (`read`\|`write`\|`decode`)                   | 2     |
-| `redis_reconnects_total`                         | counter   | `client`                                                  | 2     |
-| `postgres_pool_errors_total`                     | counter   | —                                                         | 2     |
-| `telemetry_events_ingested_total`                | counter   | `type`                                                    | 3     |
-| `telemetry_events_rejected_total`                | counter   | `reason`                                                  | 3     |
-| `telemetry_events_flushed_total`                 | counter   | — (new rows; re-inserted duplicates not counted)          | 3     |
-| `telemetry_flush_failures_total`                 | counter   | `kind` (`transient`\|`permanent`\|`unexpected`)           | 3     |
-| `telemetry_events_dead_lettered_total`           | counter   | `reason` (`invalid_payload`\|`insert_failed`)             | 3     |
-| `rate_limit_decisions_total`                     | counter   | `limiter`, `decision`                                     | 4     |
-| `rate_limit_errors_total`                        | counter   | `limiter`                                                 | 4     |
-| `notification_jobs_total`                        | counter   | `outcome` (`sent`\|`retried`\|`dead_lettered`\|`skipped`) | 4     |
-| `notification_enqueue_failures_total`            | counter   | —                                                         | 4     |
-| `notification_jobs_requeued_total`               | counter   | `reason` (`stranded`\|`reconciled`)                       | 4     |
-| `worker_loop_failures_total`                     | counter   | `loop`, `kind` (`transient`\|`unexpected`)                | 4     |
-| `http_request_duration_seconds`                  | histogram | `method`, `route`, `status_code`                          | 5     |
-| `http_requests_total`                            | counter   | `method`, `route`, `status_code`                          | 5     |
-| `telemetry_buffer_depth` / `telemetry_dlq_depth` | gauge     | — (read on scrape via `LLEN`)                             | 5     |
-| `notification_queue_depth`                       | gauge     | `queue` (`ready`\|`delayed`\|`dlq`)                       | 5     |
+| Metric                                 | Type      | Labels                                                    | Phase |
+| -------------------------------------- | --------- | --------------------------------------------------------- | ----- |
+| `cache_requests_total`                 | counter   | `cache`, `result` (`hit`\|`miss`)                         | 2     |
+| `cache_errors_total`                   | counter   | `operation` (`read`\|`write`\|`decode`)                   | 2     |
+| `redis_reconnects_total`               | counter   | `client`                                                  | 2     |
+| `postgres_pool_errors_total`           | counter   | —                                                         | 2     |
+| `telemetry_events_ingested_total`      | counter   | `type`                                                    | 3     |
+| `telemetry_events_rejected_total`      | counter   | `reason`                                                  | 3     |
+| `telemetry_events_flushed_total`       | counter   | — (new rows; re-inserted duplicates not counted)          | 3     |
+| `telemetry_flush_failures_total`       | counter   | `kind` (`transient`\|`permanent`\|`unexpected`)           | 3     |
+| `telemetry_events_dead_lettered_total` | counter   | `reason` (`invalid_payload`\|`insert_failed`)             | 3     |
+| `rate_limit_decisions_total`           | counter   | `limiter`, `decision`                                     | 4     |
+| `rate_limit_errors_total`              | counter   | `limiter`                                                 | 4     |
+| `notification_jobs_total`              | counter   | `outcome` (`sent`\|`retried`\|`dead_lettered`\|`skipped`) | 4     |
+| `notification_enqueue_failures_total`  | counter   | —                                                         | 4     |
+| `notification_jobs_requeued_total`     | counter   | `reason` (`stranded`\|`reconciled`)                       | 4     |
+| `worker_loop_failures_total`           | counter   | `loop`, `kind` (`transient`\|`unexpected`)                | 4     |
+| `http_request_duration_seconds`        | histogram | `method`, `route`, `status_code`                          | 5     |
+| `http_requests_total`                  | counter   | `method`, `route`, `status_code`                          | 5     |
+| `queue_depth`                          | gauge     | `queue` (5 queues, see below)                             | 5     |
+| `observability_read_errors_total`      | counter   | `source` (`queue_depths`\|`page_views`)                   | 5     |
 
 `route` uses the route **template** (`/api/v1/projects/:slug`); unmatched requests use
-`route="unmatched"`, keeping label cardinality bounded.
+`route="unmatched"`, keeping label cardinality bounded: every distinct label value is a separate
+time series, so raw URLs (or a bot guessing random paths) would grow them without limit.
+
+`queue_depth{queue}` (`telemetry_buffer`, `telemetry_dlq`, `notifications_ready`,
+`notifications_delayed`, `notifications_dlq`) is refreshed from Redis (one pipeline of
+`LLEN`/`ZCARD`) each time `/metrics` is read. It is one gauge with a `queue` label rather than
+one gauge per queue because prom-client reports a label-less gauge as `0` even after a reset:
+when Redis is down, the samples are removed, so Prometheus shows a gap ("unknown") instead of
+a false "empty".
 
 ---
 
@@ -1063,6 +1088,7 @@ retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics
 | GeoIP path set but file unreadable at boot | API exits 1 naming the variable (`npm run geoip:download`)                                                                 | `fatal` log                                                   |
 | GeoIP path not set                         | API starts; `country_code`, `city`, `organization` stay `NULL`                                                             | `warn` log at startup                                         |
 | Redis down → contact                       | `503` (fail closed)                                                                                                        | `rate_limit_errors_total`                                     |
+| Redis or Postgres down → system status     | Still `200`; the unreadable parts are `null`, `dependencies` shows which is down; `queue_depth` samples disappear          | `observability_read_errors_total{source}`                     |
 | Postgres or Redis down → flusher           | The batch stays in the in-flight list; retried with backoff (0.5 s → 30 s); ingestion continues until the buffer cap       | `telemetry_flush_failures_total{kind="transient"}`            |
 | Poison event                               | Batch insert fails → rows retried one by one → failing rows to the DLQ with their SQLSTATE, the rest inserted              | `telemetry_events_dead_lettered_total{reason}`                |
 | Unexpected flush error (a bug)             | Logged at `error`, retried with the same backoff (never a crash loop, never dropped)                                       | `telemetry_flush_failures_total{kind="unexpected"}`           |
@@ -1132,7 +1158,9 @@ matters most for deploys: the old worker empties the buffer before the new one s
   job in `processing`, reconciler); backoff/jitter bounds; Discord notifier status
   classification, timeout and payload (mentions off, truncation); consumer and periodic loops
   with a fake `sleep`; shutdown steps receive the time left.
-- (P5) Rolling percentile tracker.
+- (P5) Rolling percentile tracker (nearest rank, window expiry, fixed capacity); system status
+  manager (5 s cache, single-flight, unreadable sources → `null` + metric, hit ratio, queue
+  gauges reset when Redis is down); CORS origin and metrics token config.
 
 **Integration tests** (`apps/api/test/integration`, real Postgres + Redis from docker
 compose, run serially):
@@ -1147,6 +1175,10 @@ compose, run serially):
   inserted) → no duplicate rows; poison events → DLQ (invalid JSON, CHECK violation `23514`);
   Postgres down → batch stays in flight; buffer cap → 503; IP lookup on MaxMind's test
   databases; `dlq:replay` CLI; **real worker process**: `SIGTERM` drains the buffer, exit `0`.
+- (P5) `/api/v1/system/status` with live datastores (traffic excluding monitors, page views,
+  queues, 5 s cache) and with Redis down; `/metrics` (route templates, `unmatched`, queue
+  gauges, histogram buckets); bearer token 401/200; Helmet headers; CORS preflight (not
+  rate-limited), exposed rate-limit headers, other origins refused.
 - (P4) Rate limiter: limit, sliding expiry, `Retry-After`, **20 concurrent requests across 4
   API instances admit exactly 3**, Redis down → 503; notification worker against a local stub
   HTTP server (API → webhook end to end; fail twice then succeed → `SENT`; always 500 → DLQ +
@@ -1184,7 +1216,12 @@ Other measures:
 - Docker ports bind to `127.0.0.1` only (Redis has no password in local dev).
 - Logs redact `authorization` and `cookie` headers.
 - Error responses never leak internal messages or stack traces.
-- (P5) `@fastify/helmet` security headers and an explicit CORS allow-list for the web app.
+- (P5) `@fastify/helmet` security headers on every response, and an explicit CORS allow-list
+  (`CORS_ORIGINS`) for the web app: methods `GET`/`POST`, request headers `content-type` and
+  `x-request-id`, and the web app may read `x-request-id`, `x-ratelimit-*`, `retry-after` and
+  `x-cache` (browsers hide other response headers from scripts). Preflights are cached for
+  10 minutes and never reach the rate limiter. CORS only governs what browsers let scripts
+  read; it is not access control (curl ignores it).
 
 ---
 

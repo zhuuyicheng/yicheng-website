@@ -35,7 +35,7 @@ export interface TelemetryFlushManager {
 
 export interface TelemetryFlushManagerDependencies {
   bufferDal: Pick<EventBufferDal, 'claimBatch' | 'acknowledge'>;
-  analyticsEventDal: AnalyticsEventDal;
+  analyticsEventDal: Pick<AnalyticsEventDal, 'insertBatch'>;
   metrics: Metrics;
   batchSize: number;
   /** Injectable for tests. */

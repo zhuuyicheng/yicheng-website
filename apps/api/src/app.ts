@@ -1,15 +1,23 @@
+import { hostname } from 'node:os';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import type { AppConfig } from './config/env.js';
 import { registerContactController } from './controllers/contact.controller.js';
 import { registerContentController } from './controllers/content.controller.js';
 import { registerEventsController } from './controllers/events.controller.js';
 import { registerHealthController } from './controllers/health.controller.js';
+import {
+  METRICS_PATH,
+  registerSystemController,
+  SYSTEM_STATUS_PATH,
+} from './controllers/system.controller.js';
+import { createAnalyticsEventDal } from './dal/analytics-event.dal.js';
 import { createContactMessageDal } from './dal/contact-message.dal.js';
 import { createContentCacheDal } from './dal/content-cache.dal.js';
 import { createContentDal } from './dal/content.dal.js';
 import { createEventBufferDal } from './dal/event-buffer.dal.js';
 import { createIpLocationDal, type IpDatabases } from './dal/ip-location.dal.js';
 import { createNotificationQueueDal } from './dal/notification-queue.dal.js';
+import { createQueueDepthDal } from './dal/queue-depth.dal.js';
 import { createRateLimitDal } from './dal/rate-limit.dal.js';
 import { createTelemetrySaltDal } from './dal/telemetry-salt.dal.js';
 import { createIpHasher } from './infra/ip-hash.js';
@@ -17,13 +25,17 @@ import type { Logger } from './infra/logger.js';
 import type { Metrics } from './infra/metrics.js';
 import { pingPostgres, type PostgresPool } from './infra/postgres.js';
 import { pingRedis, type Redis } from './infra/redis.js';
+import { createRollingLatency } from './infra/rolling-latency.js';
 import { registerErrorHandlers } from './middleware/error-handler.js';
+import { registerHttpMetrics } from './middleware/http-metrics.js';
 import { REQUEST_ID_HEADER, resolveRequestId } from './middleware/request-id.js';
+import { registerSecurityPlugins } from './middleware/security.js';
 import { createCacheAsideManager } from './services/cache-aside.manager.js';
 import { createContactManager } from './services/contact.manager.js';
 import { createContentManager } from './services/content.manager.js';
 import { createHealthManager } from './services/health.manager.js';
 import { createRateLimiterManager } from './services/rate-limiter.manager.js';
+import { createSystemStatusManager } from './services/system-status.manager.js';
 import { createTelemetryManager } from './services/telemetry.manager.js';
 import { createVisitorDetailsManager } from './services/visitor-details.manager.js';
 
@@ -65,6 +77,13 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   });
 
   registerErrorHandlers(app);
+  registerSecurityPlugins(app, { corsOrigins: config.cors.origins });
+  const latency = createRollingLatency();
+  registerHttpMetrics(app, {
+    metrics,
+    latency,
+    latencyIgnoredRoutes: ['/health', METRICS_PATH, SYSTEM_STATUS_PATH],
+  });
 
   // Wiring, one module at a time:
   // DAL (data access) → manager (business rules) → controller (endpoints).
@@ -114,6 +133,16 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     metrics,
   });
   registerContactController(app, contactManager, contactRateLimiter);
+
+  const systemStatusManager = createSystemStatusManager({
+    healthManager,
+    queueDepthDal: createQueueDepthDal(redis),
+    analyticsEventDal: createAnalyticsEventDal(postgres),
+    latency,
+    metrics,
+    instance: hostname(),
+  });
+  registerSystemController(app, systemStatusManager, { metricsToken: config.metrics.token });
 
   return app;
 }
