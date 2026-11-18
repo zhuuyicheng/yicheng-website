@@ -304,7 +304,7 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `METRICS_TOKEN`                     | 5     | unset                   | ≥ 16 chars. If set, `/metrics` requires `Authorization: Bearer <token>`.  |
 | `CORS_ORIGINS`                      | 5     | `http://localhost:3000` | Comma-separated origins (`https://host[:port]`, no path, no `/`).         |
 | `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side, read at request time).                        |
-| `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API (beacon, contact form). Baked in at `next build`.           |
+| `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API. Baked in at `next build`. Empty = same origin (§14.5).     |
 
 The two web variables are read by Next.js from the environment or from `apps/web/.env*`
 files (not the root `.env`); the defaults suit local development. `NEXT_PUBLIC_*` values are
@@ -1315,7 +1315,9 @@ Other measures:
   `x-request-id`, and the web app may read `x-request-id`, `x-ratelimit-*`, `retry-after` and
   `x-cache` (browsers hide other response headers from scripts). Preflights are cached for
   10 minutes and never reach the rate limiter. CORS only governs what browsers let scripts
-  read; it is not access control (curl ignores it).
+  read; it is not access control (curl ignores it). In production the site and the API share
+  one origin (§14.5), so browsers make no cross-origin calls there; the allow-list matters in
+  local development, where the site (`:3000`) and the API (`:4000`) are different origins.
 
 ---
 
@@ -1368,9 +1370,13 @@ gate once releases are routine.
   than a month should be rebuilt to refresh them).
 - `apps/web/Dockerfile`: Next.js `output: 'standalone'` server (to add to `next.config.ts`,
   with `outputFileTracingRoot` at the repo root so the workspace packages are traced).
-  `NEXT_PUBLIC_API_BASE_URL` is copied into the browser bundle **at build time** (§4), so it is
-  a build argument set to the production API URL (`https://api.<domain>`); `API_BASE_URL` stays
-  a runtime variable.
+  `NEXT_PUBLIC_API_BASE_URL` is copied into the browser bundle **at build time** (§4); the image
+  is built with it empty, so browsers call `/api/v1/...` on the page's own origin (§14.5). The
+  image therefore contains no hostname and runs unchanged under any hostname. `API_BASE_URL`
+  stays a runtime variable.
+- **CPU architecture**: the production server is an Arm machine (§14.5), so CI builds the
+  images for `linux/arm64` on GitHub's Arm runners (free for public repositories), natively
+  rather than under emulation. Local builds use the laptop's own architecture.
 - Images go to GitHub Container Registry, tagged with the **git commit SHA**
   (`ghcr.io/<owner>/portfolio-api:<sha>`). Every release is traceable to a commit, and a
   rollback is "deploy the previous SHA".
@@ -1386,7 +1392,8 @@ merge to main ─► CI green ─► build + push images (tag = SHA)
                  1. migrate          node dist/cli/migrate.js   (backward compatible, §14.4)
                  2. seed content     node dist/cli/seed-content.js (idempotent)
                  3. roll out         worker → api-1 → api-2 → web, one at a time (§14.5)
-                 4. smoke test       GET /health = 200, GET /api/v1/projects = 200
+                 4. smoke test       GET /health = 200 on each replica (from the host),
+                                     GET https://<host>/api/v1/projects = 200 (public)
                  5. on failure       redeploy the previous SHA, mark the job failed
 ```
 
@@ -1398,50 +1405,84 @@ merge to main ─► CI green ─► build + push images (tag = SHA)
   column → backfill → release code using it → drop the old column in a later release.
 - **No secrets in images or Git.** Production values (`IP_HASH_SECRET`, `METRICS_TOKEN`,
   `DISCORD_WEBHOOK_URL`, database passwords) live in GitHub Environment secrets and an env
-  file on the host.
+  file on the host, with a copy of that file in a password manager (GitHub never shows a
+  secret again once saved). The hostname is not in Git either (§14.5).
 - **One worker at a time** (§8.4): the rollout stops the old worker before starting the new one.
 - **Redis is a datastore, not only a cache**: production Redis must keep AOF persistence and
   the `volatile-lru` policy. This rules out hosted plans that disable persistence or force
   `allkeys-lru` (which would evict queued events).
 - Production settings: `NODE_ENV=production`, `TRUST_PROXY=true` (without it every visitor
-  would have Caddy's IP, and the IP lookup would find nothing), `CORS_ORIGINS=https://<domain>`,
+  would have Caddy's IP, and the IP lookup would find nothing), `CORS_ORIGINS=https://<host>`,
   `METRICS_TOKEN` set, `GEOIP_ASN_DB_PATH` / `GEOIP_LOCATION_DB_PATH` pointing into the image,
   `NOTIFIER_DRIVER=discord` with `DISCORD_WEBHOOK_URL`, and for the web container
-  `API_BASE_URL` (the API through Caddy) plus the `NEXT_PUBLIC_API_BASE_URL` build argument.
-- **Memory**: each API replica holds ~140 MB of GeoIP data (§8.2); size the VPS for two
-  replicas, or switch to the country-only file.
+  `API_BASE_URL=http://caddy:8080` (Caddy's internal listener, §14.5), built with an empty
+  `NEXT_PUBLIC_API_BASE_URL` (§14.2).
+- **Memory**: each API replica holds ~140 MB of GeoIP data (§8.2); the VM is sized for two
+  replicas (§14.5), or the country-only file would halve that.
 
-### 14.5 Hosting (decided at the start of Phase 6)
+### 14.5 Hosting: Oracle Cloud free tier, one hostname
 
-**Default: one small Linux VPS** running `deploy/compose.prod.yml` (Postgres, Redis, **two API
-replicas**, worker, web, and Caddy for automatic HTTPS and load balancing). It mirrors local
-development, keeps Redis configuration under our control, and costs a few dollars a month. The
-deploy job connects over SSH (key stored as an Environment secret), pulls the new tag and runs
-the rolling update below.
+**Server: one Oracle Cloud Always Free Arm VM** (`VM.Standard.A1.Flex`, Ubuntu 24.04 LTS, in the
+account's home region) running `deploy/compose.prod.yml`: Postgres, Redis, **two API
+replicas**, worker, web, and Caddy for automatic HTTPS and load balancing. It is an ordinary
+Linux server, so it mirrors local development, keeps Redis configuration under our control (§14.4),
+and costs nothing. The deploy job connects over SSH (key stored as an Environment secret),
+pulls the new tag and runs the rolling update below. Setup steps: [docs/HOSTING.md](docs/HOSTING.md).
 
-Alternative: a container platform plus managed Postgres/Redis. Less server upkeep, higher cost,
-and the Redis constraints in §14.4 must be checked. The images and pipeline are the same either
-way; only step 3 changes.
+What the free tier implies:
+
+- **Arm CPU**: the images are built for `linux/arm64` (§14.2).
+- **Size**: the free allowance is 2 OCPUs and 12 GB of memory. The VM takes 2 OCPUs and
+  6 GB; the stack needs roughly 2 GB (estimate, measured with `docker stats` once it runs).
+- **Idle reclamation**: Oracle may reclaim an Always Free VM whose CPU (95th percentile),
+  network and memory use all stay below 20 % for 7 days. A quiet portfolio has low CPU and
+  network use, so the VM is sized to what the stack uses rather than taking the full 12 GB.
+- **The VM is replaceable.** Images live in GHCR, configuration in Git, secrets in GitHub and a
+  password manager, and Caddy re-issues certificates by itself; the database is the only data
+  that exists solely on the VM, and it is backed up off the host nightly. Losing the VM costs a
+  rebuild from docs/HOSTING.md plus pointing the hostname at the new IP.
+
+**Hostname: one free hostname, no purchased domain.** `<name>.duckdns.org` (DuckDNS, ready in
+minutes) serves the first releases. `<name>.is-a.dev` replaces it once the site is live,
+because is-a.dev only approves finished sites; its terms also forbid AI-written requests, so
+the owner writes that pull request. Both are plain A records pointing at the VM's public IP,
+so Caddy gets Let's Encrypt certificates the usual way (HTTP-01 challenge on port 80). The
+hostname is not in Git: it is `SITE_HOST` in the host's env file and a GitHub Environment
+variable, so switching hostnames is a configuration change, not a rebuild.
+
+**One origin, split by path.** The site and the API share the hostname, and Caddy routes by path:
+
+```
+https://<host>/api/*   →  api-1 / api-2   (round robin)
+https://<host>/*       →  web
+```
+
+- Browser calls are same-origin: no CORS preflight before each `POST`, and the web image
+  needs no hostname (§14.2).
+- Only `/api/*` reaches the API from outside. `/health`, `/health/live` and `/metrics` are not
+  routed publicly: Caddy calls `/health/live` on each replica directly, the deploy job checks
+  `/health` from the host, and Prometheus scrapes each replica directly.
+- One certificate and one DNS record to manage.
 
 #### Load balancing: two API replicas behind Caddy
 
 ```
-                 browser / web server
-                         │ HTTPS
-                         ▼
-                 ┌───────────────┐
-                 │     Caddy     │  TLS, round robin, health checks (GET /health/live every 5 s)
-                 └───┬───────┬───┘
-                     ▼       ▼
-                  api-1     api-2      same image, same env, separate containers
+         browser (HTTPS :443)        web server (HTTP :8080, internal only)
+                         │              │
+                         ▼              ▼
+                 ┌──────────────────────────┐
+                 │          Caddy           │  TLS, path routing, round robin,
+                 └───┬──────────────┬───────┘  health checks (GET /health/live every 5 s)
+           /api/*    ▼       ▼      │ everything else
+                  api-1     api-2   └──────► web
                      │       │
                      └───┬───┘
                 Postgres + Redis       all shared state lives here
 ```
 
 ```
-# deploy/Caddyfile (API part)
-api.<domain> {
+# deploy/Caddyfile
+(api_replicas) {
 	reverse_proxy api-1:4000 api-2:4000 {
 		lb_policy       round_robin
 		lb_try_duration 5s           # a replica refuses the connection → retry on the other
@@ -1449,10 +1490,24 @@ api.<domain> {
 		health_interval 5s
 	}
 }
+
+{$SITE_HOST} {
+	handle /api/* {
+		import api_replicas
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}
+
+# Not published on the host: the web server's own API calls, balanced the same way.
+:8080 {
+	import api_replicas
+}
 ```
 
-`API_BASE_URL` (the web server's calls) also points at Caddy, so those calls are balanced too.
-The worker and web stay single instances.
+`API_BASE_URL` (the web server's calls) is `http://caddy:8080`, so those calls are balanced too
+without leaving the server or paying for TLS. The worker and web stay single instances.
 
 **Why replicas need no code changes.** A replica keeps nothing important in its own memory:
 

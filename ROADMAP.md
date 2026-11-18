@@ -9,8 +9,8 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | 2     | `feat/portfolio-cache-api`   | A      | ✅ Done        |
 | 3     | `feat/telemetry-pipeline`    | B      | ✅ Done        |
 | 4     | `feat/contact-rate-limiter`  | C      | ✅ Done        |
-| 5     | `feat/metrics-and-dashboard` | D      | 🔍 In review   |
-| 6     | `feat/continuous-delivery`   | —      | ⬜ Not started |
+| 5     | `feat/metrics-and-dashboard` | D      | ✅ Done        |
+| 6     | `feat/continuous-delivery`   | —      | 🚧 In progress |
 
 ---
 
@@ -109,7 +109,7 @@ Built in two steps, one commit each: **4a** the API side (limiter, endpoint, job
 - [x] DATA-TOOLS.md §7.2: watching the worker drain the job queues, retries and the DLQ (4b)
 - [x] PR #5 merged (CI green)
 
-## Phase 5: Metrics & dashboard (`feat/metrics-and-dashboard`)
+## Phase 5: Metrics & dashboard (`feat/metrics-and-dashboard`) ✅
 
 Built in three steps, one commit each: **5a** the API side (metrics, status, security
 headers), **5b** the website (shared schemas, pages, contact form, beacon, privacy notice),
@@ -143,24 +143,31 @@ headers), **5b** the website (shared schemas, pages, contact form, beacon, priva
       (286 API + 37 web total)
 - [x] Guided tour station 11 and DATA-TOOLS.md §7.5: the website and the dashboard
 - [x] CI also runs the website's production build (`next build`, no API needed)
-- [ ] PR merged (CI green)
+- [x] PR #6 merged (CI green)
 
 ## Phase 6: Continuous delivery (`feat/continuous-delivery`)
 
 Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
 
-- [ ] Decide hosting + domain (default: one VPS running Docker Compose, Caddy for HTTPS and
-      load balancing)
+- [x] Decide hosting + hostname ([DESIGN.md §14.5](DESIGN.md#145-hosting-oracle-cloud-free-tier-one-hostname)):
+      an Oracle Cloud Always Free Arm VM (2 OCPUs, 6 GB) running Docker Compose with Caddy;
+      one free hostname (DuckDNS first, then is-a.dev) with Caddy routing `/api/*` to the API
+      and everything else to the website; no purchased domain
+- [ ] Server ready: VM, both firewalls, Docker, DuckDNS hostname, HTTPS test page
+      ([docs/HOSTING.md](docs/HOSTING.md))
 - [ ] `apps/api/Dockerfile` (multi-stage, non-root; one image for api/worker/migrate/seed;
       builds `packages/shared`; downloads the GeoIP files during the build),
-      `apps/web/Dockerfile` (Next.js `output: 'standalone'`; `NEXT_PUBLIC_API_BASE_URL` as a
-      build argument, DESIGN.md §14.2), `.dockerignore`
-- [ ] CI: build both images on every PR (a broken Dockerfile fails before merge)
+      `apps/web/Dockerfile` (Next.js `output: 'standalone'`; built with an empty
+      `NEXT_PUBLIC_API_BASE_URL`, so browsers call the same origin, DESIGN.md §14.2),
+      `.dockerignore`
+- [ ] CI: build both images for `linux/arm64` on GitHub's Arm runners on every PR (a broken
+      Dockerfile fails before merge)
 - [ ] On merge to `main`: push images to GHCR tagged with the git SHA
-- [ ] `deploy/compose.prod.yml` + `Caddyfile`; production env file kept on the host only
+- [ ] `deploy/compose.prod.yml` + `Caddyfile` (path routing, internal `:8080` listener for the
+      web server); production env file kept on the host only
 - [ ] `.github/workflows/deploy.yml`: migrate → seed → rolling update → smoke test → auto-rollback,
       behind a `production` GitHub Environment with a required reviewer (continuous **delivery**)
-- [ ] Load balancing ([DESIGN.md §14.5](DESIGN.md#145-hosting-decided-at-the-start-of-phase-6)):
+- [ ] Load balancing ([DESIGN.md §14.5](DESIGN.md#145-hosting-oracle-cloud-free-tier-one-hostname)):
   - [ ] Two API replicas (`api-1`, `api-2`) behind Caddy: round robin, active health checks
   - [ ] `GET /health/live` liveness endpoint for the load balancer (no dependency checks) + tests
   - [ ] Rolling update: worker → api-1 (wait for `/health` = 200) → api-2 → web
@@ -168,5 +175,7 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
         status already exists since Phase 5; set each container's hostname to `api-1`/`api-2`)
   - [ ] Prove it: a request loop sees no failures while one replica is stopped, or during a deploy
 - [ ] Nightly `pg_dump` backups off the host + a tested restore
+- [ ] Switch to `<name>.is-a.dev` once the site is live (you write the request by hand: their
+      terms forbid AI-written pull requests)
 - [ ] `docs/CD.md`: how to release, approve, roll back, read deploy logs
 - [ ] Later: remove the approval gate (continuous **deployment**) once releases are routine

@@ -8,7 +8,7 @@ background jobs with retries and dead-letter queues, and live observability.
 - **Progress**: [ROADMAP.md](ROADMAP.md)
 - **New here? Start with the hands-on [Guided Tour](docs/GUIDED-TOUR.md)**
 - **Guides**: [Testing](docs/TESTING.md) · [CI](docs/CI.md) · [Content & cache](docs/CONTENT-AND-CACHE.md) ·
-  [Seeing the data in VS Code](docs/DATA-TOOLS.md)
+  [Seeing the data in VS Code](docs/DATA-TOOLS.md) · [Hosting (server setup)](docs/HOSTING.md)
 
 ## Quick start
 
