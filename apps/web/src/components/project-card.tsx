@@ -13,7 +13,7 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
       <div className="flex items-start justify-between gap-4">
         <h3 className="font-display text-xl font-semibold text-ink">
           <Link
-            href={`/projects/${project.slug}`}
+            href={`/${project.slug}`}
             className="after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none"
           >
             {project.title}

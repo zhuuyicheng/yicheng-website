@@ -89,8 +89,17 @@ const contentProjectSectionSchema = z
     path: ['points'],
   });
 
+/**
+ * Projects live at `/<slug>` on the website, beside its own pages, so a slug must not take one
+ * of their addresses (`/projects` redirects old links, `/admin` is the owner's page).
+ */
+export const RESERVED_PROJECT_SLUGS = ['admin', 'projects', 'privacy'] as const;
+
 const contentProjectSchema = z.object({
-  slug: projectSlugSchema,
+  slug: projectSlugSchema.refine(
+    (slug) => !(RESERVED_PROJECT_SLUGS as readonly string[]).includes(slug),
+    { message: 'is already a page of the site; choose another slug' },
+  ),
   title: text(200),
   summary: text(500),
   description: text(10_000),

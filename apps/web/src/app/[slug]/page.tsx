@@ -1,4 +1,4 @@
-import type { ProjectSection } from '@portfolio/shared';
+import { projectSlugSchema, type ProjectSection } from '@portfolio/shared';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -12,7 +12,7 @@ import { nextProject, sectionAnchors } from '@/lib/project-page';
 import { trackName } from '@/lib/telemetry';
 
 /**
- * Written out instead of Next's generated `PageProps<'/projects/[slug]'>`: that global type
+ * Written out instead of Next's generated `PageProps<'/[slug]'>`: that global type
  * only exists after `next typegen` has run, and a fresh checkout (CI) lints before that.
  * In Next.js 16, `params` is a Promise.
  */
@@ -20,9 +20,18 @@ interface ProjectPageProps {
   params: Promise<{ slug: string }>;
 }
 
-export async function generateMetadata(props: ProjectPageProps): Promise<Metadata> {
+/**
+ * A project lives at `/<slug>` (e.g. `/bowling-buddy`). Static routes such as `/admin` win
+ * over this one, and the content file refuses slugs that would collide with them. A path that
+ * cannot be a slug (`/Foo`, `/a.b`) is a 404 without asking the API.
+ */
+async function findProject(props: ProjectPageProps) {
   const { slug } = await props.params;
-  const project = await getProject(slug);
+  return projectSlugSchema.safeParse(slug).success ? getProject(slug) : null;
+}
+
+export async function generateMetadata(props: ProjectPageProps): Promise<Metadata> {
+  const project = await findProject(props);
   return project ? { title: project.title, description: project.summary } : {};
 }
 
@@ -32,8 +41,7 @@ export async function generateMetadata(props: ProjectPageProps): Promise<Metadat
  * API answers 404) show the not-found page.
  */
 export default async function ProjectPage(props: ProjectPageProps) {
-  const { slug } = await props.params;
-  const [project, projects] = await Promise.all([getProject(slug), getProjects()]);
+  const [project, projects] = await Promise.all([findProject(props), getProjects()]);
   if (!project) {
     notFound();
   }
@@ -94,7 +102,7 @@ export default async function ProjectPage(props: ProjectPageProps) {
         <BackToProjects />
         {next && (
           <Link
-            href={`/projects/${next.slug}`}
+            href={`/${next.slug}`}
             className="group rounded-xl border border-line px-5 py-4 transition hover:border-brand/50 hover:bg-surface sm:text-right"
           >
             <span className="block text-xs text-muted">Next project</span>

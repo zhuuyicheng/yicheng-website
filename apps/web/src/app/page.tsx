@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { ContactForm } from '@/components/contact-form';
 import { ExperienceTimeline, type TimelineEntryData } from '@/components/experience-timeline';
 import { Hero } from '@/components/hero';
-import { PhotoGallery } from '@/components/photo-gallery';
+import { PhotoCarousel } from '@/components/photo-carousel';
 import { ProfileLinkIcon } from '@/components/profile-link-icon';
 import { ProjectExplorer } from '@/components/project-explorer';
 import { Reveal } from '@/components/reveal';
@@ -96,7 +96,7 @@ export default async function HomePage() {
       <Section id="life" raised>
         <SectionHeading title="Outside work" icon={Camera} />
         <Reveal>
-          <PhotoGallery photos={PHOTOS} />
+          <PhotoCarousel photos={PHOTOS} />
         </Reveal>
       </Section>
 

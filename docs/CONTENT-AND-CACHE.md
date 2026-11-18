@@ -105,7 +105,7 @@ docker compose start redis
    immediately, and so does the website (http://localhost:3000), which renders each page from
    the API on request.
 
-`slug` is the project's URL name (`/projects/<slug>`): lowercase words joined by hyphens.
+`slug` is the project's URL name (`/<slug>` on the website): lowercase words joined by hyphens.
 
 Which field appears where on the website, and how to change the wording that isn't in the
 JSON (section titles, buttons, footer): [EDITING-THE-SITE.md](EDITING-THE-SITE.md).

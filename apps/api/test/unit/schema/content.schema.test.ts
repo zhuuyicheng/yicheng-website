@@ -62,6 +62,13 @@ describe('portfolioContentSchema (content/portfolio.json)', () => {
     expect(problems({ ...MINIMAL_CONTENT, projects: [project] })).toHaveLength(1);
   });
 
+  it('rejects a slug that is already a page of the site', () => {
+    const project = { ...MINIMAL_CONTENT.projects[0], slug: 'admin' };
+    expect(problems({ ...MINIMAL_CONTENT, projects: [project] })).toEqual([
+      'projects.0.slug: is already a page of the site; choose another slug',
+    ]);
+  });
+
   it('rejects duplicate project slugs', () => {
     const project = MINIMAL_CONTENT.projects[0];
     expect(problems({ ...MINIMAL_CONTENT, projects: [project, project] })).toEqual([

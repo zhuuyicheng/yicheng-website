@@ -250,10 +250,9 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │       ├── src/
 │       │   ├── app/                      routes (App Router)
 │       │   │   ├── layout.tsx            header, footer, page-view beacon
-│       │   │   ├── page.tsx              home: hero, about, experience, projects, lab, contact
-│       │   │   ├── projects/             list + [slug] detail
-│       │   │   ├── privacy/              privacy notice (static)
-│       │   │   ├── status/               live dashboard (static page, browser polls)
+│       │   │   ├── page.tsx              home: hero, about, experience, projects, outside work, contact
+│       │   │   ├── [slug]/               one project, at /<slug> (old /projects/* links redirect)
+│       │   │   ├── admin/                owner dashboard + its status route (password-protected)
 │       │   │   ├── error.tsx             "API unreachable" + retry
 │       │   │   ├── not-found.tsx
 │       │   │   └── globals.css           theme, grid/glow, reveal, reduced motion
@@ -1166,7 +1165,12 @@ save. Plain `node` (production) and every tool then import ordinary JavaScript.
 schemas, and never depend on the API during `next build`. The API's Redis cache keeps this
 cheap. React `cache()` dedupes `getProfile()` between `generateMetadata` and the page. A
 missing profile (not seeded) shows a hint; an unknown project is a 404; an unreachable API
-renders `error.tsx` with a retry button. `/privacy` has no data and is prerendered.
+renders `error.tsx` with a retry button. Projects live at `/<slug>` (`app/[slug]`): static
+routes such as `/admin` take precedence, the content file refuses slugs that would collide
+with them (`admin`, `projects`, `privacy`), a path that cannot be a slug is a 404 without
+asking the API, and `next.config.ts` redirects the old `/projects` and `/projects/<slug>`
+addresses permanently (and the removed `/privacy` to the home page). There is no separate
+projects list: the home page's Projects section is the list.
 
 **Page-view beacon** (`components/page-view-beacon.tsx`, logic in `lib/telemetry.ts`):
 
@@ -1203,9 +1207,13 @@ never use raw palette colors, so a theme change is one block of CSS. No terminal
 numbers. Status colors keep their meaning (green healthy, amber degraded, red down).
 
 **Photos and icons.** The hero shows a portrait beside the name, the header a round avatar,
-and an "Outside work" section a gallery (`content/photos.ts`: image, description, caption,
-tile shape, focal point; wide tiles span two columns, tall ones two rows). Photos are static
-imports, so `next/image` knows their size, serves resized WebP/AVIF copies and shows a blurred
+and the "Outside work" section a carousel (`components/photo-carousel.tsx`; photos listed in
+`content/photos.ts` with a screen-reader description, caption, optional sentence and focal
+point). The photos sit on a turning ring (`lib/carousel.ts`): the active one in front with
+its caption, its neighbours angled away on each side, the rest behind (hidden and inert).
+Arrow buttons, dots, a click on a side photo, ← → keys and a horizontal swipe all turn it,
+wrapping round at the ends; CSS animates each move, and a polite live region announces the
+new photo. No autoplay: the visitor decides. Photos are static imports, so `next/image` knows their size, serves resized WebP/AVIF copies and shows a blurred
 preview while loading; the committed files are resized and stripped of metadata (camera and
 GPS data would otherwise be published). Section titles carry an icon (lucide-react; the
 LinkedIn mark from Simple Icons). The browser tab shows `app/icon.svg` (a "YC" monogram);
@@ -1218,7 +1226,8 @@ clicked `#hash`, so a second click on "Projects" after scrolling up used to do n
 
 **Effects.** Scroll-linked effects write one CSS variable (`--progress`,
 `components/use-scroll-progress.ts`) per animation frame instead of re-rendering React: the
-hero drifts and fades, the timeline line fills. Sections reveal once on entering the screen
+hero stays fully visible until 60 % of it has scrolled off the top, then fades as the rest
+leaves (and drifts up 2 rem), and the timeline line fills. Sections reveal once on entering the screen
 (IntersectionObserver), and the header highlights the section being read. Content is in the
 server-rendered HTML first; effects only enhance
 it, so without JavaScript or with `prefers-reduced-motion: reduce` everything is visible and
@@ -1427,8 +1436,10 @@ browsers send (§8.2). Contact-form emails are not linked to browsing sessions (
 Consequences:
 
 - Derived details such as organisation and city still count as personal data under the GDPR
-  (for EU/UK visitors) and similar laws. The site's privacy notice (`/privacy`, P5) says what is
-  collected and why, plus the DB-IP attribution wherever the data is shown publicly.
+  (for EU/UK visitors) and similar laws. A privacy notice (`/privacy`) existed from P5 until
+  the owner removed it in P6; GDPR expects visitors to be told what is collected, so bring one
+  back before targeting EU/UK audiences. The DB-IP attribution (CC BY 4.0) is shown wherever
+  the data is displayed: on `/admin` only, since nothing about visitors is public.
 - Visitor details are for the site owner only: on the password-protected `/admin` page (§8.7)
   or with SQL (`docs/sql/telemetry.sql`). Nothing about visitors, and since Phase 6 nothing
   about the system's health or queues, is shown publicly.

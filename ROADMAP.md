@@ -225,3 +225,8 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
       can send 2 more"): new `X-RateLimit-Window` header
 - [x] Flaky test fixed: the notification retry test now moves a fake clock instead of racing
       a 10 ms backoff (300 API + 63 web tests)
+- [x] Hero fades only once 60 % of it has scrolled away; "Outside work" became a turning
+      photo carousel (buttons, dots, side-photo clicks, ← →, swipe) (300 API + 68 web tests)
+- [x] Hero photo collage (seven tilted prints, `HERO_PHOTOS`); graduation photo in the carousel
+- [x] Privacy page removed (owner's decision); projects moved from `/projects/<slug>` to
+      `/<slug>` with permanent redirects; no separate projects list; reserved slugs refused

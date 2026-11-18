@@ -1,8 +1,8 @@
 import type { Profile } from '@portfolio/shared';
 import { MapPin } from 'lucide-react';
-import Image from 'next/image';
-import portrait from '@/content/photos/portrait.jpg';
+import { HERO_PHOTOS } from '@/content/photos';
 import { trackName } from '@/lib/telemetry';
+import { HeroCollage } from './hero-collage';
 import { ProfileLinkIcon } from './profile-link-icon';
 import { ScrollFade } from './scroll-fade';
 import { SectionLink } from './section-link';
@@ -10,7 +10,7 @@ import { TrackedLink } from './tracked-link';
 
 /**
  * First screen: name, headline and the ways in (projects, contact, profile links), beside a
- * photo. The content fades as you scroll on.
+ * collage of photos. The content fades as you scroll on.
  */
 export function Hero({ profile }: { profile: Profile }) {
   return (
@@ -21,7 +21,7 @@ export function Hero({ profile }: { profile: Profile }) {
         className="absolute inset-x-0 top-0 -z-10 h-[36rem] bg-gradient-to-b from-brand-soft/70 to-transparent"
       />
 
-      <ScrollFade className="mx-auto grid max-w-6xl items-center gap-12 px-4 pt-12 pb-20 sm:px-6 sm:pt-16 lg:min-h-[calc(100svh-4rem)] lg:grid-cols-[1.15fr_1fr] lg:gap-16 lg:py-16">
+      <ScrollFade className="mx-auto grid max-w-6xl items-center gap-12 px-4 pt-12 pb-20 sm:px-6 sm:pt-16 lg:min-h-[calc(100svh-4rem)] lg:grid-cols-[1fr_1.05fr] lg:gap-12 lg:py-16">
         <div>
           <p className="text-sm font-medium tracking-wide text-brand">Hi, I&apos;m</p>
           <h1 className="mt-2 font-display text-5xl font-semibold tracking-tight text-ink sm:text-6xl lg:text-7xl">
@@ -64,20 +64,7 @@ export function Hero({ profile }: { profile: Profile }) {
           </div>
         </div>
 
-        <div className="relative mx-auto w-full max-w-sm sm:max-w-md lg:max-w-none">
-          <div
-            aria-hidden
-            className="absolute -inset-3 -z-10 rotate-3 rounded-[2.25rem] bg-brand-soft sm:-inset-4"
-          />
-          <Image
-            src={portrait}
-            alt={`${profile.fullName} smiling in a field of pink flowers, a mountain behind him`}
-            priority
-            placeholder="blur"
-            sizes="(min-width: 1024px) 28rem, (min-width: 640px) 28rem, 90vw"
-            className="h-auto w-full rounded-[2rem] shadow-xl"
-          />
-        </div>
+        <HeroCollage photos={HERO_PHOTOS} />
       </ScrollFade>
     </section>
   );

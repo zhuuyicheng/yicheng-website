@@ -39,7 +39,7 @@ Have the site running while you edit (three terminals): `npm run infra:up` once,
 | `profile.links`                  | Buttons in the hero and links in the About sidebar, in file order                                                           |
 | `experiences`, `education`       | The Experience & education timeline, in file order. `"endDate": null` shows "present"                                       |
 | `projects[].title`, `.summary`   | The project cards                                                                                                           |
-| `projects[].description`         | The overview at the top of the project's own page, `/projects/<slug>`. A blank line (`\n\n`) starts a new paragraph         |
+| `projects[].description`         | The overview at the top of the project's own page, `/<slug>`. A blank line (`\n\n`) starts a new paragraph                  |
 | `projects[].sections`            | The rest of the project's page, in file order: see below                                                                    |
 | `projects[].techStack`           | Tags on the card and the project's page, and the technology filter above the cards                                          |
 | `projects[].featured`            | `true` lists the project first, with a "Featured" badge; the others follow in file order                                    |
@@ -62,7 +62,8 @@ as a bulleted list. Either `body` or `points` may be left out, but not both:
 
 **The seed makes the site match the file exactly.** Delete a project or a role from the file,
 seed, and it's gone from the site. Renaming a project's `slug` changes its address, so old
-links to `/projects/<old-slug>` stop working.
+links to `/<old-slug>` stop working. A few slugs are taken by the site's own pages (`admin`,
+`projects`, `privacy`); the seed refuses them.
 
 **JSON pitfalls** (VS Code underlines them in red):
 
@@ -86,7 +87,7 @@ so the site never shows half an edit. Try it on purpose:
 | The "View projects" and "Get in touch" buttons, `scroll ↓`                         | `components/hero.tsx`                                                                                             |
 | Header: your name and the section links                                            | `components/site-header.tsx` (`SECTIONS` at the top)                                                              |
 | Project cards: "Read more", "Featured"                                             | `components/project-card.tsx`                                                                                     |
-| Project page: "Back to projects", "Next project", "On this page"                   | `app/projects/[slug]/page.tsx`, `components/project-contents.tsx`                                                 |
+| Project page: "Back to projects", "Next project", "On this page"                   | `app/[slug]/page.tsx`, `components/project-contents.tsx`                                                          |
 | Footer links (Projects, Privacy)                                                   | `components/site-footer.tsx`                                                                                      |
 | Contact form: labels and hints                                                     | `components/contact-form.tsx`                                                                                     |
 | Contact form replies ("Message sent…", the spam-limit explanation, errors)         | `lib/contact.ts` (`sentMessage`, `rateLimitedMessage`, `sendContact`)                                             |
@@ -94,7 +95,7 @@ so the site never shows half an edit. Try it on purpose:
 | Section icons                                                                      | `app/page.tsx`, the `icon={…}` of each `<SectionHeading … />` (names from [lucide.dev](https://lucide.dev/icons)) |
 | Browser-tab icon                                                                   | `app/icon.svg` (the "YC" monogram)                                                                                |
 | Browser-tab title of the other pages (`… · Portfolio`) and the default description | `app/layout.tsx` (`metadata`)                                                                                     |
-| The projects page, privacy notice, 404 page and your owner dashboard               | `app/projects/page.tsx`, `app/privacy/page.tsx`, `app/not-found.tsx`, `app/admin/page.tsx`                        |
+| The 404 page and your owner dashboard                                              | `app/not-found.tsx`, `app/admin/page.tsx`                                                                         |
 
 **Editing JSX safely.** These files mix HTML-like tags with code. Change only the words:
 
@@ -115,17 +116,27 @@ so the site never shows half an edit. Try it on purpose:
 Because this is code, run `npm run format` and `npm run lint` before committing (or
 `npm run check` for everything CI runs).
 
-The privacy notice describes exactly what the analytics collect. If you reword it, keep it
-accurate (DESIGN.md §12).
-
 ---
 
 ## 3. Photos
 
 The photos live in `apps/web/src/content/photos/`, and `apps/web/src/content/photos.ts` lists
-the ones in the "Outside work" gallery: the image, a description for screen readers (`alt`),
-the caption shown on it, its tile shape (`wide`, `tall` or `square`) and its focal point. The
-hero portrait (`portrait.jpg`) and the header avatar (`avatar.jpg`) are crops of one photo.
+the ones in the "Outside work" carousel, in the order it shows them. Each entry has:
+
+| Field         | What it does                                                                                                                                                |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src`         | The image, imported at the top of the file                                                                                                                  |
+| `alt`         | What the picture shows, for people who cannot see it (screen readers)                                                                                       |
+| `caption`     | The title under the photo while it is in front                                                                                                              |
+| `description` | Optional: a sentence or two under the caption                                                                                                               |
+| `focus`       | Optional: the part kept in view when the photo is cropped to the portrait card, as `"x% y%"` (from the left, from the top). Default `"50% 50%"`, the centre |
+
+Changing a caption: edit the text and save; the page updates by itself.
+
+The same file lists `HERO_PHOTOS`: the collage beside your name at the top. The first one is
+the large photo in the middle; the next six are pinned around it, tilted (on phones only the
+first five show). Reorder them to change which photo sits where; each entry has `src`, `alt`
+and an optional `focus`. The header avatar (`avatar.jpg`) is a crop of the first.
 
 To add a photo, first make a web copy: at most 1,600 pixels on its long side, and **without
 its metadata**, because phone photos often carry the GPS position where they were taken and
@@ -136,8 +147,20 @@ node -e "require('sharp')(process.argv[1]).rotate().resize({ width: 1600, height
 ```
 
 (`sharp` comes with Next.js; it drops metadata unless told to keep it, and `.rotate()` first
-applies the phone's orientation.) Then add an entry to `photos.ts`, importing the file like
-the others. Saving updates the page; there is no seed step for photos.
+applies the phone's orientation.) Then, in `photos.ts`, import it at the top like the others
+(`import myPhoto from './photos/my-photo.jpg';`) and add an entry where you want it in the
+carousel:
+
+```ts
+  {
+    src: myPhoto,
+    alt: 'Yicheng cycling along a coastal road at sunset',
+    caption: 'Weekend rides',
+    focus: '50% 60%',
+  },
+```
+
+Saving updates the page; there is no seed step for photos.
 
 ---
 

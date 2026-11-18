@@ -87,7 +87,7 @@ export function formatDay(day: string): string {
   return DAY.format(new Date(`${day}T00:00:00Z`));
 }
 
-/** The pages of a visit, shortened: `/ → /projects/x → /privacy +2`. */
+/** The pages of a visit, shortened: `/ → /bowling-buddy → /portfolio-telemetry-platform +2`. */
 export function pagesLabel(paths: readonly string[], shown = 3): string {
   const head = paths.slice(0, shown).join(' → ');
   const rest = paths.length - shown;
