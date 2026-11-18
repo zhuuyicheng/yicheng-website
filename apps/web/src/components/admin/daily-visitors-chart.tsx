@@ -78,25 +78,29 @@ export function DailyVisitorsChart({ days }: { days: readonly Day[] }) {
         </div>
       </div>
 
-      <table className="sr-only">
-        <caption>Unique visitors and page views per day</caption>
-        <thead>
-          <tr>
-            <th>Day</th>
-            <th>Visitors</th>
-            <th>Page views</th>
-          </tr>
-        </thead>
-        <tbody>
-          {days.map((day) => (
-            <tr key={day.day}>
-              <td>{formatDay(day.day)}</td>
-              <td>{day.visitors}</td>
-              <td>{day.pageViews}</td>
+      {/* sr-only on a wrapper, not the table: a table's caption sits outside the table's own
+          box, so hiding the table alone left the caption visible. */}
+      <div className="sr-only">
+        <table>
+          <caption>Unique visitors and page views per day</caption>
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>Visitors</th>
+              <th>Page views</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {days.map((day) => (
+              <tr key={day.day}>
+                <td>{formatDay(day.day)}</td>
+                <td>{day.visitors}</td>
+                <td>{day.pageViews}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }
