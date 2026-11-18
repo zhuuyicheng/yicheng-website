@@ -139,7 +139,8 @@ curl http://localhost:4100/health          # both dependencies up
 Open http://localhost:3100: the site, served entirely from the images. One expected gap:
 page views and the contact form call `/api/...` on the page's own address (`localhost:3100`),
 and the web server does not serve those paths, so they get a 404. In production Caddy sends
-them to the API; Phase 6b runs that whole setup on your laptop.
+them to the API: [PRODUCTION-STACK.md](PRODUCTION-STACK.md) runs that whole setup on your
+laptop.
 
 Use the database user and password from your `.env` if you changed them. Watch the logs and
 stop everything when done:

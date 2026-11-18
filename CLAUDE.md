@@ -21,6 +21,8 @@ section before changing behaviour, and update it in the same change when a desig
 | Retry dead-lettered events / notifications           | `npm run dlq:replay -- telemetry` (or `-- notifications`)        |
 | Download / refresh the GeoIP databases               | `npm run geoip:download` (gitignored `apps/api/data/geoip/`)     |
 | Build the Docker images locally (docs/DOCKER.md)     | `npm run image:api` / `npm run image:web`                        |
+| Production stack on the laptop (PRODUCTION-STACK.md) | `npm run stack:up` / `stack:down` / `stack:failover`             |
+| Back up / restore the stack's database (BACKUPS.md)  | `npm run stack:backup` / `npm run stack:restore -- <file.dump>`  |
 | Lint / fix                                           | `npm run lint` / `npm run lint:fix`                              |
 | Typecheck                                            | `npm run typecheck`                                              |
 | Format                                               | `npm run format` / `npm run format:check`                        |

@@ -125,7 +125,9 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 ├── docs/                                 how-to guides (testing, CI, content & cache, data viewers)
 │   └── sql/                              read-only queries for the VS Code PostgreSQL extension
 │                                         (content.sql, (P3) telemetry.sql, (P4) contact.sql)
-├── deploy/                               (P6) compose.prod.yml + Caddyfile for the production host
+├── deploy/                               (P6) the production stack (docs/PRODUCTION-STACK.md):
+│                                         compose.prod.yml, caddy/Caddyfile, .env.example
+│                                         (→ gitignored .env), failover-test.sh
 ├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests
 ├── eslint.config.mjs                     one flat config for the whole repo
 ├── package.json                          npm workspaces + repo-wide scripts
@@ -733,8 +735,9 @@ because tools consume it directly.
 
 **`GET /health/live` (Phase 6)**: liveness check for the load balancer. `200 {"status":"ok"}`
 whenever the process can answer; checks no dependencies, on purpose (§14.5 explains why).
-Its route log level is `warn`: Caddy calls it every 5 s per replica, and Fastify's two
-info-level request lines would otherwise fill the logs.
+Both health routes log at `warn`: Caddy calls `/health/live` every 5 s and Docker calls
+`/health` every 30 s, per replica, and Fastify's two info-level request lines would otherwise
+fill the logs. A dependency failing its check is still logged (`warn`).
 
 `200 OK`
 
@@ -1473,8 +1476,9 @@ organisation of the IP address. Full user-agent strings are neither stored nor l
 what is derived from them, plus a daily-salted visitor hash (unlinkable across days) for
 counting unique visitors. **IP addresses are stored since Phase 6** (`ip_address`, §5.3c): the
 owner chose to see them on `/admin`, reversing the Phase 3 choice not to. They are personal
-data under the GDPR; there is no automatic deletion yet (a retention rule, e.g. clearing the
-column after 30 days, is the recommended next step), and they are never written to logs. Referrers keep their host, which is nearly all
+data under the GDPR. **Retention: kept indefinitely, with no notice to visitors** (the owner's
+decision, 2026-11-19; nothing deletes them). They are never written to logs, and they are in
+the database backups. Referrers keep their host, which is nearly all
 browsers send (§8.2). Contact-form emails are not linked to browsing sessions (on hold).
 
 Consequences:
@@ -1642,7 +1646,7 @@ What the free tier implies:
   network use, so the VM is sized to what the stack uses rather than taking the full 12 GB.
 - **The VM is replaceable.** Images live in GHCR, configuration in Git, secrets in GitHub and a
   password manager, and Caddy re-issues certificates by itself; the database is the only data
-  that exists solely on the VM, and it is backed up off the host nightly. Losing the VM costs a
+  that exists solely on the VM, and it is backed up off the host weekly (§14.6). Losing the VM costs a
   rebuild from docs/HOSTING.md plus pointing the hostname at the new IP.
 
 **Hostname: one free hostname, no purchased domain.** `<name>.duckdns.org` (DuckDNS, ready in
@@ -1684,13 +1688,17 @@ https://<host>/*       →  web
 ```
 
 ```
-# deploy/Caddyfile
+# deploy/caddy/Caddyfile (comments shortened)
 (api_replicas) {
 	reverse_proxy api-1:4000 api-2:4000 {
 		lb_policy       round_robin
-		lb_try_duration 5s           # a replica refuses the connection → retry on the other
+		lb_try_duration 5s           # a request that cannot connect → retry on the other
 		health_uri      /health/live
 		health_interval 5s
+		health_timeout  2s
+		transport http {
+			dial_timeout 1s          # connecting, name lookup included, gives up after 1 s
+		}
 	}
 }
 
@@ -1715,6 +1723,34 @@ https://<host>/*       →  web
 
 `API_BASE_URL` (the web server's calls) is `http://caddy:8080`, so those calls are balanced too
 without leaving the server or paying for TLS. The worker and web stay single instances.
+
+Two settings come from the failover test (`deploy/failover-test.sh`, which fails if a single
+request fails while one replica is stopped and while both are replaced in turn):
+
+- **`dial_timeout 1s`**: a replaced container is gone before Caddy's next check notices, and
+  a lookup of a name Docker no longer knows is passed to the host's DNS, where it can hang for
+  seconds (6 s measured): longer than the 5 s of retries. Failing the connection after 1 s
+  leaves time to retry on the other replica; that request takes ~1.3 s instead of failing.
+- **No passive health checks** (`fail_duration`): they kept a recovered replica excluded for
+  their whole duration after Caddy's active check had passed again, so during a rolling update
+  both replicas could be excluded at once (`503`). Retries already cover requests that reach a
+  dead replica before the next active check.
+
+Caddy's config is mounted as the folder `deploy/caddy/`, not as a single file: a bind-mounted
+file keeps the version from when the container started (editors and `git pull` replace files),
+so `caddy reload` would silently reload old rules. With the folder, a change is applied with
+`caddy reload`, without a restart.
+
+**The compose file** (`deploy/compose.prod.yml`, project `portfolio-prod`): only Caddy publishes
+ports (80, 443, 443/udp); Postgres and Redis are reachable only on the Compose network.
+Variables come from `deploy/.env` on the host (gitignored, template `deploy/.env.example`) and
+are passed per container (least privilege: the web server gets `API_BASE_URL` and
+`ADMIN_TOKEN` only); a missing required one stops Compose with its name (`${VAR:?…}`). The
+replicas' Docker health check is `GET /health` (readiness), so `up --wait` means "ready to
+serve"; the web's is a static file. `migrate`, `seed` and `replay-dlq` are services in the
+`tools` profile (`docker compose run --rm migrate`), so `up` never starts them. Every
+long-running service restarts `unless-stopped` and keeps at most 3 × 10 MB of logs;
+`stop_grace_period: 15s` exceeds the API's 10 s shutdown deadline.
 
 **Why replicas need no code changes.** A replica keeps nothing important in its own memory:
 
@@ -1747,14 +1783,61 @@ one at a time:
 1. stop old worker → start new worker                     (one worker at a time, §8.4)
 2. replace api-1    SIGTERM → graceful shutdown finishes in-flight requests;
                     Caddy sends new requests to api-2 meanwhile
-3. wait until the new api-1 answers GET /health = 200     (directly, not through Caddy)
+3. wait until the new api-1 is healthy (GET /health = 200: `up --no-deps --wait`),
+   then 6 s more: Caddy re-admits a replica only at its next 5 s check
 4. replace api-2, wait the same way
 5. replace web                                            (a few seconds of downtime for pages)
 ```
 
-Between steps 2 and 4, old and new code serve requests side by side. That is exactly why cache
+Without the extra 6 s, step 4 can take api-2 down while Caddy still treats the new api-1 as
+down, leaving it no replica (measured: an occasional `503`). Between steps 2 and 4, old and new code serve requests side by side. That is exactly why cache
 keys carry a shape version (§6.2) and migrations are expand → contract (§14.4). If a wait in
 step 3 or 4 times out, the job redeploys the previous SHA the same way and fails.
 
-Operations included in Phase 6: nightly `pg_dump` backups copied off the host, with a restore
-that has actually been tested.
+Operations included in Phase 6: weekly `pg_dump` backups copied off the host, with a restore
+that has actually been tested (§14.6).
+
+### 14.6 Backups: weekly, copied to the owner's desktop
+
+Postgres is the only data that exists nowhere else (§14.5). Redis holds seconds of in-flight
+work and is not backed up; certificates, images and configuration are recreated. Guide:
+[docs/BACKUPS.md](docs/BACKUPS.md).
+
+**Weekly** (the owner's choice; a week of visits is the most that can be lost). Size measured
+in 6d: ~20 KB plus ~44 bytes per page view (compressed test data), so a year at 100 page views
+a day makes a 2–4 MB backup.
+
+**On the server**, `deploy/backup.sh` from the `ubuntu` user's crontab, Sundays 18:00 UTC
+(the deploy files live in `~/portfolio/deploy`, set up by 6c):
+
+1. `pg_dump --format=custom` (compressed) through `docker compose exec`, written to
+   `~/backups/portfolio/.<name>.partial` and renamed only when complete and verified;
+2. **restore test** every time: `pg_restore --exit-on-error` into a scratch database
+   (`portfolio_restore_check`), row counts read, scratch database dropped;
+3. a `.sha256` checksum next to it; files `umask 077` (personal data);
+4. the newest 4 kept (`KEEP`), older ones deleted;
+5. Discord message on success (with the counts) and on failure (which step), using the
+   API's webhook from `deploy/.env`. The weekly success message doubles as a heartbeat: its
+   absence means the job did not run.
+
+**On the owner's desktop** (Windows + WSL), `deploy/pull-backups.sh` from Task Scheduler,
+Mondays 12:00 with `-StartWhenAvailable` (catches up after the computer was off):
+`rsync --ignore-existing` (never overwrites, never deletes; the desktop keeps every copy),
+then every checksum is verified, and it fails (exit 3) if the newest copy is older than 8 days.
+Output goes to `pull.log` in the backups folder, kept in a Windows folder through a symlink.
+
+**Pull, with a read-only key.** The desktop pulls; the server holds no credential for the
+desktop, so a compromised server cannot reach or delete the copies. The desktop's key has no
+passphrase (it runs unattended) and the server's `authorized_keys` limits it with
+`command="rrsync -ro /home/ubuntu/backups/portfolio",restrict`: it can read that folder and
+nothing else (no shell, no writes, no forwarding; tested on Ubuntu 24.04).
+
+**Restore** (`deploy/restore.sh <file>`): checksum check → `pg_restore` into a new database
+`portfolio_restoring` while the site runs → stop api-1, api-2, worker → in **one transaction**
+terminate leftover connections and rename `portfolio` → `portfolio_before_restore_<time>` and
+`portfolio_restoring` → `portfolio` → `migrate` (an older backup has an older schema) →
+delete `cache:*` keys → start the services (`up --wait`). Nothing is deleted: the replaced
+database is the way back. It asks for the word `restore` unless given `--yes`. A damaged file,
+a refused confirmation or a failed load change nothing; a failure after the services stopped
+starts them again. Both scripts give `docker compose exec` an empty input except for
+`pg_restore` (exec otherwise consumes the script's input, e.g. the confirmation).

@@ -7,13 +7,20 @@ export const LIVENESS_PATH = '/health/live';
 
 const ALIVE: LivenessReport = { status: 'ok' };
 
-/** Operational endpoints (DESIGN.md §7.3). */
+/**
+ * Operational endpoints (DESIGN.md §7.3). Both are polled by machines (Docker every 30 s, Caddy
+ * every 5 s, per replica), so their routes log at `warn`: Fastify's two info lines per request
+ * ("incoming request", "request completed") would bury the logs that matter. A dependency that
+ * fails its check is still logged, as a warning.
+ */
+const QUIET = { logLevel: 'warn' } as const;
+
 export function registerHealthController(app: FastifyInstance, healthManager: HealthManager): void {
   /**
    * Readiness check for deploys, monitoring and the smoke test. Sends the report itself (no
    * `{ data }` envelope): 200 when every dependency is up, otherwise 503.
    */
-  app.get(HEALTH_PATH, async (request, reply) => {
+  app.get(HEALTH_PATH, QUIET, async (request, reply) => {
     const report = await healthManager.checkHealth(request.log);
     const statusCode = report.status === 'ok' ? 200 : 503;
     return reply.status(statusCode).send(report);
@@ -24,9 +31,6 @@ export function registerHealthController(app: FastifyInstance, healthManager: He
    * answer. It calls no manager on purpose: Postgres or Redis being down affects every replica
    * alike, so a check that looked at them would make Caddy drop all replicas at once and turn
    * a degraded site into a full outage.
-   *
-   * `logLevel: 'warn'`: Caddy asks every 5 s per replica, and Fastify's two info lines per
-   * request ("incoming request", "request completed") would bury the logs that matter.
    */
-  app.get(LIVENESS_PATH, { logLevel: 'warn' }, () => ALIVE);
+  app.get(LIVENESS_PATH, QUIET, () => ALIVE);
 }

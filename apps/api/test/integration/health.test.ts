@@ -162,7 +162,7 @@ describe('GET /health with an unreachable dependency', () => {
   });
 });
 
-describe('request logs for the load balancer check', () => {
+describe('request logs for the health checks', () => {
   let deps: TestDependencies;
 
   beforeAll(async () => {
@@ -173,7 +173,7 @@ describe('request logs for the load balancer check', () => {
     await deps.close();
   });
 
-  it('logs no info lines for /health/live, unlike /health', async () => {
+  it('logs no info lines for /health and /health/live, unlike visitor requests', async () => {
     const lines: { msg?: string; req?: { url?: string } }[] = [];
     const logger = pino(
       { level: 'info' },
@@ -188,9 +188,10 @@ describe('request logs for the load balancer check', () => {
     try {
       await app.inject({ method: 'GET', url: '/health/live' });
       await app.inject({ method: 'GET', url: '/health' });
+      await app.inject({ method: 'GET', url: '/api/v1/projects' }); // shows the capture works
 
       const incoming = lines.filter((line) => line.msg === 'incoming request');
-      expect(incoming.map((line) => line.req?.url)).toEqual(['/health']);
+      expect(incoming.map((line) => line.req?.url)).toEqual(['/api/v1/projects']);
     } finally {
       await app.close();
     }

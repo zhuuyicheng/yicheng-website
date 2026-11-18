@@ -164,20 +164,33 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
 - [x] CI: build both images for `linux/arm64` on GitHub's Arm runners on every PR (a broken
       Dockerfile fails before merge); layers cached in the Actions cache
 - [ ] On merge to `main`: push images to GHCR tagged with the git SHA
-- [ ] `deploy/compose.prod.yml` + `Caddyfile` (path routing, internal `:8080` listener for the
-      web server); production env file kept on the host only
+- [x] `deploy/compose.prod.yml` + `Caddyfile` (path routing, internal `:8080` listener for the
+      web server); production env file kept on the host only (`deploy/.env`, gitignored;
+      template `deploy/.env.example`). Run on the laptop with `npm run stack:up`; guide
+      [docs/PRODUCTION-STACK.md](docs/PRODUCTION-STACK.md)
 - [ ] `.github/workflows/deploy.yml`: migrate → seed → rolling update → smoke test → auto-rollback,
       behind a `production` GitHub Environment with a required reviewer (continuous **delivery**)
 - [ ] Load balancing ([DESIGN.md §14.5](DESIGN.md#145-hosting-oracle-cloud-free-tier-one-hostname)):
-  - [ ] Two API replicas (`api-1`, `api-2`) behind Caddy: round robin, active health checks
+  - [x] Two API replicas (`api-1`, `api-2`) behind Caddy: round robin, active health checks
+        (`/health/live` every 5 s), retries, `dial_timeout 1s`
   - [x] `GET /health/live` liveness endpoint for the load balancer (no dependency checks) + tests
         (200 with both datastores down, no info logs, left out of the dashboard's latency;
         305 API + 74 web tests)
   - [ ] Rolling update: worker → api-1 (wait for `/health` = 200) → api-2 → web
   - [ ] Per-replica numbers: Prometheus scrapes each replica directly (`instance` in the system
         status already exists since Phase 5; set each container's hostname to `api-1`/`api-2`)
-  - [ ] Prove it: a request loop sees no failures while one replica is stopped, or during a deploy
-- [ ] Nightly `pg_dump` backups off the host + a tested restore
+        (hostnames set in 6b; no Prometheus server is part of the stack yet)
+  - [x] Prove it: a request loop sees no failures while one replica is stopped, or during a deploy
+        (`npm run stack:failover`: stop + restart api-1, then replace api-1 and api-2; 5 runs,
+        2,779 requests, 0 failed, slowest 1.3 s; 4,876 POSTs during a run all accepted)
+- [x] Weekly `pg_dump` backups off the host + a tested restore (owner's choice: weekly, copied
+      to their desktop; DESIGN.md §14.6, [docs/BACKUPS.md](docs/BACKUPS.md)):
+      `deploy/backup.sh` (dump, restore test into a scratch database, checksum, keep 4,
+      Discord message), `deploy/restore.sh` (load beside the live database, swap names in one
+      transaction, keep the old one), `deploy/pull-backups.sh` (desktop, read-only `rrsync`
+      key, never overwrites or deletes). Drill on the laptop stack: back up, change data,
+      restore, counts match. Server cron and the desktop's Task Scheduler entry are set up by
+      the owner once the server runs (6c)
 - [ ] Switch to `<name>.is-a.dev` once the site is live (you write the request by hand: their
       terms forbid AI-written pull requests)
 - [ ] `docs/CD.md`: how to release, approve, roll back, read deploy logs
@@ -212,7 +225,8 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
 - [x] Tests: owner endpoints (401/200/404, contract), summary aggregation (bots, `/admin`,
       older events left out), manager ranking and day filling, login check, `shouldRecord`,
       time ticks and gaps (300 API + 57 web total)
-- [ ] Production: Caddy refuses `/api/v1/admin/*` from outside (in `deploy/Caddyfile`, 6b)
+- [x] Production: Caddy refuses `/api/v1/admin/*` from outside (`deploy/caddy/Caddyfile`, 6b;
+      checked with the token, also as `/api/v1/%61dmin/…`, `/api/v1//admin/…`, `/API/…`)
 
 ### Warmer design and photos (2026-11-18)
 
@@ -235,7 +249,8 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
       `/<slug>` with permanent redirects; no separate projects list; reserved slugs refused
 - [x] IP addresses stored (owner's choice): migration `0007_analytics_ip_address.sql` (`INET`),
       buffered event `ipAddress`, shown per visit on `/admin` (302 API + 68 web tests)
-- [ ] Retention rule for IP addresses (e.g. clear after 30 days)
+- [x] Retention of IP addresses decided (2026-11-19): kept indefinitely, no notice to visitors
+      (owner's decision; DESIGN.md §12)
 - [x] Bugs: the name in the header did nothing on the home page (now scrolls to the top);
       "About" stayed highlighted after scrolling back to the hero (scrollspy now clears);
       regression tests for both (302 API + 74 web tests)

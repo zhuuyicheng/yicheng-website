@@ -506,10 +506,31 @@ The system dashboard is at the bottom of the page, under the visitor summary.
 6. **The hero pill.** The home page's hero shows "live · api p95 … → status", refreshed every
    30 s; it says "api offline" while the API is stopped.
 
-### 7.6 Later phases
+### 7.6 Phase 6b: the production stack on your laptop
 
-- **Phase 6 (continuous delivery):** the same pages, served from Docker containers behind
-  Caddy; the dashboard's `instance` then says which of the two API replicas answered.
+The production stack ([PRODUCTION-STACK.md](PRODUCTION-STACK.md)) has its **own** Postgres and
+Redis (project `portfolio-prod`, separate volumes). They publish no ports, on purpose, so the
+VS Code connections above keep showing your **dev** data. Look inside the stack's datastores
+through Docker instead (from the repository root):
+
+```bash
+C="docker compose -f deploy/compose.prod.yml"
+$C exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'   # then: \dt, SELECT …
+$C exec redis redis-cli MONITOR                                      # every command, live
+$C exec redis redis-cli LLEN telemetry:events:buffer
+```
+
+What to watch:
+
+1. **Two replicas, one Redis.** Run `MONITOR`, then load https://localhost twice. The content
+   reads (`GET cache:v2:profile`…) arrive from two different client addresses: api-1 and
+   api-2 share one cache, so a hit on one is a hit on both (DESIGN.md §14.5).
+2. **The round robin.** On https://localhost/admin, "answered by" at the bottom of the system
+   status alternates between `api-1` and `api-2`.
+3. **A replica stops.** `$C stop api-1`, keep reloading the site: nothing fails, and "answered
+   by" stays `api-2`. `$C up -d --wait api-1` brings it back.
+4. **Caddy's view.** `$C exec caddy wget -qO- http://127.0.0.1:2019/reverse_proxy/upstreams`
+   lists each replica with the requests it is handling right now.
 
 ## 8. Troubleshooting
 
