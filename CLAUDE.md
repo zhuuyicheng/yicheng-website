@@ -17,7 +17,7 @@ section before changing behaviour, and update it in the same change when a desig
 | Worker (telemetry flusher)                      | `npm run dev:worker`                                             |
 | Apply migrations                                | `npm run db:migrate`                                             |
 | Publish `apps/api/content/portfolio.json`       | `npm run content:seed`                                           |
-| Retry dead-lettered telemetry events            | `npm run dlq:replay -- telemetry`                                |
+| Retry dead-lettered events / notifications      | `npm run dlq:replay -- telemetry` (or `-- notifications`)        |
 | Download / refresh the GeoIP databases          | `npm run geoip:download` (gitignored `apps/api/data/geoip/`)     |
 | Lint / fix                                      | `npm run lint` / `npm run lint:fix`                              |
 | Typecheck                                       | `npm run typecheck`                                              |
@@ -83,8 +83,9 @@ Phases and live progress checklists: [ROADMAP.md](ROADMAP.md). Tick items there 
 1. **Skeleton & infra**: done (`main`)
 2. `feat/portfolio-cache-api`: CI workflow, profile/projects API, Redis cache-aside, cache metrics (done)
 3. `feat/telemetry-pipeline`: event ingestion, visitor details, Redis buffer, batch flusher
-   worker, DLQ + replay (built; PR in review)
+   worker, DLQ + replay (done)
 4. `feat/contact-rate-limiter`: Lua sliding-window limiter, contact API, notification worker
+   (built; PR in review)
 5. `feat/metrics-and-dashboard`: `/metrics`, system status API, Next.js portfolio + dashboard
 6. `feat/continuous-delivery`: Docker images, GHCR, deploy workflow with approval gate, rollback
 

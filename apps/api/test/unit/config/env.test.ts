@@ -4,6 +4,7 @@ import { ConfigError, loadConfig } from '../../../src/config/env.js';
 const REQUIRED_ENV = {
   DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
   REDIS_URL: 'redis://localhost:6379/0',
+  IP_HASH_SECRET: 'unit-test-ip-hash-secret-0123456789abcdef',
 };
 
 function captureConfigError(env: NodeJS.ProcessEnv): ConfigError {
@@ -29,8 +30,28 @@ describe('loadConfig', () => {
       cache: { ttlSeconds: 300 },
       telemetry: { bufferMaxLength: 100_000, batchSize: 50, flushIntervalMs: 5_000 },
       ipLookup: { asnDbPath: null, locationDbPath: null },
+      ipHash: { secret: REQUIRED_ENV.IP_HASH_SECRET },
+      contact: { rateLimitMax: 3, rateLimitWindowSeconds: 600 },
+      notifications: { notifier: { driver: 'log' }, maxAttempts: 3, backoffBaseMs: 5_000 },
       shutdown: { timeoutMs: 10_000 },
     });
+  });
+
+  it('reads the contact rate limit, and refuses a short IP_HASH_SECRET', () => {
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      CONTACT_RATE_LIMIT_MAX: '5',
+      CONTACT_RATE_LIMIT_WINDOW_SECONDS: '60',
+    });
+
+    expect(config.contact).toEqual({ rateLimitMax: 5, rateLimitWindowSeconds: 60 });
+    // A short secret is guessable, and then every IP hash can be reversed.
+    expect(captureConfigError({ ...REQUIRED_ENV, IP_HASH_SECRET: 'too-short' }).problems).toEqual([
+      'IP_HASH_SECRET: must be at least 32 characters (try: openssl rand -hex 32)',
+    ]);
+    expect(captureConfigError({ ...REQUIRED_ENV, CONTACT_RATE_LIMIT_MAX: '0' }).problems).toEqual([
+      expect.stringMatching(/^CONTACT_RATE_LIMIT_MAX:/),
+    ]);
   });
 
   it('reads the worker settings and the GeoIP database paths', () => {
@@ -58,6 +79,46 @@ describe('loadConfig', () => {
       expect.stringMatching(/^TELEMETRY_BATCH_SIZE:/),
       expect.stringMatching(/^TELEMETRY_FLUSH_INTERVAL_MS:/),
     ]);
+  });
+
+  it('reads the Discord notifier settings', () => {
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      NOTIFIER_DRIVER: 'discord',
+      DISCORD_WEBHOOK_URL: 'https://discord.com/api/webhooks/123/abc',
+      NOTIFY_MAX_ATTEMPTS: '5',
+      NOTIFY_BACKOFF_BASE_MS: '1000',
+    });
+
+    expect(config.notifications).toEqual({
+      notifier: { driver: 'discord', webhookUrl: 'https://discord.com/api/webhooks/123/abc' },
+      maxAttempts: 5,
+      backoffBaseMs: 1_000,
+    });
+  });
+
+  it('requires DISCORD_WEBHOOK_URL for the discord driver, reported with every other problem', () => {
+    const error = captureConfigError({
+      ...REQUIRED_ENV,
+      NOTIFIER_DRIVER: 'discord',
+      NOTIFY_MAX_ATTEMPTS: '0',
+    });
+
+    expect(error.problems).toEqual([
+      expect.stringMatching(/^NOTIFY_MAX_ATTEMPTS:/),
+      'DISCORD_WEBHOOK_URL: is required when NOTIFIER_DRIVER=discord',
+    ]);
+  });
+
+  it('refuses a webhook URL that is not https, without printing it', () => {
+    const error = captureConfigError({
+      ...REQUIRED_ENV,
+      NOTIFIER_DRIVER: 'discord',
+      DISCORD_WEBHOOK_URL: 'http://discord.com/api/webhooks/123/secret-token',
+    });
+
+    expect(error.problems).toEqual(['DISCORD_WEBHOOK_URL: must be an https:// URL']);
+    expect(error.message).not.toContain('secret-token');
   });
 
   it('parses TRUST_PROXY strictly and the telemetry buffer cap as a number', () => {
@@ -103,7 +164,11 @@ describe('loadConfig', () => {
   it('reports every missing required variable at once', () => {
     const error = captureConfigError({});
 
-    expect(error.problems).toEqual(['DATABASE_URL: is required', 'REDIS_URL: is required']);
+    expect(error.problems).toEqual([
+      'DATABASE_URL: is required',
+      'REDIS_URL: is required',
+      'IP_HASH_SECRET: is required',
+    ]);
   });
 
   it('rejects URLs with the wrong scheme', () => {

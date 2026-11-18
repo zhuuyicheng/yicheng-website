@@ -3,14 +3,7 @@ import type { Metrics } from '../infra/metrics.js';
 import { sleep as realSleep } from '../infra/sleep.js';
 import { isTransientDatastoreError } from '../infra/transient-error.js';
 import type { FlushOutcome, TelemetryFlushManager } from '../services/telemetry-flush.manager.js';
-
-const BACKOFF_BASE_MS = 500;
-const BACKOFF_MAX_MS = 30_000;
-
-/** Wait after `consecutiveFailures` failed flushes: 0.5 s, 1 s, 2 s, 4 s, … capped at 30 s. */
-export function backoffMs(consecutiveFailures: number): number {
-  return Math.min(BACKOFF_BASE_MS * 2 ** (consecutiveFailures - 1), BACKOFF_MAX_MS);
-}
+import { backoffMs } from './backoff.js';
 
 /**
  * The flush loop: decides *when* to flush. What one flush does is the manager's job

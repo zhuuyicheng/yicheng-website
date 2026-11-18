@@ -90,6 +90,10 @@ controller ──────► manager ──────► DAL ────�
 A worker loop is the background equivalent of a controller: time (an interval, a backoff), not
 an HTTP request, triggers it, and the manager it calls holds the business rules.
 
+Route middleware runs before the handler and calls its own manager, so the handler still calls
+one. The rate limiter (`middleware/rate-limit.ts`, Phase 4) is a Fastify `onRequest` hook that
+a controller attaches to a route: `{ onRequest: rateLimit(limiter) }`.
+
 Why DAO and schema are separate: the database and the API change for different reasons. A
 column rename touches a DAO row type and one mapping function in the DAL; the API (and its
 cache entries) stay unchanged. Managers depend on DAL **interfaces**, which makes them
@@ -117,7 +121,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 ├── ROADMAP.md                            phases, branches, progress checklists
 ├── docs/                                 how-to guides (testing, CI, content & cache, data viewers)
 │   └── sql/                              read-only queries for the VS Code PostgreSQL extension
-│                                         (content.sql, (P3) telemetry.sql)
+│                                         (content.sql, (P3) telemetry.sql, (P4) contact.sql)
 ├── deploy/                               (P6) compose.prod.yml + Caddyfile for the production host
 ├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests
 ├── eslint.config.mjs                     one flat config for the whole repo
@@ -158,8 +162,10 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── visitor-details.manager.ts    (P3) what the link, browser and IP reveal
 │   │   │   │   ├── telemetry-flush.manager.ts    (P3) one flush: claim → insert → ack, DLQ routing
 │   │   │   │   ├── telemetry-dlq.manager.ts      (P3) dead-letter replay
-│   │   │   │   ├── contact.manager.ts            (P4)
-│   │   │   │   ├── rate-limiter.manager.ts       (P4)
+│   │   │   │   ├── contact.manager.ts            (P4) store the message, queue its notification job
+│   │   │   │   ├── rate-limiter.manager.ts       (P4) sliding window per hashed IP, fail closed
+│   │   │   │   ├── notification.manager.ts       (P4) one job: send → sent / retry / DLQ; promote; reconcile
+│   │   │   │   ├── notification-dlq.manager.ts   (P4) dead-letter replay: reopen FAILED messages
 │   │   │   │   └── system-status.manager.ts      (P5)
 │   │   │   ├── dal/                      the only datastore code
 │   │   │   │   ├── content.dal.ts                (P2) Postgres
@@ -173,7 +179,9 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── notification-queue.dal.ts     (P4) Redis
 │   │   │   │   └── lua/                          (P3/P4) Lua scripts as TS string constants
 │   │   │   │       ├── bounded-enqueue.lua.ts    (P3) + its typed ioredis command
-│   │   │   │       └── claim-batch.lua.ts        (P3) + its typed ioredis command
+│   │   │   │       ├── claim-batch.lua.ts        (P3) + its typed ioredis command
+│   │   │   │       ├── sliding-window.lua.ts     (P4) the rate limiter (§6.4)
+│   │   │   │       └── promote-due-jobs.lua.ts   (P4) delayed → ready (§6.6)
 │   │   │   ├── dao/                      row types, one per table
 │   │   │   │   ├── content.dao.ts                (P2) profile, experiences, education, projects
 │   │   │   │   ├── analytics-event.dao.ts        (P3)
@@ -189,14 +197,17 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── error.view.ts         { error: { code, message, requestId } }
 │   │   │   │   ├── content.view.ts       (P2) { data } bodies for profile/projects
 │   │   │   │   ├── telemetry.view.ts     (P3) { data: { eventId } }
+│   │   │   │   ├── contact.view.ts       (P4) { data: { id, status } }
 │   │   │   │   └── system-status.view.ts (P5)
 │   │   │   ├── workers/                  (P3/P4) background loops started by worker.ts
 │   │   │   │   ├── telemetry-flusher.worker.ts   (P3) when to flush: interval, backoff, drain on stop
-│   │   │   │   ├── notification.worker.ts        (P4) consumer + delayed-job promoter
-│   │   │   │   └── notification-reconciler.worker.ts (P4)
+│   │   │   │   ├── notification-consumer.worker.ts (P4) one job after another; backoff on outages
+│   │   │   │   ├── periodic.worker.ts            (P4) "every N ms": the promoter and the reconciler
+│   │   │   │   └── backoff.ts                    (P4) 0.5 s → 30 s schedule shared by the loops
 │   │   │   ├── middleware/
 │   │   │   │   ├── request-id.ts         x-request-id accept/generate/echo
 │   │   │   │   ├── error-handler.ts      maps any error to the error view
+│   │   │   │   ├── rate-limit.ts         (P4) onRequest hook: X-RateLimit-* headers, 429
 │   │   │   │   └── http-metrics.ts       (P5) request duration histogram hook
 │   │   │   ├── errors/app-error.ts       AppError + ErrorCode catalog
 │   │   │   ├── config/env.ts             Zod env schema → typed AppConfig (fail-fast)
@@ -204,7 +215,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   ├── cli/
 │   │   │   │   ├── migrate.ts            npm run db:migrate
 │   │   │   │   ├── seed-content.ts       (P2) npm run content:seed
-│   │   │   │   ├── replay-dlq.ts         (P3) npm run dlq:replay -- telemetry
+│   │   │   │   ├── replay-dlq.ts         (P3) npm run dlq:replay -- telemetry | (P4) notifications
 │   │   │   │   └── download-geoip.ts     (P3) npm run geoip:download
 │   │   │   ├── infra/
 │   │   │   │   ├── logger.ts             Pino root logger
@@ -214,8 +225,9 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── sleep.ts              (P3) a wait that a stopping worker can cut short
 │   │   │   │   ├── ip-databases.ts       (P3) opens the GeoIP files at API startup
 │   │   │   │   ├── transient-error.ts    (P3) outage vs bug: 503 in the API, retry vs DLQ in the worker
+│   │   │   │   ├── ip-hash.ts            (P4) HMAC-SHA256(IP_HASH_SECRET, ip)
 │   │   │   │   ├── metrics.ts            (P2) prom-client registry + metric definitions
-│   │   │   │   └── notifiers/            (P4) log + Discord notification senders
+│   │   │   │   └── notifiers/            (P4) log + Discord senders, NotificationError (retryable?)
 │   │   │   └── lifecycle/
 │   │   │       └── graceful-shutdown.ts  signal handling, ordered close, forced exit
 │   │   └── test/
@@ -264,9 +276,9 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `CONTACT_RATE_LIMIT_MAX`            | 4     | `3`                     |                                                                           |
 | `CONTACT_RATE_LIMIT_WINDOW_SECONDS` | 4     | `600`                   |                                                                           |
 | `NOTIFIER_DRIVER`                   | 4     | `log`                   | `log` \| `discord`.                                                       |
-| `DISCORD_WEBHOOK_URL`               | 4     | unset                   | Required when `NOTIFIER_DRIVER=discord`.                                  |
-| `NOTIFY_MAX_ATTEMPTS`               | 4     | `3`                     | Total attempts including the first.                                       |
-| `NOTIFY_BACKOFF_BASE_MS`            | 4     | `5000`                  | Delay = base × 2^(attempt−1) ± 20 % jitter.                               |
+| `DISCORD_WEBHOOK_URL`               | 4     | unset                   | `https://`; required when `NOTIFIER_DRIVER=discord`. A secret (token).    |
+| `NOTIFY_MAX_ATTEMPTS`               | 4     | `3`                     | 1–10. Total attempts including the first.                                 |
+| `NOTIFY_BACKOFF_BASE_MS`            | 4     | `5000`                  | Delay = base × 2^(attempt−1) ± 20 % jitter, capped at 4 min.              |
 | `METRICS_TOKEN`                     | 5     | unset                   | If set, `/metrics` requires `Authorization: Bearer <token>`.              |
 | `CORS_ORIGINS`                      | 5     | `http://localhost:3000` | Comma-separated allow-list.                                               |
 | `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side).                                              |
@@ -531,6 +543,11 @@ return { 0, 0, retryAfterMs }
 - **Keying**: `HMAC-SHA256(IP_HASH_SECRET, ip)`. A static secret (not the daily analytics
   salt) keeps windows stable across midnight.
 - **Failure policy: fail closed.** If Redis is unreachable the contact endpoint returns `503`.
+- **Where it runs**: a Fastify `onRequest` hook, the first hook of a request, before the body is
+  read. A blocked client costs one Redis call, and every request counts, including one that
+  later fails validation (`400`), so a bot cannot probe the validator for free.
+- **`Retry-After`** is `retryAfterMs` rounded **up** to whole seconds (at least 1): rounded down,
+  a client that obeys it could arrive a moment too early and be refused again.
 
 ### 6.5 Telemetry buffer scripts (Phase 3)
 
@@ -590,9 +607,19 @@ return #due
 ```
 
 Consume: `BLMOVE jobs:notifications:ready jobs:notifications:processing RIGHT LEFT 5` on a
-**dedicated** ioredis connection (blocking commands monopolise a connection). Completion,
-retry scheduling and dead-lettering each run as a `MULTI` that also performs
-`LREM jobs:notifications:processing 1 <job>`.
+**dedicated** ioredis connection (a blocked connection cannot run any other command, so
+sharing it would freeze the promoter, the reconciler and the flusher for up to 5 s). Retry
+scheduling and dead-lettering each run as a `MULTI` that also performs
+`LREM jobs:notifications:processing 1 <job>`; completion is that `LREM` alone. ioredis reports
+a failed command inside `EXEC` in its results instead of rejecting, so the DAL checks them.
+
+**Requeue stranded jobs**: `LMOVE processing ready LEFT RIGHT` until it returns nil, before
+**every** take. One consumer runs one job at a time, so between two jobs `processing` must be
+empty: anything there was left by a crash or by an outage mid-job. The right end of `ready` is
+taken next, so recovered jobs go first, in their original order.
+
+**Every move is atomic** (one command, a `MULTI`, or a script), so a job is always in exactly
+one of `ready`, `processing`, `delayed` or `dlq`, never in none.
 
 ---
 
@@ -761,8 +788,16 @@ Limits: name 1–100, email valid ≤ 254, message 1–5000 chars (trimmed).
 
 `202 Accepted` → `{ "data": { "id": "uuid", "status": "PENDING" } }`
 
-Rate-limit headers on **every** response from this route: `X-RateLimit-Limit: 3`,
-`X-RateLimit-Remaining: 2`. On `429`, additionally `Retry-After: <seconds, rounded up>`.
+Rate-limit headers on **every** response from this route once the limiter has run (all but a
+`503` caused by Redis being down): `X-RateLimit-Limit: 3`, `X-RateLimit-Remaining: 2`. On
+`429`, additionally `Retry-After: <seconds, rounded up>`.
+
+| Status | When                                                                                   |
+| ------ | -------------------------------------------------------------------------------------- |
+| `202`  | Stored as `PENDING` (also when queueing the notification failed: see §8.3)             |
+| `400`  | `VALIDATION_ERROR` with `details`; the request still counted towards the limit         |
+| `429`  | `RATE_LIMITED`: the sender already has `CONTACT_RATE_LIMIT_MAX` messages in the window |
+| `503`  | Redis down (the limiter fails closed, nothing stored), or Postgres down                |
 
 ### 7.7 Observability (Phase 5)
 
@@ -925,28 +960,54 @@ still fails returns to the DLQ. Unreadable entries are left in place, and the co
 
 **API** `POST /api/v1/contact`:
 
-1. Rate limit (§6.4) → `429` or continue.
-2. Validate, `INSERT` with `status = 'PENDING'`.
+1. Rate limit (§6.4, an `onRequest` hook: before the body is parsed) → `429` or continue.
+2. Validate, `INSERT` with `status = 'PENDING'` and `ip_hash`.
 3. `LPUSH jobs:notifications:ready {"jobId","messageId","attempt":1,"enqueuedAt"}`.
    If this fails the message is already safe in Postgres: log `error` +
    `notification_enqueue_failures_total`, still return `202`; the reconciler enqueues it.
+   Postgres and Redis cannot be written in one transaction (the "dual write" problem), so
+   Postgres goes first as the source of truth, and the reconciler repairs a missing job.
+   The job carries ids only: the name, email and text never leave Postgres.
 
 **Worker**:
 
-1. On startup: move everything in `processing` back to `ready` (crash recovery).
-2. `BLMOVE ready → processing` (5 s block, so shutdown is noticed promptly).
-3. Load the message. If its status is no longer `PENDING`, ack and skip (**idempotency**;
-   delivery is at-least-once).
-4. Send via the configured notifier (`log` | `discord`), 5 s timeout.
-5. Outcome:
+Three loops (`workers/`), each calling one manager method (`services/notification.manager.ts`):
+
+**Consumer** (`notification-consumer.worker.ts`), one job after another, `processNext`:
+
+1. Requeue anything stranded in `processing` (§6.6). This covers startup after a crash and
+   recovery after an outage with one rule.
+2. `BLMOVE ready → processing`, waiting up to 5 s for a job (`idle` if none arrives).
+3. Validate the job; an unreadable one → DLQ (`invalid_payload`).
+4. Load the message. If it is missing or no longer `PENDING`, ack and skip (**idempotency**:
+   delivery is at least once, so a job may repeat).
+5. Send via the configured notifier (`log` | `discord`), 5 s timeout.
+6. Outcome:
    - success → `UPDATE status='SENT', sent_at=now(), attempts=attempt` → ack.
    - retryable failure (network, timeout, HTTP 429/5xx) and `attempt < NOTIFY_MAX_ATTEMPTS` →
-     `UPDATE attempts, last_error` → `ZADD delayed` with backoff → ack from `processing`.
-   - non-retryable (HTTP 4xx other than 429) or attempts exhausted →
-     `UPDATE status='FAILED'` → `LPUSH dlq` → ack.
-6. Promoter (every 1 s) moves due jobs from `delayed` to `ready`.
-7. Reconciler (every 60 s) re-enqueues `PENDING` messages untouched for 5 minutes and bumps
-   their `updated_at`, closing the gap when the enqueue in step 3 failed.
+     `UPDATE attempts, last_error` → the same job with `attempt + 1` into `delayed`, due after
+     `base × 2^(attempt−1) ± 20 %` (capped at 4 min) → ack from `processing`.
+   - non-retryable (HTTP 4xx other than 429, or a crash inside the notifier) or attempts
+     exhausted → `UPDATE status='FAILED'` → `RPUSH dlq` (reason `rejected` or
+     `attempts_exhausted`) → ack. Postgres first: it is the source of truth.
+   - Postgres or Redis down at any step → `processNext` throws, the job stays in
+     `processing`, and the loop backs off (0.5 s → 30 s). An outage never uses up attempts.
+     If the outage struck after sending, the next try sends again: a duplicate, never a loss.
+
+**Promoter** (`periodic.worker.ts`, every 1 s, `promoteDue`): moves due jobs from `delayed`
+to `ready` (script in §6.6).
+
+**Reconciler** (`periodic.worker.ts`, every 60 s, `reconcile`): one
+`UPDATE … SET updated_at = now() WHERE id IN (SELECT … PENDING AND updated_at < now() − 5 min
+… FOR UPDATE SKIP LOCKED) RETURNING id, attempts` claims stale messages, then each gets a new
+job with `attempt = attempts + 1`. This closes the gap when the enqueue in the API failed, or
+Redis lost data. Its first run waits one interval, so after downtime the consumer works
+through the jobs already queued before anything looks lost. Retry delays are capped at 4 min,
+below the 5-minute threshold, so a retry waiting in `delayed` is never mistaken for a lost job.
+
+**Replay** (`npm run dlq:replay -- notifications`): for each DLQ entry, reopen the message
+(`FAILED` → `PENDING`, `attempts = 0`), `LPUSH` a fresh job with `attempt = 1`, then `LREM` the
+entry. Entries without a readable job (`invalid_payload`) are left in place, exit code `1`.
 
 ### 8.4 Single-worker assumption
 
@@ -974,6 +1035,8 @@ retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics
 | `rate_limit_errors_total`                        | counter   | `limiter`                                                 | 4     |
 | `notification_jobs_total`                        | counter   | `outcome` (`sent`\|`retried`\|`dead_lettered`\|`skipped`) | 4     |
 | `notification_enqueue_failures_total`            | counter   | —                                                         | 4     |
+| `notification_jobs_requeued_total`               | counter   | `reason` (`stranded`\|`reconciled`)                       | 4     |
+| `worker_loop_failures_total`                     | counter   | `loop`, `kind` (`transient`\|`unexpected`)                | 4     |
 | `http_request_duration_seconds`                  | histogram | `method`, `route`, `status_code`                          | 5     |
 | `http_requests_total`                            | counter   | `method`, `route`, `status_code`                          | 5     |
 | `telemetry_buffer_depth` / `telemetry_dlq_depth` | gauge     | — (read on scrape via `LLEN`)                             | 5     |
@@ -1006,7 +1069,10 @@ retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics
 | Event buffered by the previous version     | Missing visitor details default to `NULL`; the event is inserted, not dead-lettered                                        | —                                                             |
 | Worker crash mid-batch                     | In-flight batch re-claimed on restart; duplicates ignored by `ON CONFLICT`                                                 | —                                                             |
 | Worker crash mid-job                       | Job moved back from `processing` on startup; status check prevents re-processing finished messages                         | —                                                             |
-| Webhook down                               | Retries with exponential backoff, then DLQ + `FAILED`                                                                      | `notification_jobs_total{outcome}`                            |
+| Webhook down / slow                        | 5 s timeout; retries with exponential backoff, then DLQ + `FAILED`                                                         | `notification_jobs_total{outcome}`                            |
+| Webhook deleted or URL wrong (HTTP 4xx)    | No retry: DLQ (`rejected`) + `FAILED`; fix the URL, then `npm run dlq:replay -- notifications`                             | `notification_jobs_total{outcome="dead_lettered"}`            |
+| Postgres or Redis down → notifications     | Job stays in `processing`; consumer backs off (0.5 s → 30 s), requeues it once back; attempts untouched                    | `worker_loop_failures_total{loop="notification-consumer"}`    |
+| Contact job lost (enqueue failed)          | Reconciler re-queues `PENDING` messages untouched for 5 min                                                                | `notification_jobs_requeued_total{reason="reconciled"}`       |
 | SIGTERM / SIGINT                           | See §10                                                                                                                    | `info` logs                                                   |
 | Repeated signal during shutdown            | Logged and ignored (`tsx watch` and container runtimes often deliver duplicates); the deadline timer still guarantees exit | `warn` log                                                    |
 | Shutdown exceeds `SHUTDOWN_TIMEOUT_MS`     | Forced exit (code 1)                                                                                                       | `error` log                                                   |
@@ -1028,12 +1094,18 @@ retries and fallbacks; `/metrics` exposes it in Phase 5. Default process metrics
    step is logged and does not prevent later steps.
 4. Log `shutdown complete`; exit `0` if every step succeeded, else `1`.
 
-**Worker process** (Phase 3+), same signal handling and deadline:
+**Worker process** (Phase 3+), same signal handling and deadline. Each step is told the time
+left before the forced exit:
 
-1. `telemetry-flusher`: wake the flush loop if it is sleeping, let the current flush finish,
+1. `notification-consumer`: close the blocking connection, which ends a pending `BLMOVE` at
+   once (a job Redis had just moved stays in `processing` and is requeued on the next start);
+   a job in progress finishes first (≤ 5 s notifier timeout).
+2. `notification-promoter`, `notification-reconciler`: wake from their sleep, finish a running
+   task, stop.
+3. `telemetry-flusher`: wake the flush loop if it is sleeping, let the current flush finish,
    then flush back to back (no interval, no backoff) until the buffer is empty, a flush fails,
-   or `SHUTDOWN_TIMEOUT_MS − 1 s` has passed. The last second is kept for the next steps.
-2. Close Redis, then the Postgres pool.
+   or the time left minus 1 s has passed. The last second is kept for the next steps.
+4. Close the blocking Redis connection, Redis, then the Postgres pool.
 
 Anything not drained is still safe in Redis (AOF) and is picked up on the next start. Draining
 matters most for deploys: the old worker empties the buffer before the new one starts (§14.5).
@@ -1055,7 +1127,11 @@ matters most for deploys: the old worker empties the buffer before the new one s
   no acknowledge on an outage); flush loop with a fake `sleep` and clock (interval, backoff
   schedule, full-batch draining, drain on stop); visitor details (tagged links, user agents,
   languages); buffered-event defaults for events from the previous version.
-- (P4) Backoff/jitter bounds, notifier HTTP-status classification.
+- (P4) Rate limiter and contact managers with fake DALs; notification manager (sent, retry with
+  backoff, attempts exhausted, rejected, skip non-`PENDING`, unreadable job, outage leaves the
+  job in `processing`, reconciler); backoff/jitter bounds; Discord notifier status
+  classification, timeout and payload (mentions off, truncation); consumer and periodic loops
+  with a fake `sleep`; shutdown steps receive the time left.
 - (P5) Rolling percentile tracker.
 
 **Integration tests** (`apps/api/test/integration`, real Postgres + Redis from docker
@@ -1071,9 +1147,12 @@ compose, run serially):
   inserted) → no duplicate rows; poison events → DLQ (invalid JSON, CHECK violation `23514`);
   Postgres down → batch stays in flight; buffer cap → 503; IP lookup on MaxMind's test
   databases; `dlq:replay` CLI; **real worker process**: `SIGTERM` drains the buffer, exit `0`.
-- (P4) Rate limiter: limit, sliding expiry, `Retry-After`, **20 concurrent requests admit
-  exactly 3**; notification worker against a local stub HTTP server (fail twice then succeed
-  → `SENT`; always 500 → DLQ + `FAILED`; 400 → immediate DLQ); reconciler re-enqueue.
+- (P4) Rate limiter: limit, sliding expiry, `Retry-After`, **20 concurrent requests across 4
+  API instances admit exactly 3**, Redis down → 503; notification worker against a local stub
+  HTTP server (API → webhook end to end; fail twice then succeed → `SENT`; always 500 → DLQ +
+  `FAILED`; 400 → immediate DLQ); crash recovery from `processing`; Postgres down mid-job;
+  reconciler; promoter; `dlq:replay -- notifications`; **real worker process** sends a queued
+  notification and stops on `SIGTERM` without waiting out `BLMOVE`.
 
 **CI** (from Phase 2): GitHub Actions runs `format:check`, `lint`, `typecheck` and the full
 test suite against Postgres and Redis service containers on every push and pull request.

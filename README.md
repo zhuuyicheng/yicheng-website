@@ -24,21 +24,22 @@ npm run content:seed     # load apps/api/content/portfolio.json
 npm run geoip:download   # free IP → organisation/location files (~65 MB download)
 
 npm run dev:api          # API    → http://localhost:4000/api/v1/projects
-npm run dev:worker       # Worker → moves analytics events from Redis to Postgres
+npm run dev:worker       # Worker → analytics events to Postgres, contact notifications
 npm run dev:web          # Web    → http://localhost:3000   (each in its own terminal)
 ```
 
 ## Common commands
 
-| Command                           | What it does                                         |
-| --------------------------------- | ---------------------------------------------------- |
-| `npm test`                        | Unit + integration tests (needs `infra:up`)          |
-| `npm run test:unit`               | Unit tests only (no Docker needed)                   |
-| `npm run check`                   | Everything CI runs: format, lint, typecheck, tests   |
-| `npm run content:seed`            | Publish edits to `apps/api/content/portfolio.json`   |
-| `npm run dlq:replay -- telemetry` | Retry dead-lettered analytics events after a fix     |
-| `npm run geoip:download`          | Refresh the IP databases (monthly), then restart API |
-| `npm run infra:down`              | Stop the Docker datastores (data is kept)            |
+| Command                               | What it does                                         |
+| ------------------------------------- | ---------------------------------------------------- |
+| `npm test`                            | Unit + integration tests (needs `infra:up`)          |
+| `npm run test:unit`                   | Unit tests only (no Docker needed)                   |
+| `npm run check`                       | Everything CI runs: format, lint, typecheck, tests   |
+| `npm run content:seed`                | Publish edits to `apps/api/content/portfolio.json`   |
+| `npm run dlq:replay -- telemetry`     | Retry dead-lettered analytics events after a fix     |
+| `npm run dlq:replay -- notifications` | Retry failed contact notifications after a fix       |
+| `npm run geoip:download`              | Refresh the IP databases (monthly), then restart API |
+| `npm run infra:down`                  | Stop the Docker datastores (data is kept)            |
 
 ## Working on another machine
 

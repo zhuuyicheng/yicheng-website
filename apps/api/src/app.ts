@@ -1,13 +1,18 @@
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import type { AppConfig } from './config/env.js';
+import { registerContactController } from './controllers/contact.controller.js';
 import { registerContentController } from './controllers/content.controller.js';
 import { registerEventsController } from './controllers/events.controller.js';
 import { registerHealthController } from './controllers/health.controller.js';
+import { createContactMessageDal } from './dal/contact-message.dal.js';
 import { createContentCacheDal } from './dal/content-cache.dal.js';
 import { createContentDal } from './dal/content.dal.js';
 import { createEventBufferDal } from './dal/event-buffer.dal.js';
 import { createIpLocationDal, type IpDatabases } from './dal/ip-location.dal.js';
+import { createNotificationQueueDal } from './dal/notification-queue.dal.js';
+import { createRateLimitDal } from './dal/rate-limit.dal.js';
 import { createTelemetrySaltDal } from './dal/telemetry-salt.dal.js';
+import { createIpHasher } from './infra/ip-hash.js';
 import type { Logger } from './infra/logger.js';
 import type { Metrics } from './infra/metrics.js';
 import { pingPostgres, type PostgresPool } from './infra/postgres.js';
@@ -15,8 +20,10 @@ import { pingRedis, type Redis } from './infra/redis.js';
 import { registerErrorHandlers } from './middleware/error-handler.js';
 import { REQUEST_ID_HEADER, resolveRequestId } from './middleware/request-id.js';
 import { createCacheAsideManager } from './services/cache-aside.manager.js';
+import { createContactManager } from './services/contact.manager.js';
 import { createContentManager } from './services/content.manager.js';
 import { createHealthManager } from './services/health.manager.js';
+import { createRateLimiterManager } from './services/rate-limiter.manager.js';
 import { createTelemetryManager } from './services/telemetry.manager.js';
 import { createVisitorDetailsManager } from './services/visitor-details.manager.js';
 
@@ -90,6 +97,23 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     bufferMaxLength: config.telemetry.bufferMaxLength,
   });
   registerEventsController(app, telemetryManager);
+
+  const hashIp = createIpHasher(config.ipHash.secret);
+  const contactRateLimiter = createRateLimiterManager({
+    limiter: 'contact',
+    rateLimitDal: createRateLimitDal(redis),
+    hashIp,
+    metrics,
+    max: config.contact.rateLimitMax,
+    windowSeconds: config.contact.rateLimitWindowSeconds,
+  });
+  const contactManager = createContactManager({
+    contactMessageDal: createContactMessageDal(postgres),
+    notificationQueueDal: createNotificationQueueDal(redis),
+    hashIp,
+    metrics,
+  });
+  registerContactController(app, contactManager, contactRateLimiter);
 
   return app;
 }

@@ -5,6 +5,9 @@ export type LogLevel = (typeof LOG_LEVELS)[number];
 
 export type NodeEnv = 'development' | 'test' | 'production';
 
+/** Where the worker sends "you have a new contact message" notifications. */
+export type NotifierConfig = { driver: 'log' } | { driver: 'discord'; webhookUrl: string };
+
 /** Typed, structured configuration consumed by the rest of the application. */
 export interface AppConfig {
   nodeEnv: NodeEnv;
@@ -17,6 +20,12 @@ export interface AppConfig {
   telemetry: { bufferMaxLength: number; batchSize: number; flushIntervalMs: number };
   /** GeoIP database files; `null` = that lookup is disabled (its fields stay null). */
   ipLookup: { asnDbPath: string | null; locationDbPath: string | null };
+  /** Key for HMAC-hashing IPs (rate-limit keys, `contact_messages.ip_hash`). */
+  ipHash: { secret: string };
+  /** POST /api/v1/contact accepts `rateLimitMax` messages per sender per window. */
+  contact: { rateLimitMax: number; rateLimitWindowSeconds: number };
+  /** Worker: how to notify, and how hard to try. `maxAttempts` includes the first attempt. */
+  notifications: { notifier: NotifierConfig; maxAttempts: number; backoffBaseMs: number };
   shutdown: { timeoutMs: number };
 }
 
@@ -45,6 +54,17 @@ const envSchema = z.object({
   TELEMETRY_FLUSH_INTERVAL_MS: z.coerce.number().int().min(100).max(300_000).default(5_000),
   GEOIP_ASN_DB_PATH: z.string().optional(),
   GEOIP_LOCATION_DB_PATH: z.string().optional(),
+  // A secret, so it has no default: every environment must choose its own.
+  IP_HASH_SECRET: z
+    .string({ error: 'is required' })
+    .min(32, 'must be at least 32 characters (try: openssl rand -hex 32)'),
+  CONTACT_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1_000).default(3),
+  CONTACT_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().min(1).max(86_400).default(600),
+  NOTIFIER_DRIVER: z.enum(['log', 'discord']).default('log'),
+  // A secret too: the URL contains the token that lets anyone post to your channel.
+  DISCORD_WEBHOOK_URL: z.url({ protocol: /^https$/, error: 'must be an https:// URL' }).optional(),
+  NOTIFY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+  NOTIFY_BACKOFF_BASE_MS: z.coerce.number().int().min(10).max(60_000).default(5_000),
 });
 
 export class ConfigError extends Error {
@@ -63,12 +83,19 @@ export class ConfigError extends Error {
  * Throws a ConfigError listing every problem at once (names and reasons, never values).
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const result = envSchema.safeParse(withoutEmptyValues(env));
+  const values = withoutEmptyValues(env);
+  const result = envSchema.safeParse(values);
+  const problems = result.success
+    ? []
+    : result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
 
-  if (!result.success) {
-    const problems = result.error.issues.map(
-      (issue) => `${issue.path.join('.')}: ${issue.message}`,
-    );
+  // Rules that involve two variables. Checked here rather than with a Zod refinement, which
+  // only runs once every field is valid: this way all problems are still reported at once.
+  if (values.NOTIFIER_DRIVER === 'discord' && values.DISCORD_WEBHOOK_URL === undefined) {
+    problems.push('DISCORD_WEBHOOK_URL: is required when NOTIFIER_DRIVER=discord');
+  }
+
+  if (!result.success || problems.length > 0) {
     throw new ConfigError(problems);
   }
 
@@ -88,6 +115,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ipLookup: {
       asnDbPath: vars.GEOIP_ASN_DB_PATH ?? null,
       locationDbPath: vars.GEOIP_LOCATION_DB_PATH ?? null,
+    },
+    ipHash: { secret: vars.IP_HASH_SECRET },
+    contact: {
+      rateLimitMax: vars.CONTACT_RATE_LIMIT_MAX,
+      rateLimitWindowSeconds: vars.CONTACT_RATE_LIMIT_WINDOW_SECONDS,
+    },
+    notifications: {
+      // The URL is always set for discord (checked above); the `!==` just tells TypeScript.
+      notifier:
+        vars.NOTIFIER_DRIVER === 'discord' && vars.DISCORD_WEBHOOK_URL !== undefined
+          ? { driver: 'discord', webhookUrl: vars.DISCORD_WEBHOOK_URL }
+          : { driver: 'log' },
+      maxAttempts: vars.NOTIFY_MAX_ATTEMPTS,
+      backoffBaseMs: vars.NOTIFY_BACKOFF_BASE_MS,
     },
     shutdown: { timeoutMs: vars.SHUTDOWN_TIMEOUT_MS },
   };

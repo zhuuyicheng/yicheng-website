@@ -17,6 +17,12 @@ export interface Metrics {
   telemetryEventsFlushed: Counter;
   telemetryFlushFailures: Counter<'kind'>;
   telemetryEventsDeadLettered: Counter<'reason'>;
+  rateLimitDecisions: Counter<'limiter' | 'decision'>;
+  rateLimitErrors: Counter<'limiter'>;
+  notificationEnqueueFailures: Counter;
+  notificationJobs: Counter<'outcome'>;
+  notificationJobsRequeued: Counter<'reason'>;
+  workerLoopFailures: Counter<'loop' | 'kind'>;
 }
 
 /** Why POST /api/v1/events refused an event (every refusal is a 503). */
@@ -30,6 +36,19 @@ export type TelemetryRejectReason = 'buffer_full' | 'redis_unavailable';
  *   - `unexpected`: any other error (a bug); logged as an error, retried after a backoff.
  */
 export type TelemetryFlushFailureKind = 'transient' | 'permanent' | 'unexpected';
+
+/** What a rate limiter decided for one request. */
+export type RateLimitDecision = 'allowed' | 'denied';
+
+/** How the worker finished one notification job (DESIGN.md §8.3). */
+export type NotificationJobOutcome = 'sent' | 'retried' | 'dead_lettered' | 'skipped';
+
+/**
+ * Why a job went back into the ready list without being processed:
+ *   - `stranded`: a previous run left it in `processing` (crash, outage mid-job);
+ *   - `reconciled`: its message was PENDING with no job in sight (enqueue failed, data lost).
+ */
+export type NotificationRequeueReason = 'stranded' | 'reconciled';
 
 export interface MetricsOptions {
   /** CPU, memory, event-loop lag, ... Only worth collecting in a real process. */
@@ -94,6 +113,41 @@ export function createMetrics(options: MetricsOptions = {}): Metrics {
       name: 'telemetry_events_dead_lettered_total',
       help: 'Events moved to the DLQ, by reason (invalid_payload, insert_failed).',
       labelNames: ['reason'],
+      registers: [registry],
+    }),
+    rateLimitDecisions: new Counter({
+      name: 'rate_limit_decisions_total',
+      help: 'Rate-limit checks, by limiter and decision (allowed, denied).',
+      labelNames: ['limiter', 'decision'],
+      registers: [registry],
+    }),
+    rateLimitErrors: new Counter({
+      name: 'rate_limit_errors_total',
+      help: 'Rate-limit checks that failed because Redis was unavailable (answered 503).',
+      labelNames: ['limiter'],
+      registers: [registry],
+    }),
+    notificationEnqueueFailures: new Counter({
+      name: 'notification_enqueue_failures_total',
+      help: 'Contact messages saved but not queued for notification (the reconciler retries).',
+      registers: [registry],
+    }),
+    notificationJobs: new Counter({
+      name: 'notification_jobs_total',
+      help: 'Notification jobs finished, by outcome (sent, retried, dead_lettered, skipped).',
+      labelNames: ['outcome'],
+      registers: [registry],
+    }),
+    notificationJobsRequeued: new Counter({
+      name: 'notification_jobs_requeued_total',
+      help: 'Jobs put back in the ready list, by reason (stranded, reconciled).',
+      labelNames: ['reason'],
+      registers: [registry],
+    }),
+    workerLoopFailures: new Counter({
+      name: 'worker_loop_failures_total',
+      help: 'Failed iterations of a worker loop, by loop and kind (transient, unexpected).',
+      labelNames: ['loop', 'kind'],
       registers: [registry],
     }),
   };
