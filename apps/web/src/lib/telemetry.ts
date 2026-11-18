@@ -64,6 +64,24 @@ interface PageViewInput {
   timezone: string | null;
 }
 
+/** localStorage key that marks a browser as the owner's (set from the /admin page). */
+export const OWNER_BROWSER_KEY = 'portfolio.ownerBrowser';
+
+/**
+ * Whether a visit should be recorded. The owner's own browsing is not: the /admin pages,
+ * and every page in a browser the owner marked as theirs (`OWNER_BROWSER_KEY` = `"1"`).
+ */
+export function shouldRecord(path: string, storage: Pick<Storage, 'getItem'> | null): boolean {
+  if (path === '/admin' || path.startsWith('/admin/') || path.startsWith('/admin?')) {
+    return false;
+  }
+  try {
+    return storage?.getItem(OWNER_BROWSER_KEY) !== '1';
+  } catch {
+    return true; // storage blocked: nothing marks this browser as the owner's
+  }
+}
+
 /**
  * A page view the API will accept, or `null`. Validated with the API's own schema first: an
  * event the API would refuse is better fixed (or dropped) here than sent for nothing.

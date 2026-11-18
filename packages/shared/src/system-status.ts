@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * GET /api/v1/system/status (DESIGN.md §7.7): what the API reports about itself. Counts and
- * timings only, never anything about individual visitors: the dashboard showing it is public.
+ * GET /api/v1/admin/system-status (DESIGN.md §7.7): what the API reports about itself. Counts
+ * and timings only, never anything about individual visitors. Owner-only, on the /admin page.
  */
 
 export const dependencyHealthSchema = z.object({

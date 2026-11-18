@@ -51,6 +51,7 @@ export const SAMPLE_CONTENT: PortfolioContent = {
       repoUrl: null,
       liveUrl: null,
       featured: false,
+      sections: [],
     },
     {
       slug: 'note-g',
@@ -61,6 +62,14 @@ export const SAMPLE_CONTENT: PortfolioContent = {
       repoUrl: 'https://github.com/example/note-g',
       liveUrl: null,
       featured: true,
+      sections: [
+        {
+          heading: 'How it works',
+          body: 'A table of operations.\n\nOne row per step.',
+          points: ['Loops over the variables', 'Stores results on the Store'],
+        },
+        { heading: 'Legacy', body: null, points: ['Called the first program'] },
+      ],
     },
   ],
 };

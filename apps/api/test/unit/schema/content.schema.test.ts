@@ -26,7 +26,40 @@ describe('portfolioContentSchema (content/portfolio.json)', () => {
       repoUrl: null,
       liveUrl: null,
       featured: false,
+      sections: [],
     });
+  });
+
+  it('fills in a section without a body or points, and accepts either one alone', () => {
+    const project = {
+      ...MINIMAL_CONTENT.projects[0],
+      sections: [
+        { heading: 'Overview', body: 'Text.' },
+        { heading: 'Features', points: ['One'] },
+      ],
+    };
+    const content = portfolioContentSchema.parse({ ...MINIMAL_CONTENT, projects: [project] });
+
+    expect(content.projects[0]?.sections).toEqual([
+      { heading: 'Overview', body: 'Text.', points: [] },
+      { heading: 'Features', body: null, points: ['One'] },
+    ]);
+  });
+
+  it('rejects a section with nothing under its heading', () => {
+    const project = { ...MINIMAL_CONTENT.projects[0], sections: [{ heading: 'Empty' }] };
+    expect(problems({ ...MINIMAL_CONTENT, projects: [project] })).toEqual([
+      'projects.0.sections.0.points: needs a body or at least one point',
+    ]);
+  });
+
+  it('rejects more than 20 sections on one project', () => {
+    const sections = Array.from({ length: 21 }, (_, index) => ({
+      heading: `Part ${String(index)}`,
+      points: ['x'],
+    }));
+    const project = { ...MINIMAL_CONTENT.projects[0], sections };
+    expect(problems({ ...MINIMAL_CONTENT, projects: [project] })).toHaveLength(1);
   });
 
   it('rejects duplicate project slugs', () => {

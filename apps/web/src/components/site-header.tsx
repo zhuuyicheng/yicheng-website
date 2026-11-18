@@ -7,11 +7,10 @@ import { ScrollProgressBar } from './scroll-progress-bar';
 
 /** Sections of the home page, in page order. Each is a `<section id="…">`. */
 export const SECTIONS = [
-  { id: 'about', label: 'about' },
-  { id: 'experience', label: 'experience' },
-  { id: 'projects', label: 'projects' },
-  { id: 'lab', label: 'lab' },
-  { id: 'contact', label: 'contact' },
+  { id: 'about', label: 'About' },
+  { id: 'experience', label: 'Experience' },
+  { id: 'projects', label: 'Projects' },
+  { id: 'contact', label: 'Contact' },
 ] as const;
 
 /**
@@ -69,51 +68,42 @@ export function SiteHeader() {
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
         <Link
           href="/"
-          className="font-mono text-sm text-zinc-100"
+          className="text-sm font-semibold tracking-tight text-zinc-100"
           onClick={() => {
             setMenuOpen(false);
           }}
         >
-          <span className="text-emerald-400">~/</span>yicheng
+          Zhu Yicheng
         </Link>
 
-        <nav aria-label="Sections" className="hidden font-mono text-sm md:block">
+        <nav aria-label="Sections" className="hidden text-sm md:block">
           <ul className="flex items-center gap-1">
             {SECTIONS.map(({ id, label }) => (
               <li key={id}>
                 <Link href={`/#${id}`} className={linkClass(id)}>
-                  <span className="text-zinc-600">./</span>
                   {label}
                 </Link>
               </li>
             ))}
-            <li>
-              <StatusLink
-                onNavigate={() => {
-                  setMenuOpen(false);
-                }}
-                active={pathname === '/status'}
-              />
-            </li>
           </ul>
         </nav>
 
         <button
           type="button"
-          className="rounded-md border border-white/10 px-3 py-1.5 font-mono text-xs text-zinc-300 md:hidden"
+          className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-zinc-300 md:hidden"
           aria-expanded={menuOpen}
           aria-controls="mobile-menu"
           onClick={() => {
             setMenuOpen((open) => !open);
           }}
         >
-          {menuOpen ? 'close' : 'menu'}
+          {menuOpen ? 'Close' : 'Menu'}
         </button>
       </div>
 
       {menuOpen && (
         <nav id="mobile-menu" aria-label="Sections" className="border-t border-white/5 md:hidden">
-          <ul className="mx-auto flex max-w-6xl flex-col px-4 py-2 font-mono text-sm">
+          <ul className="mx-auto flex max-w-6xl flex-col px-4 py-2 text-sm">
             {SECTIONS.map(({ id, label }) => (
               <li key={id}>
                 <Link
@@ -123,40 +113,15 @@ export function SiteHeader() {
                     setMenuOpen(false);
                   }}
                 >
-                  <span className="text-zinc-600">./</span>
                   {label}
                 </Link>
               </li>
             ))}
-            <li className="py-2.5">
-              <StatusLink
-                onNavigate={() => {
-                  setMenuOpen(false);
-                }}
-                active={pathname === '/status'}
-              />
-            </li>
           </ul>
         </nav>
       )}
 
       <ScrollProgressBar />
     </header>
-  );
-}
-
-/** The live dashboard: a page of its own, marked with a pulsing "live" dot. */
-function StatusLink({ onNavigate, active }: { onNavigate: () => void; active: boolean }) {
-  return (
-    <Link
-      href="/status"
-      onClick={onNavigate}
-      className={`inline-flex items-center gap-1.5 rounded px-2 py-1 transition-colors hover:text-emerald-300 ${
-        active ? 'text-emerald-400' : 'text-zinc-400'
-      }`}
-    >
-      <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-emerald-400" />
-      status
-    </Link>
   );
 }

@@ -16,7 +16,10 @@ function technologies(projects: readonly ProjectSummary[]): string[] {
     .map(([tech]) => tech);
 }
 
-/** Project grid with a technology filter: tap a chip to see only the projects that use it. */
+/**
+ * Project grid with a technology filter: tap a chip to see only the projects that use it.
+ * Each card opens its project's page.
+ */
 export function ProjectExplorer({ projects }: { projects: ProjectSummary[] }) {
   const [selected, setSelected] = useState<string | null>(null);
   const allTech = useMemo(() => technologies(projects), [projects]);
@@ -33,7 +36,7 @@ export function ProjectExplorer({ projects }: { projects: ProjectSummary[] }) {
         onClick={() => {
           setSelected(active ? null : value);
         }}
-        className={`rounded-full border px-3 py-1 font-mono text-xs transition ${
+        className={`rounded-full border px-3.5 py-1.5 text-xs transition ${
           active
             ? 'border-emerald-400 bg-emerald-400/10 text-emerald-300'
             : 'border-white/10 text-zinc-400 hover:border-white/25 hover:text-zinc-200'
@@ -47,7 +50,7 @@ export function ProjectExplorer({ projects }: { projects: ProjectSummary[] }) {
   return (
     <div>
       <div className="mb-8 flex flex-wrap gap-2" role="group" aria-label="Filter by technology">
-        {chip('all', null)}
+        {chip('All', null)}
         {allTech.map((tech) => chip(tech, tech))}
       </div>
 

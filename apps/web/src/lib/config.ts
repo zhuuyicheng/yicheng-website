@@ -16,3 +16,13 @@ export function serverApiBaseUrl(): string {
 }
 
 export const PUBLIC_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? LOCAL_API;
+
+/**
+ * The owner's password for /admin, also sent to the API as its bearer token (DESIGN.md §8.7).
+ * Server only: it has no NEXT_PUBLIC_ prefix, so it never reaches the browser bundle. Read per
+ * request; unset or empty turns the owner area off.
+ */
+export function adminToken(): string | undefined {
+  const token = process.env.ADMIN_TOKEN;
+  return token === undefined || token === '' ? undefined : token;
+}

@@ -29,7 +29,17 @@ export function renderProjectList(projects: ProjectSummary[]): DataResponseBody<
 }
 
 export function renderProject(project: Project): DataResponseBody<Project> {
-  return { data: { ...toProjectSummary(project), description: project.description } };
+  return {
+    data: {
+      ...toProjectSummary(project),
+      description: project.description,
+      sections: project.sections.map((section) => ({
+        heading: section.heading,
+        body: section.body,
+        points: section.points,
+      })),
+    },
+  };
 }
 
 function toExperience(experience: Experience): Experience {

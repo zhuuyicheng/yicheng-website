@@ -9,6 +9,7 @@ import {
   externalReferrer,
   getSessionId,
   sendEvent,
+  shouldRecord,
 } from '@/lib/telemetry';
 
 /** `crypto.getRandomValues`, typed to what newSessionId expects. */
@@ -30,6 +31,9 @@ function browserTimezone(): string | null {
  * The referrer goes with the first page view only: afterwards the visitor came from our own
  * pages, which says nothing new.
  *
+ * The owner's own browsing is skipped: the /admin pages, and any page in a browser marked as
+ * theirs from /admin (`shouldRecord`).
+ *
  * Must sit inside <Suspense> (app/layout.tsx): `useSearchParams` reads the URL, which is only
  * known in the browser for pages Next.js renders ahead of time.
  */
@@ -47,6 +51,10 @@ export function PageViewBeacon() {
       return;
     }
     lastSent.current = path;
+    if (!shouldRecord(path, safeLocalStorage())) {
+      isFirstView.current = false;
+      return;
+    }
 
     const event = buildPageView({
       path,
@@ -67,7 +75,7 @@ export function PageViewBeacon() {
     const onClick = (event: MouseEvent) => {
       const link = (event.target as Element | null)?.closest<HTMLElement>('[data-track]');
       const name = link?.dataset.track;
-      if (!name) return;
+      if (!name || !shouldRecord(window.location.pathname, safeLocalStorage())) return;
       const interaction = buildInteraction(name, {
         path: window.location.pathname,
         sessionId: getSessionId(safeSessionStorage(), randomBytes),
@@ -90,6 +98,15 @@ export function PageViewBeacon() {
 function safeSessionStorage(): Storage | null {
   try {
     return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** Reading `window.localStorage` itself throws when storage is blocked. */
+function safeLocalStorage(): Storage | null {
+  try {
+    return window.localStorage;
   } catch {
     return null;
   }

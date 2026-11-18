@@ -123,7 +123,7 @@ curl -s localhost:4000/api/v1/projects > /dev/null                       # make 
 docker compose stop postgres
 curl -s -o /dev/null -w '%{http_code}\n' localhost:4000/health          # 503
 curl -si localhost:4000/api/v1/projects | grep -i x-cache                # hit: still served!
-docker compose exec redis redis-cli DEL cache:v1:project:bowling-buddy
+docker compose exec redis redis-cli DEL cache:v2:project:bowling-buddy
 curl -s localhost:4000/api/v1/projects/bowling-buddy                     # see below
 docker compose start postgres
 ```
@@ -349,19 +349,22 @@ npm run dev:web          # → http://localhost:3000
 
 # Terminal B
 curl -s localhost:4000/metrics | grep 'http_requests_total{'
-curl -s localhost:4000/api/v1/system/status | python3 -m json.tool | head -20
+export ADMIN_TOKEN=local-dev-only-admin-token-change-me-in-production   # from your .env
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" localhost:4000/api/v1/admin/system-status | python3 -m json.tool | head -20
 ```
 
 **See**
 
-- http://localhost:3000: your profile, experience, projects, the rate-limiter lab and the
-  contact form, all read from the API. Scroll slowly: sections slide in, the timeline line
-  fills, the hero fades. Drag the lab's sliders and press ▶ play.
+- http://localhost:3000: your profile, experience, projects and the contact form, all read
+  from the API. Scroll slowly: sections slide in, the timeline line fills, the hero fades.
+  Click a project card (anywhere on it) to open its page, with its sections and an "On this
+  page" list on a wide window.
 - Terminal C (`MONITOR`): your page view arriving (`evalsha` of the bounded enqueue), sent by
   the browser itself this time.
 - Terminal B: Prometheus counters labelled by route template, and the JSON status report.
-- http://localhost:3000/status: the same report, live, polled every 5 s. Stop Redis and watch
-  the banner turn amber within 5 s; start it again.
+- http://localhost:3000/admin (log in with any username and `ADMIN_TOKEN` as the password):
+  who visited and how they found the site, then the same status report, live, polled every
+  5 s. Stop Redis and watch the banner turn amber within 5 s; start it again.
 
 **Why**: the site is a client of the same API you have been calling with curl, and both sides
 use one contract (`packages/shared`), so they cannot disagree about a field. The API measures

@@ -11,9 +11,9 @@ export default async function ProjectsPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-      <SectionHeading index="~" command="ls -la ~/projects" title="Projects" />
+      <SectionHeading title="Projects" />
       {projects.length === 0 ? (
-        <p className="font-mono text-sm text-zinc-500">No projects yet.</p>
+        <p className="text-sm text-zinc-500">No projects yet.</p>
       ) : (
         <ProjectExplorer projects={projects} />
       )}

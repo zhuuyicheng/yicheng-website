@@ -1,15 +1,16 @@
 import { hostname } from 'node:os';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import type { AppConfig } from './config/env.js';
+import {
+  ADMIN_SYSTEM_STATUS_PATH,
+  ADMIN_VISITORS_PATH,
+  registerAdminController,
+} from './controllers/admin.controller.js';
 import { registerContactController } from './controllers/contact.controller.js';
 import { registerContentController } from './controllers/content.controller.js';
 import { registerEventsController } from './controllers/events.controller.js';
 import { registerHealthController } from './controllers/health.controller.js';
-import {
-  METRICS_PATH,
-  registerSystemController,
-  SYSTEM_STATUS_PATH,
-} from './controllers/system.controller.js';
+import { METRICS_PATH, registerSystemController } from './controllers/system.controller.js';
 import { createAnalyticsEventDal } from './dal/analytics-event.dal.js';
 import { createContactMessageDal } from './dal/contact-message.dal.js';
 import { createContentCacheDal } from './dal/content-cache.dal.js';
@@ -20,6 +21,7 @@ import { createNotificationQueueDal } from './dal/notification-queue.dal.js';
 import { createQueueDepthDal } from './dal/queue-depth.dal.js';
 import { createRateLimitDal } from './dal/rate-limit.dal.js';
 import { createTelemetrySaltDal } from './dal/telemetry-salt.dal.js';
+import { createVisitorInsightsDal } from './dal/visitor-insights.dal.js';
 import { createIpHasher } from './infra/ip-hash.js';
 import type { Logger } from './infra/logger.js';
 import type { Metrics } from './infra/metrics.js';
@@ -38,6 +40,7 @@ import { createRateLimiterManager } from './services/rate-limiter.manager.js';
 import { createSystemStatusManager } from './services/system-status.manager.js';
 import { createTelemetryManager } from './services/telemetry.manager.js';
 import { createVisitorDetailsManager } from './services/visitor-details.manager.js';
+import { createVisitorInsightsManager } from './services/visitor-insights.manager.js';
 
 /** Infrastructure created by the composition root (main.ts, or a test) and shared by modules. */
 export interface AppDependencies {
@@ -82,7 +85,8 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   registerHttpMetrics(app, {
     metrics,
     latency,
-    latencyIgnoredRoutes: ['/health', METRICS_PATH, SYSTEM_STATUS_PATH],
+    // Monitoring and the owner's pages: neither is visitor traffic, so neither skews p95.
+    latencyIgnoredRoutes: ['/health', METRICS_PATH, ADMIN_SYSTEM_STATUS_PATH, ADMIN_VISITORS_PATH],
   });
 
   // Wiring, one module at a time:
@@ -143,6 +147,20 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     instance: hostname(),
   });
   registerSystemController(app, systemStatusManager, { metricsToken: config.metrics.token });
+
+  // The owner's endpoints exist only when ADMIN_TOKEN is set (DESIGN.md §7.8).
+  if (config.admin.token === null) {
+    logger.info({ routes: '/api/v1/admin/*' }, 'owner endpoints disabled: ADMIN_TOKEN not set');
+  } else {
+    const visitorInsightsManager = createVisitorInsightsManager({
+      insightsDal: createVisitorInsightsDal(postgres),
+    });
+    registerAdminController(
+      app,
+      { systemStatusManager, visitorInsightsManager },
+      { adminToken: config.admin.token },
+    );
+  }
 
   return app;
 }

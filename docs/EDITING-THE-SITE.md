@@ -1,0 +1,152 @@
+# Editing the Website's Text
+
+Every word on the site lives in one of two places:
+
+| Kind of text                                                                          | Where it lives                           | How a change shows up                        |
+| ------------------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------- |
+| **Your content**: name, headline, about, experience, education, projects, links       | `apps/api/content/portfolio.json` (data) | `npm run content:seed`, then reload the page |
+| **Page wording**: section titles, buttons, header, footer, form messages, other pages | `.tsx` files in `apps/web/src` (code)    | Save the file; the browser updates by itself |
+
+Rule of thumb: if the text is about **you**, it's in the JSON. If it would be the same on
+anyone's portfolio built from this code, it's in the code.
+
+**Finding any text**: in VS Code press **Ctrl+Shift+F**, paste a few exact words you see on
+the page, and set _files to include_ to `apps/web/src, apps/api/content`. The result tells you
+which of the two places it is. If nothing matches, the text is assembled from pieces: the home
+page's browser-tab title, for example, is `fullName · headline` from the JSON.
+
+Have the site running while you edit (three terminals): `npm run infra:up` once, then
+`npm run dev:api` and `npm run dev:web`, and open http://localhost:3000.
+
+---
+
+## 1. Your content: `portfolio.json`
+
+**Do**
+
+1. Edit [apps/api/content/portfolio.json](../apps/api/content/portfolio.json).
+2. Run `npm run content:seed`.
+3. Reload http://localhost:3000.
+
+**Which field appears where**
+
+| Field                            | On the site                                                                                                                 |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `profile.fullName`               | The big name in the hero, and the home page's browser-tab title                                                             |
+| `profile.headline`               | The line under your name, and the browser-tab title                                                                         |
+| `profile.summary`                | The About section. A blank line (`\n\n`) starts a new paragraph. Its first 160 characters are the search-engine description |
+| `profile.location`               | About sidebar; `null` hides it                                                                                              |
+| `profile.links`                  | Buttons in the hero and links in the About sidebar, in file order                                                           |
+| `experiences`, `education`       | The Experience & education timeline, in file order. `"endDate": null` shows "present"                                       |
+| `projects[].title`, `.summary`   | The project cards                                                                                                           |
+| `projects[].description`         | The overview at the top of the project's own page, `/projects/<slug>`. A blank line (`\n\n`) starts a new paragraph         |
+| `projects[].sections`            | The rest of the project's page, in file order: see below                                                                    |
+| `projects[].techStack`           | Tags on the card and the project's page, and the technology filter above the cards                                          |
+| `projects[].featured`            | `true` lists the project first, with a "Featured" badge; the others follow in file order                                    |
+| `projects[].repoUrl`, `.liveUrl` | Buttons on the project's page (never on the card); `null` hides them                                                        |
+
+**Project sections** give a project page its structure. Each one becomes a heading (also
+listed under "On this page" on wide screens), then its `body` as paragraphs, then its `points`
+as a bulleted list. Either `body` or `points` may be left out, but not both:
+
+```json
+"sections": [
+  {
+    "heading": "Spare guide",
+    "body": "For the pins left standing, the guide shows where to stand and where to aim.",
+    "points": ["Available during a game and as a separate Guide tab."]
+  },
+  { "heading": "Tools", "body": "Python, PyTorch and NumPy." }
+]
+```
+
+**The seed makes the site match the file exactly.** Delete a project or a role from the file,
+seed, and it's gone from the site. Renaming a project's `slug` changes its address, so old
+links to `/projects/<old-slug>` stop working.
+
+**JSON pitfalls** (VS Code underlines them in red):
+
+- Text goes inside double quotes; a `"` inside the text is written `\"`.
+- No comma after the last item of a list or object.
+- A new paragraph inside text is `\n\n`.
+- Length limits: summary 2,000 characters, each highlight 500, a project description 10,000;
+  per project at most 20 sections, a section heading 120, its body 2,000, each point 500.
+
+If anything is wrong, the seed lists **every** problem with its location and writes nothing,
+so the site never shows half an edit. Try it on purpose:
+[Guided Tour, Station 5](GUIDED-TOUR.md#station-5-edit-your-content-and-break-it-on-purpose).
+
+---
+
+## 2. Page wording: the `.tsx` files
+
+| What you see                                                                       | File (in `apps/web/src/`)                                                                  |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Section titles: About, Experience & education, Projects, Get in touch              | `app/page.tsx`, the `<SectionHeading title="…" />` lines                                   |
+| The "View projects" and "Get in touch" buttons, `scroll ↓`                         | `components/hero.tsx`                                                                      |
+| Header: your name and the section links                                            | `components/site-header.tsx` (`SECTIONS` at the top)                                       |
+| Project cards: "Read more", "Featured"                                             | `components/project-card.tsx`                                                              |
+| Project page: "Back to projects", "Next project", "On this page"                   | `app/projects/[slug]/page.tsx`, `components/project-contents.tsx`                          |
+| Footer links (Projects, Privacy)                                                   | `components/site-footer.tsx`                                                               |
+| Contact form: labels, hints, and replies such as "Message sent. Thanks, …"         | `components/contact-form.tsx`                                                              |
+| Browser-tab title of the other pages (`… · Portfolio`) and the default description | `app/layout.tsx` (`metadata`)                                                              |
+| The projects page, privacy notice, 404 page and your owner dashboard               | `app/projects/page.tsx`, `app/privacy/page.tsx`, `app/not-found.tsx`, `app/admin/page.tsx` |
+
+**Editing JSX safely.** These files mix HTML-like tags with code. Change only the words:
+
+```tsx
+<p>Built with Next.js, Fastify, PostgreSQL and Redis.</p>   ← words between tags: change freely
+<SectionHeading title="Get in touch" />
+                       ↑ words inside quotes: change freely
+```
+
+- Leave the tags (`<p …>`, `</p>`) and `className="…"` (styling) as they are.
+- `{' '}` is a deliberate space between two pieces; keep it.
+- Apostrophes and quotes can be typed as they are (the existing files write `&apos;` and
+  `&quot;`; both work). The characters `{ } < >` can't appear in plain text: write `&lt;` and
+  `&gt;` for `<` and `>`, and ask for help if you need braces.
+- If the browser shows a red error overlay after saving, the last edit broke the syntax: undo
+  it (Ctrl+Z, save) and look at what changed.
+
+Because this is code, run `npm run format` and `npm run lint` before committing (or
+`npm run check` for everything CI runs).
+
+The privacy notice describes exactly what the analytics collect. If you reword it, keep it
+accurate (DESIGN.md §12).
+
+---
+
+## 3. Getting a change onto the live site (once Phase 6 deploys it)
+
+Both kinds of change travel the same way: commit → push → pull request → CI green → merge →
+approve the deploy. The deploy runs the seed itself
+([DESIGN.md §14.3](../DESIGN.md#143-pipeline-githubworkflowsdeployyml)), so you never run
+`content:seed` against production by hand.
+
+There is deliberately no admin page: Git is the editor. Every change is reviewed by CI, has a
+history, and can be rolled back by deploying the previous version.
+
+---
+
+## Check yourself
+
+<details><summary>1. You changed your headline in portfolio.json and reloaded, but the site still shows the old one. What's missing?</summary>
+
+`npm run content:seed`. The website reads from the API, the API from Postgres (through
+Redis), and only the seed copies the file into Postgres and refreshes the cache.
+
+</details>
+
+<details><summary>2. You want "Get in touch" to read "Contact me". Which file, and do you need to seed?</summary>
+
+`apps/web/src/app/page.tsx`, the `title` of the last `<SectionHeading … />`. No seed: it's
+page wording (code), so saving the file is enough while `npm run dev:web` runs.
+
+</details>
+
+<details><summary>3. Why isn't the home page's browser-tab title in <code>layout.tsx</code> like the others?</summary>
+
+It's built from your data: `generateMetadata` in `app/page.tsx` combines `fullName` and
+`headline` from the JSON. Change those two fields and the title follows.
+
+</details>

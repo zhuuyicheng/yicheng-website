@@ -17,6 +17,8 @@ type Status = { kind: 'idle' } | { kind: 'sending' } | ContactOutcome;
 
 const EMPTY = { name: '', email: '', message: '' };
 
+const LABELS: Record<ContactField, string> = { name: 'Name', email: 'Email', message: 'Message' };
+
 /**
  * The contact form (DESIGN.md §7.6). Validates in the browser with the API's own schema, then
  * sends. Every answer the API can give has a message: sent, a field problem, rate limited (with
@@ -62,14 +64,7 @@ export function ContactForm() {
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-white/10 bg-zinc-900/40">
-      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-        <span aria-hidden className="size-2.5 rounded-full bg-rose-500/70" />
-        <span aria-hidden className="size-2.5 rounded-full bg-amber-400/70" />
-        <span aria-hidden className="size-2.5 rounded-full bg-emerald-400/70" />
-        <span className="ml-2 font-mono text-xs text-zinc-500">contact.sh</span>
-      </div>
-
+    <div className="rounded-xl border border-white/10 bg-zinc-900/40">
       <form onSubmit={(event) => void onSubmit(event)} noValidate className="space-y-5 p-4 sm:p-6">
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="name" error={errors.name}>
@@ -136,9 +131,9 @@ export function ContactForm() {
           <button
             type="submit"
             disabled={status.kind === 'sending'}
-            className="rounded-md bg-emerald-400 px-5 py-2.5 font-mono text-sm font-medium text-zinc-950 transition hover:bg-emerald-300 disabled:cursor-wait disabled:opacity-60"
+            className="rounded-md bg-emerald-400 px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-emerald-300 disabled:cursor-wait disabled:opacity-60"
           >
-            {status.kind === 'sending' ? 'sending…' : './send'}
+            {status.kind === 'sending' ? 'Sending…' : 'Send message'}
           </button>
         </div>
 
@@ -178,7 +173,7 @@ function StatusLine({ status }: { status: Status }) {
   }
 
   return (
-    <p role="status" aria-live="polite" className="min-h-5 font-mono text-xs sm:text-sm">
+    <p role="status" aria-live="polite" className="min-h-5 text-sm">
       {line && (
         <span className={line.ok ? 'text-emerald-300' : 'text-rose-400'}>
           {line.ok ? '✓ ' : '✗ '}
@@ -202,17 +197,16 @@ function Field({
 }) {
   return (
     <div>
-      <div className="mb-1.5 flex items-baseline justify-between font-mono text-xs">
+      <div className="mb-1.5 flex items-baseline justify-between text-sm">
         <label htmlFor={`contact-${label}`} className="text-zinc-300">
-          <span className="text-emerald-400">--</span>
-          {label}
+          {LABELS[label]}
         </label>
-        {aside !== undefined && <span className="text-zinc-600">{aside}</span>}
+        {aside !== undefined && <span className="text-xs text-zinc-600 tabular-nums">{aside}</span>}
       </div>
       {children}
       {error !== undefined && (
-        <p id={`contact-${label}-error`} className="mt-1.5 font-mono text-xs text-rose-400">
-          {label} {error}
+        <p id={`contact-${label}-error`} className="mt-1.5 text-xs text-rose-400">
+          {LABELS[label]} {error}
         </p>
       )}
     </div>

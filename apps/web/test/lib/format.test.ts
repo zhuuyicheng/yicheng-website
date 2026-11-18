@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDuration, formatMonth, formatRange, monthsBetween } from '@/lib/format';
+import { formatDuration, formatMonth, formatRange, monthsBetween, paragraphs } from '@/lib/format';
 
 describe('date formatting', () => {
   it('reads YYYY-MM-DD as UTC, so the 1st never shows as the previous month', () => {
@@ -21,5 +21,19 @@ describe('date formatting', () => {
     expect(formatDuration(1)).toBe('1 mo');
     expect(formatDuration(14)).toBe('1 yr 2 mos');
     expect(formatDuration(24)).toBe('2 yrs');
+  });
+});
+
+describe('paragraphs', () => {
+  it('splits on blank lines, including ones with stray spaces, and drops empty parts', () => {
+    expect(paragraphs('First.\n\nSecond\nline.\n  \nThird.\n\n\n')).toEqual([
+      'First.',
+      'Second\nline.',
+      'Third.',
+    ]);
+  });
+
+  it('returns nothing for blank text', () => {
+    expect(paragraphs('  \n\n ')).toEqual([]);
   });
 });

@@ -17,6 +17,9 @@ import {
 } from '../helpers/test-dependencies.js';
 
 const WEB_APP = 'http://localhost:3000'; // the default CORS_ORIGINS
+const STATUS_URL = '/api/v1/admin/system-status';
+/** The owner's token, from test-env.ts (ADMIN_TOKEN). */
+const OWNER = { authorization: 'Bearer integration-test-admin-token-0123456789abcdef' };
 
 describe('observability and security with live Postgres and Redis', () => {
   let deps: TestDependencies;
@@ -43,12 +46,12 @@ describe('observability and security with live Postgres and Redis', () => {
   });
 
   async function getStatus(target = app): Promise<SystemStatus> {
-    const response = await target.inject({ method: 'GET', url: '/api/v1/system/status' });
+    const response = await target.inject({ method: 'GET', url: STATUS_URL, headers: OWNER });
     expect(response.statusCode).toBe(200);
     return response.json<DataResponseBody<SystemStatus>>().data;
   }
 
-  it('GET /api/v1/system/status reports health, traffic, page views and queues', async () => {
+  it('GET /api/v1/admin/system-status reports health, traffic, page views and queues', async () => {
     await app.inject({ method: 'GET', url: '/api/v1/projects' });
     await app.inject({ method: 'GET', url: '/api/v1/projects' }); // a cache hit
     await app.inject({ method: 'GET', url: '/does-not-exist' });
@@ -108,7 +111,7 @@ describe('observability and security with live Postgres and Redis', () => {
     expect(response.body).toContain('http_request_duration_seconds_bucket{le="0.005"');
   });
 
-  it('GET /metrics needs the bearer token once METRICS_TOKEN is set; the status page stays public', async () => {
+  it('GET /metrics needs the bearer token once METRICS_TOKEN is set', async () => {
     const token = 'integration-metrics-token-0123';
     const guarded = buildApp({ ...deps, config: { ...deps.config, metrics: { token } } });
 
@@ -130,9 +133,6 @@ describe('observability and security with live Postgres and Redis', () => {
       expect(missing.json<ErrorResponseBody>().error.code).toBe('UNAUTHORIZED');
       expect(wrong.statusCode).toBe(401);
       expect(right.statusCode).toBe(200);
-      expect(
-        (await guarded.inject({ method: 'GET', url: '/api/v1/system/status' })).statusCode,
-      ).toBe(200);
     } finally {
       await guarded.close();
     }
@@ -206,7 +206,7 @@ describe('system status with Redis down', () => {
     const app = buildApp({ ...deps, redis: deadRedis });
 
     try {
-      const response = await app.inject({ method: 'GET', url: '/api/v1/system/status' });
+      const response = await app.inject({ method: 'GET', url: STATUS_URL, headers: OWNER });
 
       expect(response.statusCode).toBe(200);
       const status = response.json<DataResponseBody<SystemStatus>>().data;

@@ -179,3 +179,34 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
       terms forbid AI-written pull requests)
 - [ ] `docs/CD.md`: how to release, approve, roll back, read deploy logs
 - [ ] Later: remove the approval gate (continuous **deployment**) once releases are routine
+
+### Website polish before going live (feedback, 2026-11-18)
+
+- [x] Plainer look: no terminal imitation (`~/yicheng $ whoami`, `./` prefixes, `$ command`
+      lines, faux window bars), sans-serif text; the hero's JSON card and the rate-limiter lab
+      removed; no GitHub links (profile and this site's repository)
+- [x] Project cards: the whole card opens the project, hover lift instead of the pointer glow,
+      "Read more →", keyboard focus outline
+- [x] Project pages: structured `sections` (migration `0006_project_sections.sql`, response
+      field, `cache:v2:project:<slug>`), "On this page" list, large "Back to projects" button
+      at the top and bottom, link to the next project
+- [x] Project details written for Orbital (from the MS3 README), Brainhack (from the
+      object-detection notebook) and this site
+- [x] Tests: content-file rules for sections, project detail with and without sections,
+      section anchors, next project, paragraphs
+- [x] Footer line "Built with …" and the public Status link removed
+
+### Owner area (`/admin`, 2026-11-18)
+
+- [x] System status is owner-only: `GET /api/v1/admin/system-status` (bearer `ADMIN_TOKEN`);
+      the public `/status` page, header link and hero pill are gone
+- [x] Visitor summary `GET /api/v1/admin/visitors?days=` (DESIGN.md §7.8): visits grouped by
+      session, referrers, tagged links, places, organisations, devices, browsers, pages,
+      clicks, recent visits; bots and `/admin` excluded
+- [x] `/admin` page behind HTTP Basic (`proxy.ts` + a second check in the page and its route),
+      `no-store` + `noindex`; period picker; the owner's browser is not counted
+- [x] Status charts: 30-minute time axis with a labelled tick every 5 minutes
+- [x] Tests: owner endpoints (401/200/404, contract), summary aggregation (bots, `/admin`,
+      older events left out), manager ranking and day filling, login check, `shouldRecord`,
+      time ticks and gaps (300 API + 57 web total)
+- [ ] Production: Caddy refuses `/api/v1/admin/*` from outside (in `deploy/Caddyfile`, 6b)

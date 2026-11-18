@@ -36,3 +36,11 @@ export function formatDuration(months: number): string {
   if (rest > 0) parts.push(`${String(rest)} mo${rest === 1 ? '' : 's'}`);
   return parts.join(' ');
 }
+
+/** Text with paragraphs separated by blank lines → one string per paragraph, blanks dropped. */
+export function paragraphs(text: string): string[] {
+  return text
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0);
+}

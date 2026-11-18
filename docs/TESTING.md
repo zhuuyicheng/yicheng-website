@@ -39,7 +39,7 @@ docker compose ps
 | Fakes          | Uses fakes/stubs (e.g. a fake `ping` that always fails)                             | Uses the real datastores                     |
 
 The **website** has unit tests too, in `apps/web/test/lib/` (mirroring `apps/web/src/lib/`):
-the logic behind the page-view beacon, the contact form, the rate-limiter lab and the
+the logic behind the page-view beacon, the contact form, the project pages and the
 dashboard, tested without a browser or React. `npm test` and `npm run test:unit` run them
 after the API's. Every test command first builds `packages/shared` (the API contract both
 apps import), so its compiled `dist/` is always current.

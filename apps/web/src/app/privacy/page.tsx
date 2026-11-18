@@ -17,12 +17,7 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <article className="mx-auto max-w-3xl px-4 py-16 sm:px-6 sm:py-24">
-      <p className="font-mono text-xs text-zinc-500 sm:text-sm">
-        <span className="text-zinc-600">$</span> cat privacy.md
-      </p>
-      <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-5xl">
-        Privacy
-      </h1>
+      <h1 className="text-3xl font-semibold tracking-tight text-zinc-50 sm:text-5xl">Privacy</h1>
       <p className="mt-5 text-lg text-zinc-400">
         This site records visits so I can see who reads it and what they look at. It uses no
         cookies, no advertising and no third-party analytics: everything below is stored on my own
@@ -30,7 +25,7 @@ export default function PrivacyPage() {
       </p>
 
       <Block title="When you browse">
-        <p>For each page you view, and for clicks on some links (such as GitHub), I store:</p>
+        <p>For each page you view, and for clicks on some links (such as LinkedIn), I store:</p>
         <ul>
           <li>
             the page, including campaign tags in the link you followed (for example{' '}
@@ -72,8 +67,8 @@ export default function PrivacyPage() {
 
       <Block title="Who can see it">
         <p>
-          Only me. Anything shown publicly on this site, such as statistics about the system, is a
-          total (for example, page views in the last 24 hours), never details about a visitor.
+          Only me, on a password-protected page of this site. Nothing about visitors is shown
+          publicly.
         </p>
       </Block>
 
@@ -106,7 +101,7 @@ export default function PrivacyPage() {
         </p>
       </Block>
 
-      <p className="mt-16 font-mono text-xs text-zinc-600">last updated: 2026-11-18</p>
+      <p className="mt-16 text-xs text-zinc-600">Last updated: 18 November 2026</p>
     </article>
   );
 }
@@ -114,7 +109,7 @@ export default function PrivacyPage() {
 function Block({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mt-12">
-      <h2 className="font-mono text-sm text-emerald-400">## {title}</h2>
+      <h2 className="text-lg font-semibold text-zinc-50">{title}</h2>
       <div className="mt-4 space-y-4 leading-relaxed text-zinc-300 [&_a]:text-emerald-300 [&_a]:underline [&_a]:underline-offset-2 [&_code]:font-mono [&_code]:text-sm [&_code]:text-zinc-200 [&_li]:pl-1 [&_ul]:list-disc [&_ul]:space-y-2 [&_ul]:pl-5">
         {children}
       </div>

@@ -7,7 +7,7 @@ background jobs with retries and dead-letter queues, and live observability.
 - **Design**: [DESIGN.md](DESIGN.md)
 - **Progress**: [ROADMAP.md](ROADMAP.md)
 - **New here? Start with the hands-on [Guided Tour](docs/GUIDED-TOUR.md)**
-- **Guides**: [Testing](docs/TESTING.md) · [CI](docs/CI.md) · [Content & cache](docs/CONTENT-AND-CACHE.md) ·
+- **Guides**: [Editing the site's text](docs/EDITING-THE-SITE.md) · [Testing](docs/TESTING.md) · [CI](docs/CI.md) · [Content & cache](docs/CONTENT-AND-CACHE.md) ·
   [Seeing the data in VS Code](docs/DATA-TOOLS.md) · [Hosting (server setup)](docs/HOSTING.md)
 
 ## Quick start
@@ -25,7 +25,7 @@ npm run geoip:download   # free IP → organisation/location files (~65 MB downl
 
 npm run dev:api          # API    → http://localhost:4000/api/v1/projects
 npm run dev:worker       # Worker → analytics events to Postgres, contact notifications
-npm run dev:web          # Web    → http://localhost:3000 (live dashboard: /status); each in its own terminal
+npm run dev:web          # Web    → http://localhost:3000 (owner dashboard: /admin); each in its own terminal
 ```
 
 ## Common commands

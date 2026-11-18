@@ -71,7 +71,7 @@ Redis has numbered "logical databases" inside one server. We use **DB 0** for de
 | Phase | PostgreSQL (database `portfolio`)                  | Redis (DB 0)                                                         |
 | ----- | -------------------------------------------------- | -------------------------------------------------------------------- |
 | 1     | `schema_migrations`                                | —                                                                    |
-| 2     | `profile`, `experiences`, `education`, `projects`  | `cache:v2:profile`, `cache:v1:projects`, `cache:v1:project:<slug>`   |
+| 2     | `profile`, `experiences`, `education`, `projects`  | `cache:v2:profile`, `cache:v1:projects`, `cache:v2:project:<slug>`   |
 | 3     | `analytics_events`                                 | `telemetry:events:buffer` / `:inflight` / `:dlq`, `telemetry:salt:*` |
 | 4     | `contact_messages`                                 | `ratelimit:contact:<hash>`, `jobs:notifications:*`                   |
 | 5     | — (the website fills the tables above via the API) | — (the status endpoint reads queue lengths)                          |
@@ -145,7 +145,7 @@ terminal for `curl`. Run `npm run dev:api` in a fourth terminal.
    `npm run content:seed`.
    - Postgres: re-run "Select Top 1000" on `projects`: the new title. (`updated_at` changes
      on every seed, even when nothing changed, so the title is the real evidence.)
-   - `MONITOR`: a `scan` for `cache:v1:project:*`, one `del` of every content key, then a
+   - `MONITOR`: a `scan` for `cache:v2:project:*`, one `del` of every content key, then a
      `get` (miss) + `set` pair per key as the seed warms the cache.
    - Redis view: click ↻ on the database row to reload the key list, then click the key
      again (the value panel shows what it loaded last time). Fresh TTLs and the new title.
@@ -368,7 +368,8 @@ Two ways to ask the API how it is doing (DESIGN.md §7.7):
 
 - `GET /metrics`: the Prometheus text format, for a monitoring server that collects it every
   few seconds. Counters add up from the moment the process started.
-- `GET /api/v1/system/status`: JSON, for people. The dashboard (Phase 5c) shows it.
+- `GET /api/v1/admin/system-status`: JSON, for people, owner-only since Phase 6 (it needs the
+  `ADMIN_TOKEN` bearer token). The `/admin` page shows it.
 
 Restart `npm run dev:api` to load the new code, then:
 
@@ -412,7 +413,8 @@ Restart `npm run dev:api` to load the new code, then:
 5. **The status endpoint.**
 
    ```bash
-   curl -s localhost:4000/api/v1/system/status | python3 -m json.tool
+   export ADMIN_TOKEN=local-dev-only-admin-token-change-me-in-production   # from your .env
+   curl -s -H "Authorization: Bearer $ADMIN_TOKEN" localhost:4000/api/v1/admin/system-status | python3 -m json.tool
    ```
 
    Uptime, Postgres and Redis latency, p50/p95 of the last 5 minutes, cache hits and misses,
@@ -478,14 +480,17 @@ http://localhost:3000 in Chrome or Firefox with the developer tools open (F12).
    "Emulate CSS prefers-reduced-motion" to `reduce` and reload: no animation, all content
    visible.
 
-### 7.5 Phase 5c: the live dashboard
+### 7.5 The live dashboard (Phase 5c; owner-only since Phase 6)
 
-Open http://localhost:3000/status (API, worker and web running) next to the terminal.
+Open http://localhost:3000/admin (API, worker and web running) next to the terminal. The
+browser asks for a login: any username, and `ADMIN_TOKEN` from your `.env` as the password.
+The system dashboard is at the bottom of the page, under the visitor summary.
 
-1. **It polls.** The Network tab shows `GET /api/v1/system/status` every 5 s: a plain GET,
-   so no preflight. "updated N s ago" counts up between polls. The two charts start with
-   "collecting samples…" and draw a line from the second sample on; hover (or touch) a chart
-   for the exact value at that moment.
+1. **It polls.** The Network tab shows `GET /admin/system-status` every 5 s: a route on the
+   web server, which asks the API with the token (the browser never sees it). "updated N s
+   ago" counts up between polls. The charts cover the last 30 minutes, with a time label
+   every 5 minutes; the line starts after the second sample; hover (or touch) a chart for the
+   exact value at that moment.
 2. **Make traffic.** Reload the home page a few times in another tab: "requests · 5 min" and
    the requests chart rise, the cache hit ratio climbs (the first load was a miss), and
    "page views · 24 h" goes up once the worker has flushed your page views.
@@ -493,7 +498,7 @@ Open http://localhost:3000/status (API, worker and web running) next to the term
    Come back: one poll at once, then every 5 s again.
 4. **An outage.** `docker compose stop redis`: within 5 s the banner turns amber
    ("! Degraded: redis is down"), Redis shows "✕ down", and the queues read "unknown". The
-   page itself keeps working: that is when people look at a status page. Start Redis again.
+   page itself keeps working: that is when you need it most. Start Redis again.
    Then stop `dev:api`: the banner turns red ("Lost contact… from N s ago") and the last
    numbers stay on screen. Start it again and the page recovers by itself.
 5. **A dead letter.** `RPUSH telemetry:events:dlq '{"x":1}'` in the Redis CLI panel: the

@@ -35,6 +35,7 @@ describe('loadConfig', () => {
       notifications: { notifier: { driver: 'log' }, maxAttempts: 3, backoffBaseMs: 5_000 },
       cors: { origins: ['http://localhost:3000'] },
       metrics: { token: null },
+      admin: { token: null },
       shutdown: { timeoutMs: 10_000 },
     });
   });
@@ -146,6 +147,19 @@ describe('loadConfig', () => {
       expect.stringMatching(/^CORS_ORIGINS: must be comma-separated origins/),
       'METRICS_TOKEN: must be at least 16 characters',
     ]);
+  });
+
+  it('leaves the owner endpoints off without ADMIN_TOKEN, and refuses a short one', () => {
+    expect(loadConfig(REQUIRED_ENV).admin.token).toBeNull();
+    expect(loadConfig({ ...REQUIRED_ENV, ADMIN_TOKEN: 'x'.repeat(32) }).admin.token).toBe(
+      'x'.repeat(32),
+    );
+
+    const error = captureConfigError({ ...REQUIRED_ENV, ADMIN_TOKEN: 'too-short' });
+    expect(error.problems).toEqual([
+      'ADMIN_TOKEN: must be at least 32 characters (try: openssl rand -hex 32)',
+    ]);
+    expect(error.message).not.toContain('too-short');
   });
 
   it('parses TRUST_PROXY strictly and the telemetry buffer cap as a number', () => {

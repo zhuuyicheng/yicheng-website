@@ -2,9 +2,9 @@
 
 import type { SystemStatus } from '@portfolio/shared';
 import { useEffect, useState, type ReactNode } from 'react';
-import { PUBLIC_API_BASE_URL } from '@/lib/config';
 import {
   appendSample,
+  CHART_WINDOW_MS,
   fetchStatus,
   formatMs,
   formatRatio,
@@ -17,13 +17,13 @@ import { LiveChart } from './live-chart';
 
 /** The API caches its status for 5 s, so polling faster would only repeat the same numbers. */
 const POLL_MS = 5_000;
-/** 60 samples × 5 s: the charts cover the last 5 minutes the page was open. */
-const HISTORY_SIZE = 60;
+/** The owner-only route that asks the API for its status (app/admin/system-status). */
+const STATUS_URL = '/admin/system-status';
 
 /**
- * The live system dashboard (DESIGN.md §7.7, §8.6). Polls GET /api/v1/system/status from the
- * browser every 5 s, pauses while the tab is hidden, and keeps showing the last good numbers
- * (marked stale) if the API stops answering. Counts and timings only: nothing about visitors.
+ * The owner's live system dashboard, on /admin (DESIGN.md §7.7, §8.7). Polls every 5 s,
+ * pauses while the tab is hidden, and keeps showing the last good numbers (marked stale) if
+ * the API stops answering. The charts cover the last 30 minutes this page was open.
  */
 export function StatusDashboard() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -48,7 +48,7 @@ export function StatusDashboard() {
       controller = new AbortController();
       try {
         const next = await fetchStatus({
-          baseUrl: PUBLIC_API_BASE_URL,
+          url: STATUS_URL,
           fetch: window.fetch.bind(window),
           signal: controller.signal,
         });
@@ -60,7 +60,7 @@ export function StatusDashboard() {
           appendSample(
             h,
             { at, p95: next.http.latencyMs.p95, requests: next.http.requestCount },
-            HISTORY_SIZE,
+            CHART_WINDOW_MS,
           ),
         );
       } catch {
@@ -130,7 +130,7 @@ export function StatusDashboard() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <LiveChartSection history={history} />
+        <LiveChartSection history={history} now={now} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -173,27 +173,27 @@ export function StatusDashboard() {
       <p className="font-mono text-xs leading-relaxed text-zinc-600">
         answered by <span className="text-zinc-400">{status.instance}</span> · polled every 5 s
         while this tab is open · numbers are per API process since it started, latency over the last
-        5 minutes · counts only, never anything about individual visitors
+        5 minutes
       </p>
     </div>
   );
 }
 
-function LiveChartSection({ history }: { history: Sample[] }) {
-  const times = history.map((s) => s.at);
+function LiveChartSection({ history, now }: { history: Sample[]; now: number }) {
+  const axis = { end: now, windowMs: CHART_WINDOW_MS, maxGapMs: 3 * POLL_MS };
   return (
     <>
       <LiveChart
-        title="latency p95 (ms)"
-        values={history.map((s) => s.p95)}
-        times={times}
+        title="Latency p95 (ms)"
+        points={history.map((sample) => ({ at: sample.at, value: sample.p95 }))}
         format={formatMs}
+        {...axis}
       />
       <LiveChart
-        title="requests in the last 5 min"
-        values={history.map((s) => s.requests)}
-        times={times}
-        format={(v) => (v === null ? '—' : String(Math.round(v)))}
+        title="Requests in the last 5 min"
+        points={history.map((sample) => ({ at: sample.at, value: sample.requests }))}
+        format={(value) => (value === null ? '—' : String(Math.round(value)))}
+        {...axis}
       />
     </>
   );

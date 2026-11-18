@@ -6,9 +6,9 @@ import { Hero } from '@/components/hero';
 import { ProjectExplorer } from '@/components/project-explorer';
 import { Reveal } from '@/components/reveal';
 import { SectionHeading } from '@/components/section-heading';
-import { SlidingWindowLab } from '@/components/sliding-window-lab';
 import { TrackedLink } from '@/components/tracked-link';
 import { getProfile, getProjects } from '@/lib/api';
+import { paragraphs } from '@/lib/format';
 import { trackName } from '@/lib/telemetry';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
 /**
  * The home page, rendered on the server for each request from the API's data (which the API
  * serves from its Redis cache). Sections in scroll order: hero, about, experience, projects,
- * the rate-limiter lab, contact.
+ * contact.
  */
 export default async function HomePage() {
   const [profile, projects] = await Promise.all([getProfile(), getProjects()]);
@@ -38,26 +38,26 @@ export default async function HomePage() {
 
   return (
     <>
-      <Hero profile={profile} projects={projects} />
+      <Hero profile={profile} />
 
       <Section id="about">
-        <SectionHeading index="01" command="cat about.md" title="About" />
+        <SectionHeading title="About" />
         <Reveal className="grid gap-10 md:grid-cols-[1.6fr_1fr]">
           <div className="space-y-4 text-base leading-relaxed text-zinc-300 sm:text-lg">
-            {profile.summary.split(/\n{2,}/).map((paragraph) => (
+            {paragraphs(profile.summary).map((paragraph) => (
               <p key={paragraph}>{paragraph}</p>
             ))}
           </div>
-          <dl className="space-y-4 font-mono text-sm">
+          <dl className="space-y-4 text-sm">
             {profile.location !== null && (
               <div>
-                <dt className="text-zinc-600">location</dt>
+                <dt className="text-zinc-500">Location</dt>
                 <dd className="text-zinc-300">{profile.location}</dd>
               </div>
             )}
             {profile.links.map((link) => (
               <div key={link.url}>
-                <dt className="text-zinc-600">{link.label.toLowerCase()}</dt>
+                <dt className="text-zinc-500">{link.label}</dt>
                 <dd>
                   <TrackedLink
                     href={link.url}
@@ -74,29 +74,17 @@ export default async function HomePage() {
       </Section>
 
       <Section id="experience">
-        <SectionHeading index="02" command="git log --career" title="Experience & education" />
+        <SectionHeading title="Experience & education" />
         <ExperienceTimeline entries={timeline} />
       </Section>
 
       <Section id="projects">
-        <SectionHeading index="03" command="ls ~/projects" title="Projects" />
+        <SectionHeading title="Projects" />
         <ProjectExplorer projects={projects} />
       </Section>
 
-      <Section id="lab">
-        <SectionHeading index="04" command="./rate-limiter --demo" title="How this site works" />
-        <Reveal>
-          <p className="mb-8 max-w-3xl text-zinc-400">
-            This site runs on its own backend. The contact form below allows a few messages per
-            sender, counted by a sliding window in Redis. Here is the same algorithm in seconds
-            instead of minutes: drag the sliders, press play, and tap the timeline to send requests.
-          </p>
-          <SlidingWindowLab />
-        </Reveal>
-      </Section>
-
       <Section id="contact">
-        <SectionHeading index="05" command="./contact.sh" title="Get in touch" />
+        <SectionHeading title="Get in touch" />
         <Reveal className="max-w-3xl">
           <ContactForm />
         </Reveal>
@@ -116,8 +104,8 @@ function Section({ id, children }: { id: string; children: ReactNode }) {
 /** Shown before `npm run content:seed` has been run (the API answers 404 for the profile). */
 function NotSeeded() {
   return (
-    <div className="mx-auto max-w-2xl px-4 py-32 font-mono text-sm sm:px-6">
-      <p className="text-amber-300">profile: not found</p>
+    <div className="mx-auto max-w-2xl px-4 py-32 text-sm sm:px-6">
+      <p className="text-amber-300">No profile yet.</p>
       <p className="mt-3 text-zinc-400">
         The API has no content yet. Run <code className="text-zinc-200">npm run content:seed</code>{' '}
         and reload.

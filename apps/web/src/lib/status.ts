@@ -1,17 +1,21 @@
 import { systemStatusSchema, type SystemStatus } from '@portfolio/shared';
 
 /**
- * The live dashboard's logic (app/status): fetch the API's self-report (DESIGN.md §7.7) and
- * turn it into what the page shows. No React, so it can be unit-tested.
+ * The owner's live system dashboard (on /admin): fetch the API's self-report (DESIGN.md §7.7)
+ * and turn it into what the page shows. No React, so it can be unit-tested.
  */
 
-/** GET /api/v1/system/status from the browser, validated against the shared contract. */
+/**
+ * The status as the browser gets it: from the web server's owner-only route
+ * (app/admin/system-status/route.ts), which asks the API with the admin token. Validated
+ * against the shared contract.
+ */
 export async function fetchStatus(options: {
-  baseUrl: string;
+  url: string;
   fetch: typeof globalThis.fetch;
   signal?: AbortSignal;
 }): Promise<SystemStatus> {
-  const response = await options.fetch(`${options.baseUrl}/api/v1/system/status`, {
+  const response = await options.fetch(options.url, {
     cache: 'no-store',
     ...(options.signal ? { signal: options.signal } : {}),
   });
@@ -49,9 +53,17 @@ export interface Sample {
   requests: number;
 }
 
-/** Keeps the newest `max` samples: the charts show the last few minutes the page was open. */
-export function appendSample(history: readonly Sample[], sample: Sample, max: number): Sample[] {
-  return [...history, sample].slice(-max);
+/** The charts' time axis: the last 30 minutes, with a labelled tick every 5 minutes. */
+export const CHART_WINDOW_MS = 30 * 60_000;
+export const CHART_TICK_MS = 5 * 60_000;
+
+/** Adds `sample` and drops those older than `windowMs` before it: the chart's time window. */
+export function appendSample(
+  history: readonly Sample[],
+  sample: Sample,
+  windowMs: number,
+): Sample[] {
+  return [...history, sample].filter((kept) => kept.at > sample.at - windowMs);
 }
 
 /** `93784` → `1d 2h`, `3720` → `1h 2m`, `42` → `42s`: the two largest units. */
@@ -81,31 +93,84 @@ export function secondsAgo(at: number, now: number): number {
   return Math.max(0, Math.round((now - at) / 1000));
 }
 
+/** One point of a chart's line: a value (or `null`, unknown) at a time (ms since epoch). */
+export interface TimePoint {
+  at: number;
+  value: number | null;
+}
+
+/** Where a chart's time axis starts and ends (ms since epoch), and how wide it is drawn. */
+export interface TimeScale {
+  start: number;
+  end: number;
+  width: number;
+}
+
+/** The x position of time `at` on the axis. */
+export function timeX(at: number, scale: TimeScale): number {
+  return ((at - scale.start) / (scale.end - scale.start)) * scale.width;
+}
+
 /**
- * An SVG path through `values` in a `width` × `height` box: x spread evenly, y scaled from 0
- * (bottom) to `ceiling` (top). Gaps (`null`) break the line instead of pretending to be zero.
+ * Tick times between `start` and `end`: every multiple of `stepMs` since the epoch. With a
+ * 5-minute step these fall on :00, :05, :10 … of the viewer's clock, because every time zone
+ * is offset from UTC by whole quarter hours.
  */
-export function linePath(
-  values: readonly (number | null)[],
-  width: number,
-  height: number,
-  ceiling: number,
+export function timeTicks(start: number, end: number, stepMs: number): number[] {
+  const ticks: number[] = [];
+  for (let at = Math.ceil(start / stepMs) * stepMs; at <= end; at += stepMs) {
+    ticks.push(at);
+  }
+  return ticks;
+}
+
+/**
+ * An SVG path through `points`, placed by time (x) and scaled from 0 (bottom) to `ceiling`
+ * (top). The line breaks at unknown values and at gaps longer than `maxGapMs` (polling pauses
+ * while the tab is hidden) instead of drawing a straight line across time it knows nothing of.
+ */
+export function timeLinePath(
+  points: readonly TimePoint[],
+  options: TimeScale & { height: number; ceiling: number; maxGapMs: number },
 ): string {
-  if (values.length === 0 || ceiling <= 0) return '';
-  const step = values.length > 1 ? width / (values.length - 1) : 0;
+  const { height, ceiling, maxGapMs } = options;
+  if (ceiling <= 0) return '';
   let path = '';
-  let penDown = false;
-  values.forEach((value, index) => {
-    if (value === null) {
-      penDown = false;
-      return;
+  let previousAt: number | null = null;
+  for (const point of points) {
+    if (point.value === null) {
+      previousAt = null;
+      continue;
     }
-    const x = values.length > 1 ? index * step : width / 2;
-    const y = height - (Math.min(value, ceiling) / ceiling) * height;
-    path += `${penDown ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)} `;
-    penDown = true;
-  });
+    const continues = previousAt !== null && point.at - previousAt <= maxGapMs;
+    const x = timeX(point.at, options);
+    const y = height - (Math.min(point.value, ceiling) / ceiling) * height;
+    path += `${continues ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)} `;
+    previousAt = point.at;
+  }
   return path.trim();
+}
+
+/** The point closest in time to `at` (for the hover crosshair), or `null` if there is none. */
+export function nearestPoint(points: readonly TimePoint[], at: number): TimePoint | null {
+  let best: TimePoint | null = null;
+  for (const point of points) {
+    if (best === null || Math.abs(point.at - at) < Math.abs(best.at - at)) {
+      best = point;
+    }
+  }
+  return best;
+}
+
+const CLOCK = new Intl.DateTimeFormat('en-GB', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** `17:35` in the viewer's time zone: the time axis' labels. */
+export function formatClock(at: number): string {
+  return CLOCK.format(at);
 }
 
 /** A round number just above the largest value, so the chart's top label reads cleanly. */

@@ -91,7 +91,22 @@ describe('content API with live Postgres and Redis', () => {
       repoUrl: 'https://github.com/example/note-g',
       liveUrl: null,
       featured: true,
+      sections: [
+        {
+          heading: 'How it works',
+          body: 'A table of operations.\n\nOne row per step.',
+          points: ['Loops over the variables', 'Stores results on the Store'],
+        },
+        { heading: 'Legacy', body: null, points: ['Called the first program'] },
+      ],
     });
+  });
+
+  it('GET /api/v1/projects/:slug returns an empty sections list for a project without any', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/v1/projects/bernoulli-numbers' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json<DataResponseBody<Project>>().data.sections).toEqual([]);
   });
 
   it('stores cache entries with a TTL within ±10 % of CACHE_TTL_SECONDS', async () => {

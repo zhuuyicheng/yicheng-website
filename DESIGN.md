@@ -302,12 +302,16 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `NOTIFY_MAX_ATTEMPTS`               | 4     | `3`                     | 1–10. Total attempts including the first.                                 |
 | `NOTIFY_BACKOFF_BASE_MS`            | 4     | `5000`                  | Delay = base × 2^(attempt−1) ± 20 % jitter, capped at 4 min.              |
 | `METRICS_TOKEN`                     | 5     | unset                   | ≥ 16 chars. If set, `/metrics` requires `Authorization: Bearer <token>`.  |
+| `ADMIN_TOKEN`                       | 6     | unset                   | ≥ 32 chars. Owner area (§8.7): API bearer token and /admin password.      |
 | `CORS_ORIGINS`                      | 5     | `http://localhost:3000` | Comma-separated origins (`https://host[:port]`, no path, no `/`).         |
 | `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side, read at request time).                        |
 | `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API. Baked in at `next build`. Empty = same origin (§14.5).     |
 
-The two web variables are read by Next.js from the environment or from `apps/web/.env*`
-files (not the root `.env`); the defaults suit local development. `NEXT_PUBLIC_*` values are
+The web variables are read by Next.js from the environment or from `apps/web/.env*` files
+(not the root `.env`); the defaults suit local development. `ADMIN_TOKEN` is set in both apps
+(the API checks it, the web server sends it and checks the owner's password against it);
+`apps/web/.env.development`, read by `next dev` only, holds the same development value as
+`.env.example`. `NEXT_PUBLIC_*` values are
 copied into the JavaScript bundle when the site is built, so changing one means rebuilding.
 
 Docker Compose additionally reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
@@ -409,6 +413,23 @@ CREATE TABLE education (
 CREATE INDEX education_display_order_idx ON education (sort_order, start_date DESC);
 ```
 
+### 5.2c `0006_project_sections.sql` (Phase 6)
+
+Structured detail for project pages. Expand-only (a column with a default), so the code that
+was deployed before it keeps working (§14.4).
+
+```sql
+ALTER TABLE projects
+  ADD COLUMN sections JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD CONSTRAINT projects_sections_is_array CHECK (jsonb_typeof(sections) = 'array');
+```
+
+Each element is `{ "heading": text, "body": text | null, "points": [text] }`. JSONB rather
+than a child table: sections are always read and written together with their project, never
+queried on their own. Only `content:seed` writes them, after the content file's schema has
+checked every section (heading ≤ 120 characters, body ≤ 2,000, points ≤ 500 each, at most 20
+sections, and a body or at least one point under every heading).
+
 ### 5.3 `0003_analytics_events.sql` (Phase 3)
 
 ```sql
@@ -502,7 +523,7 @@ CREATE INDEX contact_messages_created_at_idx ON contact_messages (created_at DES
 | ------------------------------- | ------------------------ | ------------------------- | ----- | --------------------------------------------------------- |
 | `cache:v2:profile`              | STRING (JSON)            | `CACHE_TTL_SECONDS` ±10 % | 2     | Profile + experiences + education response                |
 | `cache:v1:projects`             | STRING (JSON)            | same                      | 2     | Project list response                                     |
-| `cache:v1:project:{slug}`       | STRING (JSON)            | same                      | 2     | Single project                                            |
+| `cache:v2:project:{slug}`       | STRING (JSON)            | same                      | 2     | Single project (v2: added `sections`)                     |
 | `telemetry:salt:{YYYY-MM-DD}`   | STRING (hex)             | 48 h                      | 3     | Daily visitor-hash salt (UTC date); created with `SET NX` |
 | `telemetry:events:buffer`       | LIST (JSON)              | none                      | 3     | Ingested events awaiting flush                            |
 | `telemetry:events:inflight`     | LIST (JSON)              | none                      | 3     | Batch claimed by the flusher, not yet committed           |
@@ -766,8 +787,10 @@ Failure reasons are **logged** (with `requestId`), never returned; they can cont
 `GET /api/v1/projects` → `200 { "data": [ProjectSummary] }`, ordered by featured, then `sort_order`.
 `ProjectSummary = { slug, title, summary, techStack[], repoUrl|null, liveUrl|null, featured }`
 
-`GET /api/v1/projects/:slug` → `200 { "data": Project }` (`ProjectSummary` + `description`), `404` if
-no such project, or `400 VALIDATION_ERROR` if the slug is malformed (`^[a-z0-9]+(-[a-z0-9]+)*$`, ≤ 100).
+`GET /api/v1/projects/:slug` → `200 { "data": Project }`, `404` if no such project, or
+`400 VALIDATION_ERROR` if the slug is malformed (`^[a-z0-9]+(-[a-z0-9]+)*$`, ≤ 100).
+`Project = ProjectSummary + { description, sections: [{ heading, body|null, points[] }] }`
+(`sections` since migration 0006; `[]` for a project without any).
 
 All three set `X-Cache: hit | miss`.
 
@@ -836,7 +859,8 @@ Rate-limit headers on **every** response from this route once the limiter has ru
 and `WWW-Authenticate: Bearer`. The token is compared in constant time (both sides hashed,
 then `timingSafeEqual`), so response timing reveals nothing about it.
 
-`GET /api/v1/system/status` → `200`, served from a 5 s in-process cache:
+`GET /api/v1/admin/system-status` → `200`, served from a 5 s in-process cache. Owner-only
+(§7.8): it needs the admin bearer token, like every `/api/v1/admin/*` route.
 
 ```json
 {
@@ -873,11 +897,44 @@ has a 2 s timeout. Concurrent requests during a refresh share it (single-flight)
 
 Rolling percentiles come from an in-process ring buffer (10 000 samples) of the last 5 minutes
 of request durations (Prometheus histograms are cumulative, not rolling). Requests to `/health`,
-`/metrics` and this endpoint are left out of it (Prometheus still counts them), or a dashboard
-polling every few seconds would mostly measure itself. `cache` counts content-cache lookups
+`/metrics` and the owner endpoints are left out of it (Prometheus still counts them), or a
+dashboard polling every few seconds would mostly measure itself. `cache` counts content-cache lookups
 since the process started. Values are per API instance;
 `instance` (the container hostname) says which one answered, because with two replicas
 (§14.5) consecutive polls can reach different instances.
+
+### 7.8 Owner endpoints (Phase 6)
+
+Read by the web app's password-protected `/admin` page (§8.7), never by browsers directly.
+Every route under `/api/v1/admin/` needs `Authorization: Bearer <ADMIN_TOKEN>` (the same
+constant-time check as `/metrics`) and answers `Cache-Control: no-store`. Without
+`ADMIN_TOKEN` the routes are not registered at all (`404`). In production Caddy also refuses
+`/api/v1/admin/*` from the internet (§14.5): only the web server, inside the server, calls them.
+
+`GET /api/v1/admin/system-status`: the status report of §7.7.
+
+`GET /api/v1/admin/visitors?days=7` (`days` 1–365, default 7; today in UTC is the first day)
+→ `200 { "data": VisitorSummary }`:
+
+| Field                            | What                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------ |
+| `days`, `since`, `generatedAt`   | The period: `since` is UTC midnight of the first day                                 |
+| `totals`                         | `{ pageViews, visits, clicks }`                                                      |
+| `daily[]`                        | `{ day, pageViews, visitors }` for every UTC day, zeros included                     |
+| `referrers[]`                    | `{ referrer \| null, visits }`; `null` = direct or unknown                           |
+| `campaigns[]`                    | `{ ref, utmSource, utmMedium, utmCampaign, visits }` for tagged visits               |
+| `locations[]`, `organizations[]` | `{ countryCode, city, visits }`; `{ organization, countryCode, visits, lastSeenAt }` |
+| `pages[]`, `clicks[]`            | `{ path, views, visits }`; `{ name, clicks }`                                        |
+| `devices[]`, `browsers[]`        | `{ deviceType, visits }`; `{ browser, visits }`                                      |
+| `recentVisits[]`                 | the 50 newest visits, each with every field above                                    |
+| `truncated`                      | `true` if the period had more than 20,000 visits (the newest are used)               |
+
+Ranked lists hold at most 10 entries. A **visit** is one browser tab's `session_id`: Postgres
+groups its events (`GROUP BY session_id`) and takes the first non-null referrer, tagged-link
+field, place, network and device in time order; the manager
+(`services/visitor-insights.manager.ts`) ranks the visits. Unique visitors are counted per UTC
+day only, because the visitor hash changes every day (§8.2). Crawlers (`device_type = 'bot'`)
+and `/admin` pages are never counted.
 
 ---
 
@@ -901,7 +958,7 @@ which key, schema and DAL query to use.
    written on error) and, in one transaction, upserts the profile, replaces all experiences
    and education entries (their ids change per seed), upserts projects by slug and deletes
    projects no longer in the file. It then deletes every content cache key (`SCAN` for
-   `cache:v1:project:*`) and warms
+   `cache:v2:project:*`) and warms
    the cache through the normal read path. If clearing the cache fails, the command exits `1`
    (Postgres is already updated; cached copies may be stale until their TTL). There is no admin
    HTTP endpoint.
@@ -1132,30 +1189,78 @@ with the API's schema, then sent. Every answer has a message: `202` (with the re
 from `X-RateLimit-Remaining`), `400` (the API's field details under each field), `429` (the
 wait from `Retry-After`, rounded up), `503` and network failures.
 
-**Effects.** Dark theme with monospace "terminal" details. Scroll-linked effects write one
-CSS variable (`--progress`, `components/use-scroll-progress.ts`) per animation frame instead
-of re-rendering React: the hero drifts and fades, the timeline line fills. Sections reveal
-once on entering the screen (IntersectionObserver), the header highlights the section being
-read, the hero glow follows a precise pointer, and the rate-limiter lab replays the API's
-sliding window (`lib/sliding-window.ts`) with sliders, a play button and tap-to-add requests.
-Content is in the server-rendered HTML first; effects only enhance it, so without JavaScript
-or with `prefers-reduced-motion: reduce` everything is visible and still.
+**Look.** A plain, dark design: sans-serif text, section titles without decoration, and no
+terminal imitation (prompts, `./` prefixes, fake commands). Monospace is kept for the live
+dashboard's numbers only.
 
-**Live dashboard** (`/status`, `components/status-dashboard.tsx`, logic in `lib/status.ts`).
-A static page whose numbers the browser fetches from `GET /api/v1/system/status` every 5 s
-(the API's own cache period), validated with the shared schema. Polling pauses while the tab
-is hidden and resumes at once when it is shown. If the API stops answering, the last numbers
-stay on screen under a "lost contact" banner instead of disappearing. It shows a health banner
-(icon + words, never colour alone), stat tiles (uptime, requests, p50/p95, cache hit ratio,
-page views), two charts of the samples gathered since the page opened (p95 latency and
-request count: one measure per chart, 2 px line, crosshair and tooltip on hover or touch),
+**Effects.** Scroll-linked effects write one CSS variable (`--progress`,
+`components/use-scroll-progress.ts`) per animation frame instead of re-rendering React: the
+hero drifts and fades, the timeline line fills. Sections reveal once on entering the screen
+(IntersectionObserver), the header highlights the section being read, and the hero glow
+follows a precise pointer. Content is in the server-rendered HTML first; effects only enhance
+it, so without JavaScript or with `prefers-reduced-motion: reduce` everything is visible and
+still.
+
+**Projects.** Each card is one large link: the title link's `::after` covers the card, so the
+whole box opens the project while screen readers hear only the title. Hovering lifts the card
+and moves its "Read more →" arrow; keyboard focus outlines it (`has-[a:focus-visible]`). A
+technology filter narrows the grid. A project page shows the overview (`description`), then
+each section (heading, paragraphs, points) with an "On this page" list on wide screens that
+highlights the section being read (`components/project-contents.tsx`; ids from
+`lib/project-page.ts`). A "Back to projects" button (at least 44 px tall) sits at the top and
+bottom, beside a link to the next project. Source and live links appear on the project page
+only, never inside a card (a link inside a link is invalid HTML).
+
+**Live system dashboard** (on `/admin`, §8.7; `components/status-dashboard.tsx`, logic in
+`lib/status.ts`). The browser polls `/admin/system-status` every 5 s (the API's own cache
+period), a web-server route that asks the API with the admin token; the result is validated
+with the shared schema. Polling pauses while the tab is hidden and resumes at once when it is
+shown. If the API stops answering, the last numbers stay on screen under a "lost contact"
+banner instead of disappearing. It shows a health banner (icon + words, never colour alone),
+stat tiles (uptime, requests, p50/p95, cache hit ratio, page views), two charts and
 dependencies and queue lengths (a non-empty dead-letter queue is flagged "needs attention").
-Counts and timings only. The header links to it with a pulsing "status" dot, and a pill in
-the hero shows the current health and p95 (refreshed every 30 s).
+The charts (p95 latency and request count, one measure each) cover the last 30 minutes the
+page was open, placed by time: a labelled tick every 5 minutes on the viewer's clock, a 2 px
+line that breaks where polling paused (a hidden tab), crosshair and tooltip on hover or touch.
+Nothing on the public site links to it.
+
+### 8.7 The owner area (`/admin`, Phase 6)
+
+One private page for the site's owner: who visited and how they found the site (§7.8), then
+the live system dashboard (§8.6). The system's health, dependencies and queues are nobody
+else's business, so nothing about them is public any more.
+
+**Login: HTTP Basic.** `proxy.ts` (Next.js 16's name for middleware, run before every
+`/admin` request) checks `Authorization: Basic …`: the password must be `ADMIN_TOKEN` (the
+username is ignored; constant-time comparison of SHA-256 digests, `lib/admin-auth.ts`). Without
+it the answer is `401` with `WWW-Authenticate: Basic realm="Owner"`, so the browser shows its
+own login box and then resends the credentials with every `/admin` request, including the
+dashboard's polling. Without `ADMIN_TOKEN` configured, `/admin` is a `404`. The page and its
+route check again themselves (Next.js advises against relying on the proxy alone), and every
+response carries `Cache-Control: no-store` and `X-Robots-Tag: noindex`. Basic rather than a
+login form: one owner, read-only pages, HTTPS everywhere, and no session or CSRF code to get
+wrong. Brute force is hopeless against a 32-character random token.
+
+**Data path.** The page is a Server Component: it reads `/api/v1/admin/visitors` with the
+token as a bearer token (`lib/admin-api.ts`), so the token stays on the web server.
+`?days=` picks the period (Today, 7, 30 or 90 days, as links so a period can be bookmarked).
+
+**Layout.** Totals (visits, page views, link clicks); a column chart of unique visitors per
+UTC day (tooltip with page views, a screen-reader table with the same numbers); ranked lists
+(one hue, label and count, a thin bar scaled to the largest) for referring sites, tagged
+links, organisations (with when each was last seen), places, devices, browsers, pages and link
+clicks; a table of the 50 newest visits (when, came from, where and which network, device,
+pages in order); then the system dashboard.
+
+**The owner is not a visitor.** The page-view beacon never sends `/admin` pages, and opening
+`/admin` marks the browser as the owner's (`localStorage`, with a checkbox to undo it): the
+beacon then sends nothing from that browser (`lib/telemetry.ts` `shouldRecord`). The API also
+leaves `/admin` paths out of every summary.
 
 **Devices.** Mobile-first Tailwind: one column on phones, the header's links collapse into a
 menu below `md`, project cards go 1 → 2 → 3 columns (`sm`, `lg`), the timeline puts dates
-beside entries from `md`, and the lab's sliders stack. Tap targets are at least 24 px.
+beside entries from `md`, and a project page's contents list appears from `lg`. Tap targets
+are at least 24 px; the main buttons are 44 px tall.
 
 ---
 
@@ -1267,7 +1372,7 @@ compose, run serially):
   inserted) → no duplicate rows; poison events → DLQ (invalid JSON, CHECK violation `23514`);
   Postgres down → batch stays in flight; buffer cap → 503; IP lookup on MaxMind's test
   databases; `dlq:replay` CLI; **real worker process**: `SIGTERM` drains the buffer, exit `0`.
-- (P5) `/api/v1/system/status` with live datastores (traffic excluding monitors, page views,
+- (P5) the system status endpoint (`/api/v1/admin/system-status` since P6) with live datastores (traffic excluding monitors, page views,
   queues, 5 s cache) and with Redis down; `/metrics` (route templates, `unmatched`, queue
   gauges, histogram buckets); bearer token 401/200; Helmet headers; CORS preflight (not
   rate-limited), exposed rate-limit headers, other origins refused.
@@ -1301,12 +1406,16 @@ Consequences:
 - Derived details such as organisation and city still count as personal data under the GDPR
   (for EU/UK visitors) and similar laws. The site's privacy notice (`/privacy`, P5) says what is
   collected and why, plus the DB-IP attribution wherever the data is shown publicly.
-- Visitor details are for the site owner, who reads them with SQL (`docs/sql/telemetry.sql`).
-  They never appear on the public status dashboard, which shows counts only (§7.7).
+- Visitor details are for the site owner only: on the password-protected `/admin` page (§8.7)
+  or with SQL (`docs/sql/telemetry.sql`). Nothing about visitors, and since Phase 6 nothing
+  about the system's health or queues, is shown publicly.
 
 Other measures:
 
 - Abuse controls (P4) use a keyed HMAC of the IP, never the IP itself.
+- (P6) The owner area: `ADMIN_TOKEN` (≥ 32 characters) is the `/admin` password and the bearer
+  token for `/api/v1/admin/*`; both compare in constant time, and Caddy refuses the API's owner
+  routes from outside the server (§7.8, §8.7, §14.5).
 - Docker ports bind to `127.0.0.1` only (Redis has no password in local dev).
 - Logs redact `authorization` and `cookie` headers.
 - Error responses never leak internal messages or stack traces.
@@ -1355,7 +1464,7 @@ gate once releases are routine.
 | Graceful shutdown with a deadline                | Stopping the old version lets in-flight requests finish         |
 | Worker is a separate process                     | Restarted independently of the API                              |
 | CI on every PR and on `main`                     | Only tested commits become releases                             |
-| `/metrics` and `/api/v1/system/status` (P5)      | Monitoring and the public dashboard work from day one           |
+| `/metrics` and the system status (P5)            | Monitoring and the owner's dashboard work from day one          |
 | Web pages render per request, not at build (P5)  | `next build` never needs the API, so the web image builds in CI |
 
 ### 14.2 Artifacts
@@ -1404,7 +1513,7 @@ merge to main ─► CI green ─► build + push images (tag = SHA)
   must not drop or rename anything the running version reads. A rename becomes: add the new
   column → backfill → release code using it → drop the old column in a later release.
 - **No secrets in images or Git.** Production values (`IP_HASH_SECRET`, `METRICS_TOKEN`,
-  `DISCORD_WEBHOOK_URL`, database passwords) live in GitHub Environment secrets and an env
+  `ADMIN_TOKEN`, `DISCORD_WEBHOOK_URL`, database passwords) live in GitHub Environment secrets and an env
   file on the host, with a copy of that file in a password manager (GitHub never shows a
   secret again once saved). The hostname is not in Git either (§14.5).
 - **One worker at a time** (§8.4): the rollout stops the old worker before starting the new one.
@@ -1414,7 +1523,8 @@ merge to main ─► CI green ─► build + push images (tag = SHA)
 - Production settings: `NODE_ENV=production`, `TRUST_PROXY=true` (without it every visitor
   would have Caddy's IP, and the IP lookup would find nothing), `CORS_ORIGINS=https://<host>`,
   `METRICS_TOKEN` set, `GEOIP_ASN_DB_PATH` / `GEOIP_LOCATION_DB_PATH` pointing into the image,
-  `NOTIFIER_DRIVER=discord` with `DISCORD_WEBHOOK_URL`, and for the web container
+  `NOTIFIER_DRIVER=discord` with `DISCORD_WEBHOOK_URL`, `ADMIN_TOKEN` (the same value in the
+  API and web containers, §8.7), and for the web container
   `API_BASE_URL=http://caddy:8080` (Caddy's internal listener, §14.5), built with an empty
   `NEXT_PUBLIC_API_BASE_URL` (§14.2).
 - **Memory**: each API replica holds ~140 MB of GeoIP data (§8.2); the VM is sized for two
@@ -1492,6 +1602,10 @@ https://<host>/*       →  web
 }
 
 {$SITE_HOST} {
+	# The owner's API routes are for the web server only, which uses :8080 below.
+	handle /api/v1/admin/* {
+		respond 404
+	}
 	handle /api/* {
 		import api_replicas
 	}
@@ -1521,7 +1635,7 @@ without leaving the server or paying for TLS. The worker and web stay single ins
 | Metrics, rolling percentiles, status (P5) | Per process                  | Each replica reports its own numbers (see below)                  |
 
 Per-process numbers: Prometheus scrapes each replica directly (`api-1:4000`, `api-2:4000`),
-never through Caddy, which would hand it a random replica each time. `GET /api/v1/system/status`
+never through Caddy, which would hand it a random replica each time. The system status
 includes `instance` (§7.7), so the dashboard shows which replica answered.
 
 **The load balancer must not use `/health`.** `/health` returns `503` when Redis is down, on

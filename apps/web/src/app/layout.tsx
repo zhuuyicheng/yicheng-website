@@ -7,7 +7,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: { default: 'Portfolio', template: '%s · Portfolio' },
-  description: 'Personal portfolio with a live backend telemetry dashboard.',
+  description: 'Personal portfolio: experience, projects and how to get in touch.',
 };
 
 export const viewport: Viewport = {

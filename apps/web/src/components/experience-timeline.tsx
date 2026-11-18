@@ -51,25 +51,18 @@ function TimelineEntry({ entry }: { entry: Entry }) {
 
   return (
     <article className="md:grid md:grid-cols-[11rem_1fr] md:gap-8">
-      <p className="font-mono text-xs text-zinc-500 sm:text-sm">
+      <p className="text-xs text-zinc-500 tabular-nums sm:text-sm">
         {formatRange(item.startDate, item.endDate)}
         <span className="block text-zinc-600">{formatDuration(months)}</span>
       </p>
       <div className="mt-2 md:mt-0">
-        <h3 className="text-lg font-medium text-zinc-100">
-          {title}
-          <span className="text-zinc-500"> @ </span>
-          <span className={entry.kind === 'work' ? 'text-emerald-300' : 'text-cyan-300'}>
-            {place}
-          </span>
-        </h3>
+        <h3 className="text-lg font-medium text-zinc-100">{title}</h3>
+        <p className={entry.kind === 'work' ? 'text-emerald-300' : 'text-cyan-300'}>{place}</p>
         {item.highlights.length > 0 && (
           <ul className="mt-3 space-y-2 text-sm leading-relaxed text-zinc-400 sm:text-base">
             {item.highlights.map((highlight) => (
               <li key={highlight} className="flex gap-3">
-                <span aria-hidden className="mt-1 font-mono text-xs text-emerald-500">
-                  ▸
-                </span>
+                <span aria-hidden className="mt-2.5 size-1.5 shrink-0 rounded-full bg-zinc-600" />
                 <span>{highlight}</span>
               </li>
             ))}
