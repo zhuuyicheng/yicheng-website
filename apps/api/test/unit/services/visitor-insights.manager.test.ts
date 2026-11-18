@@ -25,6 +25,7 @@ function visit(overrides: Partial<Visit> = {}): Visit {
     deviceType: 'desktop',
     browser: 'Chrome',
     os: 'macOS',
+    ipAddress: null,
     ...overrides,
   };
 }

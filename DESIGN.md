@@ -481,6 +481,20 @@ the table is small, and these columns are read by occasional ad-hoc queries
 (`docs/sql/telemetry.sql`), not by request paths. `device_type` has no `CHECK`, because a new
 value from the user-agent parser must not make inserts fail.
 
+### 5.3c `0007_analytics_ip_address.sql` (Phase 6)
+
+The visitor's IP address, kept with each event at the owner's request (§12). Expand-only.
+
+```sql
+ALTER TABLE analytics_events ADD COLUMN ip_address INET;
+```
+
+`INET` holds IPv4 and IPv6 addresses and refuses anything else, so the API stores `NULL` for
+a `request.ip` that is not a valid address (`storableIp`): one bad value would otherwise fail
+the worker's whole batch insert. Events buffered before this release have no address and are
+stored with `NULL`. Behind Caddy the address is the visitor's only with `TRUST_PROXY=true`
+(§14.4); in local development every visit is `127.0.0.1` or `::1`.
+
 ### 5.4 `0005_contact_messages.sql` (Phase 4)
 
 ```sql
@@ -926,7 +940,7 @@ constant-time check as `/metrics`) and answers `Cache-Control: no-store`. Withou
 | `locations[]`, `organizations[]` | `{ countryCode, city, visits }`; `{ organization, countryCode, visits, lastSeenAt }` |
 | `pages[]`, `clicks[]`            | `{ path, views, visits }`; `{ name, clicks }`                                        |
 | `devices[]`, `browsers[]`        | `{ deviceType, visits }`; `{ browser, visits }`                                      |
-| `recentVisits[]`                 | the 50 newest visits, each with every field above                                    |
+| `recentVisits[]`                 | the 50 newest visits, each with every field above and its `ipAddress`                |
 | `truncated`                      | `true` if the period had more than 20,000 visits (the newest are used)               |
 
 Ranked lists hold at most 10 entries. A **visit** is one browser tab's `session_id`: Postgres
@@ -982,11 +996,13 @@ which key, schema and DAL query to use.
    unambiguous. It counts unique visitors per day; a new salt each day means the same person
    cannot be linked across days.
 6. Build the buffered event: `id` (a new UUID), `type`, `name`, `path`, `referrerHost`,
-   `sessionId`, `visitorHash`, `receivedAt`, plus the `campaign`, `device` and `network` groups.
+   `sessionId`, `visitorHash`, `receivedAt`, the `campaign`, `device` and `network` groups,
+   and `ipAddress` (since migration 0007).
 7. Bounded enqueue script → `202`, or `503` (+ `telemetry_events_rejected_total{reason}`).
 
-The raw IP and user agent are used in steps 2 and 5, then discarded: they reach neither Redis,
-nor Postgres, nor the logs.
+The raw user agent is used in steps 2 and 5, then discarded: it reaches neither Redis, nor
+Postgres, nor the logs. The IP address is also kept, in the event (`ipAddress`) and its row
+(`ip_address`), by the owner's choice (§12); it never appears in logs.
 
 #### Visitor details: what is (and is not) possible
 
@@ -1006,8 +1022,8 @@ nor Postgres, nor the logs.
   Cost: ~140 MB of RAM per API process (the City file is 127 MB; a country-only file is a
   drop-in replacement if memory is tight). The organisation is a company's name for visitors on
   its own network, and an ISP for people at home or on mobile data; VPNs change both.
-- **Why look up at ingestion, not in the worker:** the raw IP never has to leave the API
-  process, and the lookup cannot fail because a server is down.
+- **Why look up at ingestion, not in the worker:** the GeoIP files are loaded in the API
+  already, and the lookup cannot fail because a server is down.
 - **Configuration**: a path that is unset turns that lookup off (a `warn` at startup, the
   columns stay `NULL`); a path that is set but unreadable stops the API from starting.
 - **Queued data outlives the code that wrote it.** Events buffered before migration 0004 have
@@ -1428,9 +1444,12 @@ See [docs/CI.md](docs/CI.md).
 **What the analytics keep (decided in Phase 3).** The goal is to learn who visits, so every
 event stores what the visitor's link, browser and IP address reveal (§8.2): campaign parameters
 (`ref`, `utm_*`), browser, OS, device type, language, time zone, and the country, city and
-organisation of the IP address. Raw IP addresses and full user-agent strings are still neither
-stored nor logged, only what is derived from them, plus a daily-salted visitor hash (unlinkable
-across days) for counting unique visitors. Referrers keep their host, which is nearly all
+organisation of the IP address. Full user-agent strings are neither stored nor logged, only
+what is derived from them, plus a daily-salted visitor hash (unlinkable across days) for
+counting unique visitors. **IP addresses are stored since Phase 6** (`ip_address`, §5.3c): the
+owner chose to see them on `/admin`, reversing the Phase 3 choice not to. They are personal
+data under the GDPR; there is no automatic deletion yet (a retention rule, e.g. clearing the
+column after 30 days, is the recommended next step), and they are never written to logs. Referrers keep their host, which is nearly all
 browsers send (§8.2). Contact-form emails are not linked to browsing sessions (on hold).
 
 Consequences:

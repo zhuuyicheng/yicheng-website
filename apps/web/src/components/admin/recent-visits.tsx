@@ -8,19 +8,23 @@ import {
   timeAgo,
 } from '@/lib/visitors';
 
-/** The newest visits, one row each: when, how they arrived, from where, on what, and what they read. */
+/**
+ * The newest visits, one row each: when, how they arrived, from where (place, network and IP
+ * address), on what, and what they read.
+ */
 export function RecentVisits({ visits, now }: { visits: readonly Visit[]; now: number }) {
   if (visits.length === 0) {
     return <p className="text-sm text-muted">No visits in this period yet.</p>;
   }
   return (
     <div className="overflow-x-auto rounded-xl border border-line bg-surface">
-      <table className="w-full min-w-[48rem] text-left text-sm">
+      <table className="w-full min-w-[56rem] text-left text-sm">
         <thead className="border-b border-line text-xs text-muted">
           <tr>
             <th className="px-4 py-3 font-normal">When</th>
             <th className="px-4 py-3 font-normal">Came from</th>
             <th className="px-4 py-3 font-normal">Where</th>
+            <th className="px-4 py-3 font-normal">IP address</th>
             <th className="px-4 py-3 font-normal">Device</th>
             <th className="px-4 py-3 font-normal">Pages</th>
           </tr>
@@ -46,6 +50,9 @@ export function RecentVisits({ visits, now }: { visits: readonly Visit[]; now: n
                   {visit.organization !== null && (
                     <span className="mt-0.5 block text-xs text-muted">{visit.organization}</span>
                   )}
+                </td>
+                <td className="px-4 py-3 font-mono text-xs break-all text-body">
+                  {visit.ipAddress ?? <span className="font-sans text-faint">not recorded</span>}
                 </td>
                 <td className="px-4 py-3 text-muted">{deviceLabel(visit)}</td>
                 <td className="px-4 py-3 text-muted">

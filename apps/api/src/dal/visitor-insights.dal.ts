@@ -52,6 +52,7 @@ interface VisitRow {
   device_type: string | null;
   browser: string | null;
   os: string | null;
+  ip_address: string | null;
 }
 
 const COUNTED = `received_at >= $1
@@ -84,7 +85,8 @@ export function createVisitorInsightsDal(pool: PostgresPool): VisitorInsightsDal
                 ${first('country_code')}  AS country_code,
                 ${first('device_type')}   AS device_type,
                 ${first('browser')}       AS browser,
-                ${first('os')}            AS os
+                ${first('os')}            AS os,
+                ${first('host(ip_address)')} AS ip_address
            FROM analytics_events
           WHERE ${COUNTED}
           GROUP BY session_id
@@ -159,5 +161,6 @@ function toVisit(row: VisitRow): Visit {
     deviceType: row.device_type,
     browser: row.browser,
     os: row.os,
+    ipAddress: row.ip_address,
   };
 }

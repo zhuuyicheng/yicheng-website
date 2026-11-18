@@ -96,6 +96,7 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
       visitorHash: 'a'.repeat(64),
       network: { countryCode: 'SG', city: 'Singapore', organization: 'Acme Pte Ltd' },
       device: { browser: 'Chrome', os: 'macOS', type: 'desktop', language: null, timezone: null },
+      ipAddress: '203.0.113.7',
     };
     await createAnalyticsEventDal(deps.postgres).insertBatch([
       // A visit from a tagged LinkedIn link: two pages and a click.
@@ -162,7 +163,9 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
       city: 'Singapore',
       countryCode: 'SG',
       browser: 'Chrome',
+      ipAddress: '203.0.113.7',
     });
+    expect(summary.recentVisits[0]?.ipAddress).toBeNull(); // an event without an address
   });
 
   it('rejects a period outside 1-365 days', async () => {

@@ -102,6 +102,9 @@ export const bufferedEventSchema = z.object({
   campaign: campaignSchema.default(unknownCampaign),
   device: deviceSchema.default(unknownDevice),
   network: networkSchema.default(unknownNetwork),
+  // Added with migration 0007: the visitor's IP address (owner's choice, DESIGN.md §12), or
+  // null when it is not a valid address. Older buffered events have none.
+  ipAddress: z.string().nullable().default(null),
 });
 
 export type BufferedEvent = z.infer<typeof bufferedEventSchema>;

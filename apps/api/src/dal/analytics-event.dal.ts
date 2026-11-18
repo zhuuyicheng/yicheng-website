@@ -45,6 +45,7 @@ const COLUMN_TYPES: Record<keyof NewEventRow, string> = {
   country_code: 'text',
   city: 'text',
   organization: 'text',
+  ip_address: 'inet',
 };
 
 const COLUMNS = Object.keys(COLUMN_TYPES) as (keyof NewEventRow)[];
@@ -52,7 +53,7 @@ const COLUMNS = Object.keys(COLUMN_TYPES) as (keyof NewEventRow)[];
 /**
  * One parameter per COLUMN (an array of that column's values, one per event), not one per
  * value. `unnest` turns the arrays back into rows, so a batch of 1 or 1000 events is one
- * statement with 20 parameters. The generated SQL reads:
+ * statement with 21 parameters. The generated SQL reads:
  *
  *   INSERT INTO analytics_events (id, event_type, event_name, ...)
  *   SELECT * FROM unnest($1::uuid[], $2::text[], $3::text[], ...)
@@ -108,5 +109,6 @@ function toRow(event: BufferedEvent): NewEventRow {
     country_code: event.network.countryCode,
     city: event.network.city,
     organization: event.network.organization,
+    ip_address: event.ipAddress,
   };
 }

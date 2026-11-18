@@ -34,6 +34,8 @@ export const visitSchema = z.object({
   deviceType: text,
   browser: text,
   os: text,
+  /** The visitor's IP address (the first one seen in the visit), or null for older events. */
+  ipAddress: text,
 });
 
 export const visitorSummarySchema = z.object({

@@ -230,3 +230,6 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
 - [x] Hero photo collage (seven tilted prints, `HERO_PHOTOS`); graduation photo in the carousel
 - [x] Privacy page removed (owner's decision); projects moved from `/projects/<slug>` to
       `/<slug>` with permanent redirects; no separate projects list; reserved slugs refused
+- [x] IP addresses stored (owner's choice): migration `0007_analytics_ip_address.sql` (`INET`),
+      buffered event `ipAddress`, shown per visit on `/admin` (302 API + 68 web tests)
+- [ ] Retention rule for IP addresses (e.g. clear after 30 days)

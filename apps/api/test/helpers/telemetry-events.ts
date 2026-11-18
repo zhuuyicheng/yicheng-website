@@ -20,6 +20,7 @@ export function bufferedEventJson(overrides: Partial<BufferedEvent> = {}): strin
     campaign: unknownCampaign(),
     device: unknownDevice(),
     network: unknownNetwork(),
+    ipAddress: null,
     ...overrides,
   };
   return JSON.stringify(event);

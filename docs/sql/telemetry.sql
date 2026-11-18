@@ -6,7 +6,7 @@
 
 -- The latest events, newest first, with everything we know about each visitor.
 SELECT received_at, event_type, event_name, path, ref, utm_source, referrer_host,
-       organization, city, country_code, browser, os, device_type, language, timezone
+       ip_address, organization, city, country_code, browser, os, device_type, language, timezone
   FROM analytics_events
  ORDER BY received_at DESC
  LIMIT 50;
@@ -73,3 +73,12 @@ SELECT count(*) AS events,
        round(max(extract(epoch FROM inserted_at - received_at))::numeric, 2) AS max_wait_seconds
   FROM analytics_events
  WHERE received_at > now() - interval '1 day';
+
+-- Visits per IP address (since migration 0007), newest first. One address can be several
+-- people (an office, a mobile network) and one person can have several addresses.
+SELECT host(ip_address) AS ip, organization, city, country_code,
+       count(DISTINCT session_id) AS visits, max(received_at) AS last_seen
+  FROM analytics_events
+ WHERE ip_address IS NOT NULL
+ GROUP BY ip_address, organization, city, country_code
+ ORDER BY last_seen DESC;

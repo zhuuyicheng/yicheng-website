@@ -13,6 +13,7 @@ import {
   createTelemetryManager,
   hashVisitor,
   hostOf,
+  storableIp,
   stripQueryAndFragment,
 } from '../../../src/services/telemetry.manager.js';
 import { createVisitorDetailsManager } from '../../../src/services/visitor-details.manager.js';
@@ -96,17 +97,25 @@ describe('TelemetryManager.ingest', () => {
         timezone: 'Asia/Singapore',
       },
       network: { countryCode: 'SG', city: 'Singapore', organization: 'Example Corp' },
+      ipAddress: '203.0.113.7',
     });
     expect(await counterValue(metrics.telemetryEventsIngested, { type: 'page_view' })).toBe(1);
   });
 
-  it('never stores the raw IP or user agent', async () => {
+  it('keeps the IP address (the owner chose to, DESIGN.md §12) but never the raw user agent', async () => {
     const { manager, buffer } = setup();
 
     await manager.ingest(PAGE_VIEW, VISITOR, log);
 
-    expect(buffer[0]).not.toContain(VISITOR.ip);
+    expect(buffer[0]).toContain(VISITOR.ip);
     expect(buffer[0]).not.toContain('Mozilla');
+  });
+
+  it('stores no address when request.ip is not a valid IP (INET would refuse the batch)', () => {
+    expect(storableIp('203.0.113.7')).toBe('203.0.113.7');
+    expect(storableIp('2001:db8::1')).toBe('2001:db8::1');
+    expect(storableIp('unknown')).toBeNull();
+    expect(storableIp('')).toBeNull();
   });
 
   it("asks Redis for the salt once per UTC day, then uses the new day's salt", async () => {
