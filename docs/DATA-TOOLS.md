@@ -233,9 +233,9 @@ Arrange four terminals: `npm run dev:api`, `npm run dev:worker`, `MONITOR` (§4)
    events, top pages, unique visitors per day, organisations, tagged-link sessions, referrers,
    devices, clicks, and how long events waited in Redis.
 
-### 7.2 Phase 4: the contact form and rate limiter
+### 7.2 Phase 4: the contact form, rate limiter and notifications
 
-The path of one message (DESIGN.md §8.3):
+**Part A: the API side.** The path of one message into the system (DESIGN.md §8.3):
 
 ```
 curl / form ─► rate limiter ─► contact_messages (Postgres, PENDING) ─► jobs:notifications:ready
@@ -270,12 +270,12 @@ from `.env.example` into your `.env`, run `npm run db:migrate` (it applies
      `{"jobId":…,"messageId":…,"attempt":1,"enqueuedAt":…}`. Ids only: the name, email and
      text stay in Postgres.
    - `contact_messages`: the row, `status = PENDING`, `attempts = 0`. Its `id` is the job's
-     `messageId`. It stays `PENDING` until Phase 4b's worker sends the notification.
+     `messageId`. It stays `PENDING` until the worker sends the notification (Part B).
 3. **Hit the limit.** Run the `curl` three more times. The fourth answers
    `429 Too Many Requests` with `retry-after: 5xx` (seconds until your first message leaves
-   the 10-minute window) and `x-ratelimit-remaining: 0`. Refresh the ZSET: still **3** members. Rejected
-   requests are not recorded, so hammering the endpoint while blocked never extends the
-   lockout. `MONITOR` shows the script ran `ZRANGE … WITHSCORES` (to find the oldest member)
+   the 10-minute window) and `x-ratelimit-remaining: 0`. Refresh the ZSET: still **3**
+   members. Rejected requests are not recorded, so hammering the endpoint while blocked never
+   extends the lockout. `MONITOR` shows the script ran `ZRANGE … WITHSCORES` (to find the oldest member)
    instead of `ZADD`.
 4. **Watch the window slide.** Waiting 10 minutes is dull, so restart the API with a short
    window: `CONTACT_RATE_LIMIT_WINDOW_SECONDS=30 npm run dev:api`. Delete the ZSET key in the
@@ -292,8 +292,74 @@ from `.env.example` into your `.env`, run `npm run db:migrate` (it applies
 7. **Read the messages with SQL.** Open [`docs/sql/contact.sql`](sql/contact.sql): latest
    messages, counts per status, stuck `PENDING` messages, failed notifications, repeat senders.
 
-Phase 4b adds the worker that consumes `jobs:notifications:ready` and moves each row to `SENT`
-(or `FAILED`, with the job in `jobs:notifications:dlq`).
+**Part B: the worker side.** The path of one job out of the system:
+
+```
+jobs:notifications:ready ─► worker takes it (BLMOVE) ─► jobs:notifications:processing ─► notifier
+                                                              │
+         sent ─────────────► contact_messages.status = SENT ◄─┤
+         failed, retryable ► jobs:notifications:delayed ──────┤ (ZSET, score = when to retry;
+                             └─► promoter, every 1 s ─► ready │  the job comes back here)
+         failed for good ──► jobs:notifications:dlq + status = FAILED
+```
+
+Keep a fourth terminal for `npm run dev:worker`. You will send several messages: when the
+rate limiter answers `429`, delete the `ratelimit:contact:…` key in the Redis view.
+
+8. **Start the worker and watch the backlog drain.** The messages from Part A are still in
+   `jobs:notifications:ready`. Start `npm run dev:worker`: the log says `worker started`
+   (`notifier: "log"`), then for each message `new contact message (log notifier …)` and
+   `notification sent`. Refresh: the ready list is gone, and the rows are `SENT` with
+   `attempts = 1` and `sent_at` filled in. `MONITOR` shows, per job: `lmove` (the check for
+   stranded jobs, answering nil), `blmove` (take), `lrem` from `processing` (done).
+9. **Waiting without polling.** Leave the worker idle and watch `MONITOR`: a `blmove … 5`
+   every 5 s (a wait that timed out, then the next one starts) and the promoter's `evalsha`
+   every second. Now send a message: the worker reacts at once. `BLMOVE` returns the moment
+   the API's `lpush` lands, instead of the worker asking "anything new?" on a timer.
+10. **Send it to your real Discord.** In Discord: Server Settings → Integrations → Webhooks →
+    New Webhook → pick a channel → Copy Webhook URL. In `.env`, set `NOTIFIER_DRIVER=discord`
+    and `DISCORD_WEBHOOK_URL=<the URL>`, and restart the worker. Send a message: it arrives as
+    a card with the name, email and text. Try `"message":"@everyone hi"`: the text shows, but
+    nobody is pinged (`allowed_mentions` in `infra/notifiers/discord.notifier.ts`).
+11. **A webhook that is down: retries, then the DLQ.** Restart the worker pointing at an
+    address where nothing listens (an env var beats `.env`):
+
+    ```bash
+    NOTIFIER_DRIVER=discord DISCORD_WEBHOOK_URL=https://127.0.0.1:59999/webhook npm run dev:worker
+    ```
+
+    Send a message. The log says `notification failed, will retry` with `retryInMs` around
+    5000 (a refused connection is worth retrying). In the Redis view the job now sits in
+    `jobs:notifications:delayed`, a ZSET whose score is the time it may run again, in ms.
+    About 5 s later `MONITOR` shows the promoter's script move it (`[0 lua]` `ZREM`, `LPUSH`),
+    attempt 2 fails and waits ~10 s, attempt 3 fails, and the log says
+    `notification failed for good, dead-lettered` with `reason: attempts_exhausted`. The row
+    is `FAILED`, `attempts = 3`, `last_error = Discord webhook request failed: ECONNREFUSED`,
+    and `jobs:notifications:dlq` holds the job, the reason and the error.
+
+12. **Fix it, then replay.** Restart the worker normally (`npm run dev:worker`), then run
+    `npm run dlq:replay -- notifications`. The row goes back to `PENDING` with `attempts = 0`,
+    a fresh job is queued, and the worker sends it: `SENT`.
+13. **A refusal is not retried.** Restart the worker with a webhook URL Discord does not know:
+    `DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/0/not-a-token`. Send a message:
+    Discord answers with a 4xx error, and after **one** attempt the job is dead-lettered with
+    `reason: rejected`. Asking again with the same bad URL would fail the same way, so the
+    worker does not waste attempts on it.
+14. **A crash mid-job.** Stop the worker and send a message. In the Redis CLI panel, play a
+    worker that took the job and died:
+    `LMOVE jobs:notifications:ready jobs:notifications:processing RIGHT LEFT`. Start the
+    worker: `requeued jobs left in processing by an earlier run`, then `notification sent`.
+15. **A lost job: the reconciler.** Stop the worker, send a message, then delete
+    `jobs:notifications:ready` in the Redis view, as if the API's `lpush` had failed. The row
+    is `PENDING` with no job anywhere. Start the worker: nothing happens yet. The reconciler
+    runs every 60 s and only picks messages untouched for 5 minutes. To skip the wait, make
+    the row look old in the SQL editor:
+    `UPDATE contact_messages SET updated_at = now() - interval '10 minutes' WHERE status = 'PENDING';`
+    Within a minute: `pending message had no job, re-queued`, then `notification sent`.
+16. **Graceful shutdown.** Press Ctrl+C in the worker terminal: `shutdown started`, then
+    `notification consumer stopped` straight away. The consumer does not sit out its 5 s
+    `BLMOVE`; closing its connection ends the wait. Then the telemetry drain, and
+    `shutdown complete`.
 
 ### 7.3 Later phases
 
@@ -302,12 +368,14 @@ Phase 4b adds the worker that consumes `jobs:notifications:ready` and moves each
 
 ## 8. Troubleshooting
 
-| Symptom                            | Fix                                                                   |
-| ---------------------------------- | --------------------------------------------------------------------- |
-| "Connection refused"               | `npm run infra:up`; use `127.0.0.1` instead of `localhost`            |
-| Connects, but no tables            | `npm run db:migrate` (and `npm run content:seed` for content rows)    |
-| Redis view shows no `cache:` keys  | Make sure the connection uses DB **0**, make a request, press refresh |
-| `portfolio_test` database missing  | It is created by the first `npm run test:integration`                 |
-| `analytics_events` stays empty     | Is `npm run dev:worker` running? Events wait in Redis until it is     |
-| API exits: `GEOIP_…: cannot open`  | `npm run geoip:download`, or remove the `GEOIP_*` lines from `.env`   |
-| `organization`/`city` always empty | Normal locally (`127.0.0.1`); see §7.1 step 3 to try a public IP      |
+| Symptom                             | Fix                                                                   |
+| ----------------------------------- | --------------------------------------------------------------------- |
+| "Connection refused"                | `npm run infra:up`; use `127.0.0.1` instead of `localhost`            |
+| Connects, but no tables             | `npm run db:migrate` (and `npm run content:seed` for content rows)    |
+| Redis view shows no `cache:` keys   | Make sure the connection uses DB **0**, make a request, press refresh |
+| `portfolio_test` database missing   | It is created by the first `npm run test:integration`                 |
+| `analytics_events` stays empty      | Is `npm run dev:worker` running? Events wait in Redis until it is     |
+| Contact messages stay `PENDING`     | Is the worker running? Its log says why a notification failed         |
+| Worker exits: `DISCORD_WEBHOOK_URL` | Set it, or `NOTIFIER_DRIVER=log` for the log notifier                 |
+| API exits: `GEOIP_…: cannot open`   | `npm run geoip:download`, or remove the `GEOIP_*` lines from `.env`   |
+| `organization`/`city` always empty  | Normal locally (`127.0.0.1`); see §7.1 step 3 to try a public IP      |

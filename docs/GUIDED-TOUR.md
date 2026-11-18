@@ -1,4 +1,4 @@
-# Guided Tour: Phases 1–3, Hands-On
+# Guided Tour: Phases 1–4, Hands-On
 
 A set of short "stations" that let you poke at everything built so far. Each station is
 10–15 minutes and has the same shape:
@@ -296,9 +296,52 @@ organisation): [DATA-TOOLS.md §7.1](DATA-TOOLS.md#71-phase-3-the-telemetry-pipe
 
 ---
 
-## Station 10: Check yourself
+## Station 10: Send yourself a message (Phase 4)
 
-You've got Phases 1–3 down if you can answer these. Click to reveal.
+**Do**: if your `.env` predates Phase 4, copy the "Contact form" block from `.env.example`
+into it first, run `npm run db:migrate`, and restart the API and the worker. Then send the
+contact form four times:
+
+```bash
+# Terminal B (run it 4 times)
+curl -si -X POST localhost:4000/api/v1/contact -H 'content-type: application/json' \
+  -d '{"name":"Tour","email":"tour@example.com","message":"Hello from the guided tour"}'
+```
+
+**See**
+
+- Terminal B: three `202 Accepted` with `x-ratelimit-remaining` counting 2, 1, 0, then a
+  `429 Too Many Requests` with `retry-after` (seconds until a slot frees up).
+- Terminal C (`MONITOR`): per request, the API's `evalsha` (the sliding-window script) and an
+  `lpush` to `jobs:notifications:ready`; then the worker's `blmove`, which was already waiting
+  and takes the job at once, and an `lrem` when it is done.
+- Terminal D (worker): `new contact message (log notifier …)` and `notification sent`, three
+  times.
+- PostgreSQL sidebar: three rows in `contact_messages`, `status = SENT`, `attempts = 1`.
+
+**Why**: the rate limiter counts accepted requests in a Redis sorted set, with one atomic Lua
+script, so even simultaneous requests cannot slip past the limit. The API stores the message
+first (Postgres is the source of truth), then queues a small job with ids only; the worker
+sends the notification separately, so a slow or broken Discord never makes the visitor wait.
+
+**Code**: the request: [contact.controller.ts](../apps/api/src/controllers/contact.controller.ts)
+→ [rate-limit.ts](../apps/api/src/middleware/rate-limit.ts) (hook) →
+[rate-limiter.manager.ts](../apps/api/src/services/rate-limiter.manager.ts) →
+[sliding-window.lua.ts](../apps/api/src/dal/lua/sliding-window.lua.ts); then
+[contact.manager.ts](../apps/api/src/services/contact.manager.ts). The worker:
+[notification-consumer.worker.ts](../apps/api/src/workers/notification-consumer.worker.ts) →
+[notification.manager.ts](../apps/api/src/services/notification.manager.ts) →
+[notification-queue.dal.ts](../apps/api/src/dal/notification-queue.dal.ts) and
+[discord.notifier.ts](../apps/api/src/infra/notifiers/discord.notifier.ts).
+
+**More experiments** (the sliding window, Redis down, a real Discord channel, retries and the
+DLQ, crash recovery, the reconciler): [DATA-TOOLS.md §7.2](DATA-TOOLS.md#72-phase-4-the-contact-form-rate-limiter-and-notifications).
+
+---
+
+## Station 11: Check yourself
+
+You've got Phases 1–4 down if you can answer these. Click to reveal.
 
 <details><summary>1. Which file decides whether <code>/health</code> returns 200 or 503?</summary>
 
@@ -376,10 +419,47 @@ flush interval, so anything flushed after `SIGTERM` was flushed by the drain.
 
 </details>
 
+<details><summary>11. Twenty requests arrive at the same instant. Why do exactly 3 get through, not 20?</summary>
+
+Counting and adding happen inside one Lua script, and Redis never runs another command in the
+middle of a script. As two separate commands (count, then add), all twenty could count 0
+before any of them added itself. Proven by "admits exactly 3 of 20 simultaneous requests, even
+across 4 API instances" in `test/integration/contact.test.ts`.
+
+</details>
+
+<details><summary>12. Discord answers 503 three times, and another message gets 404. What happens to each?</summary>
+
+503 means "not now", so it is retried: about 5 s later, then about 10 s later (doubling, ± 20 %
+jitter). After the third failure the message is `FAILED` and its job is in the DLQ with
+`reason: attempts_exhausted`. 404 means the request itself is wrong (a deleted webhook), so it
+is dead-lettered after one attempt with `reason: rejected`. See the end of `run` in
+`notification.manager.ts`.
+
+</details>
+
+<details><summary>13. Postgres goes down while the worker is sending. Why does that not use up an attempt?</summary>
+
+Only the notifier's own errors are caught as failed attempts. A datastore error escapes
+`processNext`, so the job stays in `jobs:notifications:processing`, and the consumer backs off.
+The next `processNext` first moves anything stranded in `processing` back to `ready`, and the
+job runs again with the same attempt number. Proven by "Postgres down mid-job" in
+`test/integration/notification-worker.test.ts`.
+
+</details>
+
+<details><summary>14. The API saved a message but could not queue its job. Who notices, and when?</summary>
+
+The visitor still got `202`, and `notification_enqueue_failures_total` went up. The worker's
+reconciler, every 60 s, claims `PENDING` messages untouched for 5 minutes and queues a new job
+for each. So the notification arrives within about 6 minutes instead of being lost.
+
+</details>
+
 ---
 
 ## Where to go next
 
 - [ROADMAP.md](../ROADMAP.md): what's done and what's next.
-- [DESIGN.md](../DESIGN.md): §2 (architecture), §8.1 (cache) and §8.2 (telemetry pipeline)
-  are worth reading now that you've seen them working. Skip the later phases until we get there.
+- [DESIGN.md](../DESIGN.md): §2 (architecture), §8.1 (cache), §8.2 (telemetry pipeline) and
+  §8.3 (contact + notifications) are worth reading now that you've seen them working. Skip the later phases until we get there.

@@ -13,7 +13,7 @@ SELECT status, count(*) AS messages, max(created_at) AS latest
   FROM contact_messages
  GROUP BY status;
 
--- Messages still PENDING after 5 minutes: the reconciler (Phase 4b) re-queues exactly these.
+-- Messages still PENDING after 5 minutes: the worker's reconciler re-queues exactly these.
 SELECT id, created_at, updated_at, attempts, last_error
   FROM contact_messages
  WHERE status = 'PENDING'

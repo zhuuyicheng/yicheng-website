@@ -3,7 +3,11 @@ import type { Logger } from '../infra/logger.js';
 /** One resource to release on shutdown. Steps run in the order they are given. */
 export interface ShutdownStep {
   name: string;
-  close: () => Promise<void>;
+  /**
+   * `timeLeftMs`: time until the forced exit. Most steps ignore it; one that can use as much
+   * time as it gets (the worker draining its buffer) takes it as its budget.
+   */
+  close: (timeLeftMs: number) => Promise<void>;
 }
 
 export interface GracefulShutdownOptions {
@@ -13,6 +17,8 @@ export interface GracefulShutdownOptions {
   steps: readonly ShutdownStep[];
   /** Injectable for tests. Defaults to process.exit. */
   exit?: (code: number) => void;
+  /** Injectable for tests. */
+  now?: () => number;
 }
 
 export interface GracefulShutdown {
@@ -22,6 +28,7 @@ export interface GracefulShutdown {
 export function createGracefulShutdown(options: GracefulShutdownOptions): GracefulShutdown {
   const { logger, timeoutMs, steps } = options;
   const exit = options.exit ?? ((code: number) => process.exit(code));
+  const now = options.now ?? Date.now;
   let inProgress = false;
 
   async function shutdown(reason: string, exitCode = 0): Promise<void> {
@@ -34,6 +41,7 @@ export function createGracefulShutdown(options: GracefulShutdownOptions): Gracef
     inProgress = true;
     logger.info({ reason }, 'shutdown started');
 
+    const deadline = now() + timeoutMs;
     const forceExitTimer = setTimeout(() => {
       logger.error({ timeoutMs }, 'shutdown timed out, forcing exit');
       exit(1);
@@ -43,7 +51,7 @@ export function createGracefulShutdown(options: GracefulShutdownOptions): Gracef
     let finalExitCode = exitCode;
     for (const step of steps) {
       try {
-        await step.close();
+        await step.close(Math.max(0, deadline - now()));
         logger.info({ step: step.name }, 'shutdown step completed');
       } catch (err) {
         // Keep going: one failing resource must not leave the others open.

@@ -32,6 +32,7 @@ describe('loadConfig', () => {
       ipLookup: { asnDbPath: null, locationDbPath: null },
       ipHash: { secret: REQUIRED_ENV.IP_HASH_SECRET },
       contact: { rateLimitMax: 3, rateLimitWindowSeconds: 600 },
+      notifications: { notifier: { driver: 'log' }, maxAttempts: 3, backoffBaseMs: 5_000 },
       shutdown: { timeoutMs: 10_000 },
     });
   });
@@ -78,6 +79,46 @@ describe('loadConfig', () => {
       expect.stringMatching(/^TELEMETRY_BATCH_SIZE:/),
       expect.stringMatching(/^TELEMETRY_FLUSH_INTERVAL_MS:/),
     ]);
+  });
+
+  it('reads the Discord notifier settings', () => {
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      NOTIFIER_DRIVER: 'discord',
+      DISCORD_WEBHOOK_URL: 'https://discord.com/api/webhooks/123/abc',
+      NOTIFY_MAX_ATTEMPTS: '5',
+      NOTIFY_BACKOFF_BASE_MS: '1000',
+    });
+
+    expect(config.notifications).toEqual({
+      notifier: { driver: 'discord', webhookUrl: 'https://discord.com/api/webhooks/123/abc' },
+      maxAttempts: 5,
+      backoffBaseMs: 1_000,
+    });
+  });
+
+  it('requires DISCORD_WEBHOOK_URL for the discord driver, reported with every other problem', () => {
+    const error = captureConfigError({
+      ...REQUIRED_ENV,
+      NOTIFIER_DRIVER: 'discord',
+      NOTIFY_MAX_ATTEMPTS: '0',
+    });
+
+    expect(error.problems).toEqual([
+      expect.stringMatching(/^NOTIFY_MAX_ATTEMPTS:/),
+      'DISCORD_WEBHOOK_URL: is required when NOTIFIER_DRIVER=discord',
+    ]);
+  });
+
+  it('refuses a webhook URL that is not https, without printing it', () => {
+    const error = captureConfigError({
+      ...REQUIRED_ENV,
+      NOTIFIER_DRIVER: 'discord',
+      DISCORD_WEBHOOK_URL: 'http://discord.com/api/webhooks/123/secret-token',
+    });
+
+    expect(error.problems).toEqual(['DISCORD_WEBHOOK_URL: must be an https:// URL']);
+    expect(error.message).not.toContain('secret-token');
   });
 
   it('parses TRUST_PROXY strictly and the telemetry buffer cap as a number', () => {

@@ -20,6 +20,9 @@ export interface Metrics {
   rateLimitDecisions: Counter<'limiter' | 'decision'>;
   rateLimitErrors: Counter<'limiter'>;
   notificationEnqueueFailures: Counter;
+  notificationJobs: Counter<'outcome'>;
+  notificationJobsRequeued: Counter<'reason'>;
+  workerLoopFailures: Counter<'loop' | 'kind'>;
 }
 
 /** Why POST /api/v1/events refused an event (every refusal is a 503). */
@@ -36,6 +39,16 @@ export type TelemetryFlushFailureKind = 'transient' | 'permanent' | 'unexpected'
 
 /** What a rate limiter decided for one request. */
 export type RateLimitDecision = 'allowed' | 'denied';
+
+/** How the worker finished one notification job (DESIGN.md §8.3). */
+export type NotificationJobOutcome = 'sent' | 'retried' | 'dead_lettered' | 'skipped';
+
+/**
+ * Why a job went back into the ready list without being processed:
+ *   - `stranded`: a previous run left it in `processing` (crash, outage mid-job);
+ *   - `reconciled`: its message was PENDING with no job in sight (enqueue failed, data lost).
+ */
+export type NotificationRequeueReason = 'stranded' | 'reconciled';
 
 export interface MetricsOptions {
   /** CPU, memory, event-loop lag, ... Only worth collecting in a real process. */
@@ -117,6 +130,24 @@ export function createMetrics(options: MetricsOptions = {}): Metrics {
     notificationEnqueueFailures: new Counter({
       name: 'notification_enqueue_failures_total',
       help: 'Contact messages saved but not queued for notification (the reconciler retries).',
+      registers: [registry],
+    }),
+    notificationJobs: new Counter({
+      name: 'notification_jobs_total',
+      help: 'Notification jobs finished, by outcome (sent, retried, dead_lettered, skipped).',
+      labelNames: ['outcome'],
+      registers: [registry],
+    }),
+    notificationJobsRequeued: new Counter({
+      name: 'notification_jobs_requeued_total',
+      help: 'Jobs put back in the ready list, by reason (stranded, reconciled).',
+      labelNames: ['reason'],
+      registers: [registry],
+    }),
+    workerLoopFailures: new Counter({
+      name: 'worker_loop_failures_total',
+      help: 'Failed iterations of a worker loop, by loop and kind (transient, unexpected).',
+      labelNames: ['loop', 'kind'],
       registers: [registry],
     }),
   };

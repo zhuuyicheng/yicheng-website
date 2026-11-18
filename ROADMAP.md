@@ -8,7 +8,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | 1     | `main` (initial scaffold)    | —      | ✅ Done        |
 | 2     | `feat/portfolio-cache-api`   | A      | ✅ Done        |
 | 3     | `feat/telemetry-pipeline`    | B      | ✅ Done        |
-| 4     | `feat/contact-rate-limiter`  | C      | 🚧 In progress |
+| 4     | `feat/contact-rate-limiter`  | C      | 🔍 In review   |
 | 5     | `feat/metrics-and-dashboard` | D      | ⬜ Not started |
 | 6     | `feat/continuous-delivery`   | —      | ⬜ Not started |
 
@@ -92,14 +92,22 @@ Built in two steps, one commit each: **4a** the API side (limiter, endpoint, job
       (`onRequest` hook, keyed by `HMAC-SHA256(IP_HASH_SECRET, ip)`, fails closed with `503`)
 - [x] `POST /api/v1/contact` → persist `PENDING`, enqueue notification job, `202`
       (enqueue failure still answers `202`, counted in `notification_enqueue_failures_total`)
-- [ ] Notification worker: reliable queue, exponential backoff, DLQ, `SENT`/`FAILED` status
-- [ ] Notifiers: `log` (dev) and `discord`
-- [ ] Reconciler for messages whose enqueue failed
+- [x] Notification worker: reliable queue, exponential backoff, DLQ, `SENT`/`FAILED` status
+      (consumer on a dedicated blocking connection, requeues stranded jobs before every take;
+      delayed-retry promoter every 1 s; backoff ± 20 % jitter, capped at 4 min)
+- [x] Notifiers: `log` (dev) and `discord` (5 s timeout, mentions off, 429/5xx retryable)
+- [x] Reconciler for messages whose enqueue failed (every 60 s, claims with `UPDATE … RETURNING`)
+- [x] `npm run dlq:replay -- notifications` (reopens `FAILED` messages with a fresh job)
+- [x] Worker graceful shutdown: interrupts `BLMOVE`, finishes the current job; shutdown steps
+      get the time left, so the telemetry drain uses what remains
 - [x] Tests (4a): 20 concurrent requests across 4 API instances admit exactly 3; sliding expiry;
       `Retry-After`; Redis down → 503 (147 unit + 56 integration total)
-- [ ] Tests (4b): retry/backoff/DLQ against a stub webhook; reconciler; crash recovery
+- [x] Tests (4b): retry/backoff/DLQ against a stub webhook; reconciler; crash recovery;
+      Postgres down mid-job; real worker process sends and stops promptly (192 unit + 67
+      integration total)
 - [x] DATA-TOOLS.md §7.2: watching the rate-limit sorted set and the ready queue fill up
-- [ ] DATA-TOOLS.md §7.2: watching the worker drain the job queues (4b)
+- [x] DATA-TOOLS.md §7.2: watching the worker drain the job queues, retries and the DLQ (4b)
+- [ ] PR merged (CI green)
 
 ## Phase 5: Metrics & dashboard (`feat/metrics-and-dashboard`)
 

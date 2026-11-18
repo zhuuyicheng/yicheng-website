@@ -42,6 +42,38 @@ describe('createGracefulShutdown', () => {
     expect(exit).toHaveBeenCalledExactlyOnceWith(0);
   });
 
+  it('tells each step how much time is left before the forced exit', async () => {
+    let clock = 0;
+    const timesLeft: number[] = [];
+    const { shutdown } = createGracefulShutdown({
+      logger,
+      timeoutMs: 10_000,
+      exit: vi.fn(),
+      now: () => clock,
+      steps: [
+        {
+          name: 'slow',
+          close: (timeLeftMs) => {
+            timesLeft.push(timeLeftMs);
+            clock += 4_000; // this step takes 4 s
+            return Promise.resolve();
+          },
+        },
+        {
+          name: 'drain',
+          close: (timeLeftMs) => {
+            timesLeft.push(timeLeftMs);
+            return Promise.resolve();
+          },
+        },
+      ],
+    });
+
+    await shutdown('SIGTERM');
+
+    expect(timesLeft).toEqual([10_000, 6_000]);
+  });
+
   it('keeps closing later steps when one fails, and exits with code 1', async () => {
     const calls: string[] = [];
     const exit = vi.fn();

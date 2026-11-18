@@ -2,10 +2,7 @@ import { pino } from 'pino';
 import { describe, expect, it } from 'vitest';
 import { createMetrics } from '../../../src/infra/metrics.js';
 import type { FlushOutcome } from '../../../src/services/telemetry-flush.manager.js';
-import {
-  backoffMs,
-  createTelemetryFlusher,
-} from '../../../src/workers/telemetry-flusher.worker.js';
+import { createTelemetryFlusher } from '../../../src/workers/telemetry-flusher.worker.js';
 import { counterValue } from '../../helpers/metrics.js';
 
 const BATCH_SIZE = 50;
@@ -148,13 +145,5 @@ describe('telemetry flusher loop', () => {
     await flusher.stop(1_000);
 
     expect(counts.flushes).toBe(0);
-  });
-});
-
-describe('backoffMs', () => {
-  it('doubles from 0.5 s and caps at 30 s', () => {
-    expect([1, 2, 3, 4, 5, 6, 7, 8].map(backoffMs)).toEqual([
-      500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000,
-    ]);
   });
 });
