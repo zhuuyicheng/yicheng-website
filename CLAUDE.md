@@ -22,6 +22,7 @@ section before changing behaviour, and update it in the same change when a desig
 | Download / refresh the GeoIP databases               | `npm run geoip:download` (gitignored `apps/api/data/geoip/`)     |
 | Build the Docker images locally (docs/DOCKER.md)     | `npm run image:api` / `npm run image:web`                        |
 | Production stack on the laptop (PRODUCTION-STACK.md) | `npm run stack:up` / `stack:down` / `stack:failover`             |
+| Deploy a release to the stack, as CD does (CD.md)    | `npm run stack:deploy -- dev` (server: `deploy.sh <sha>`)        |
 | Back up / restore the stack's database (BACKUPS.md)  | `npm run stack:backup` / `npm run stack:restore -- <file.dump>`  |
 | Lint / fix                                           | `npm run lint` / `npm run lint:fix`                              |
 | Typecheck                                            | `npm run typecheck`                                              |
@@ -100,6 +101,8 @@ section before changing behaviour, and update it in the same change when a desig
 ## Roadmap & workflow
 
 Phases and live progress checklists: [ROADMAP.md](ROADMAP.md). Tick items there as they land.
+The owner's overview is [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md) (flows, diagrams, code links):
+update it in the same change when a flow, an endpoint or a file it links to changes.
 
 1. **Skeleton & infra**: done (`main`)
 2. `feat/portfolio-cache-api`: CI workflow, profile/projects API, Redis cache-aside, cache metrics (done)
@@ -110,6 +113,7 @@ Phases and live progress checklists: [ROADMAP.md](ROADMAP.md). Tick items there 
 5. `feat/metrics-and-dashboard`: `/metrics`, system status API, Next.js portfolio + dashboard
    (built; PR in review)
 6. `feat/continuous-delivery`: Docker images, GHCR, deploy workflow with approval gate, rollback
+   (built and tested on the laptop stack; first server deploy after merge, docs/CD.md §2)
 
 One phase per branch → pull request → CI green → merge. Stop for review between phases.
 Each phase adds a "what to watch" section to `docs/DATA-TOOLS.md` (Postgres/Redis VS Code views).

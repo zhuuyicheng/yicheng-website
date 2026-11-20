@@ -1,7 +1,8 @@
 # Guided Tour: Phases 1–5, Hands-On
 
-A set of short "stations" that let you poke at everything built so far. Each station is
-10–15 minutes and has the same shape:
+Short "stations" for poking at each feature from the terminal. For the overview first (every
+flow on one page, with diagrams), read [PROJECT-GUIDE.md](PROJECT-GUIDE.md). Each station is
+10–15 minutes:
 
 - **Do**: commands to run
 - **See**: what should happen
@@ -185,7 +186,7 @@ end up with half-published content.
 **Do**: in the PostgreSQL sidebar, open `portfolio` → `public` → Tables, then open
 [docs/sql/content.sql](sql/content.sql) and run each query.
 
-**See**: `schema_migrations` lists `0001` and `0002` with checksums; the `pg_stat_activity`
+**See**: `schema_migrations` lists every applied migration (`0001`–`0007`) with checksums; the `pg_stat_activity`
 query shows a connection named `portfolio-api` (your running API).
 
 **Experiment: why you must never edit an applied migration**
@@ -248,8 +249,8 @@ Now, in [services/cache-aside.manager.ts](../apps/api/src/services/cache-aside.m
 **See**: the `ttlWithJitter` tests turn red within a second, telling you exactly which
 expectation broke; undoing turns them green.
 
-Then run the whole suite once: `npm test` (286 API tests, then 37 for the website). Pick one test file, read it, and match
-each `it(...)` to a behaviour you saw in Stations 1–7.
+Then run the whole suite once: `npm test` (about 300 API tests, then about 75 for the website).
+Pick one test file, read it, and match each `it(...)` to a behaviour you saw in Stations 1–7.
 
 **Why**: tests are the safety net that lets later phases change code without fear. CI runs
 the same tests on GitHub for every pull request ([CI.md](CI.md)).
@@ -542,7 +543,7 @@ A cross-origin `application/json` POST needs a CORS preflight (an extra OPTIONS 
 
 ## Where to go next
 
-- [ROADMAP.md](../ROADMAP.md): what's done and what's next.
-- [DESIGN.md](../DESIGN.md): §2 (architecture), §8.1 (cache), §8.2 (telemetry pipeline) and
-  §8.3 (contact + notifications), §8.5 (observability) and §8.6 (the website) are worth reading
-  now that you've seen them working. Skip the later phases until we get there.
+- Phase 6, production: run the real stack on your laptop
+  ([PRODUCTION-STACK.md](PRODUCTION-STACK.md)), then release to the server ([CD.md](CD.md)).
+- [DESIGN.md](../DESIGN.md) §8 explains each module you just used; [ROADMAP.md](../ROADMAP.md)
+  lists what was built when.

@@ -19,8 +19,10 @@ processing, observability, and disciplined testing.
 **Non-goals**
 
 - Horizontally scaled workers (we design for **one worker process**; see §8.4).
-- An admin UI or CMS. Portfolio content lives in a version-controlled JSON file.
-- User accounts or authentication (the only protected surface is `/metrics`, by token).
+- A CMS. Portfolio content lives in a version-controlled JSON file; the only owner page is
+  the read-only `/admin` (§8.7).
+- User accounts. The owner's token (`ADMIN_TOKEN`) and the metrics token are the only
+  credentials.
 
 **Tech stack**
 
@@ -40,17 +42,21 @@ processing, observability, and disciplined testing.
 
 ```mermaid
 flowchart LR
-  Browser -->|HTTP| Web[Next.js web app]
-  Browser -->|beacon / fetch| API
-  Web -->|server-side fetch| API[API process<br/>Fastify]
-  API -->|cache-aside, rate limit,<br/>event buffer, job enqueue| Redis[(Redis 7)]
-  API -->|content reads,<br/>contact inserts| PG[(PostgreSQL 16)]
-  API -->|IP lookup, in memory| GeoIP[(GeoIP .mmdb files)]
-  Worker[Worker process<br/>flusher + notifier] -->|claim batches / jobs| Redis
-  Worker -->|bulk insert / status updates| PG
+  Browser -->|HTTPS| Caddy["Caddy<br/>TLS, routing, load balancing"]
+  Caddy -->|"/api/*"| API["API, two replicas<br/>Fastify"]
+  Caddy -->|pages| Web[Next.js web app]
+  Web -->|"server-side fetch, through Caddy"| API
+  API -->|"cache-aside, rate limit,<br/>event buffer, job enqueue"| Redis[(Redis 7)]
+  API -->|"content reads,<br/>contact inserts"| PG[(PostgreSQL 16)]
+  API -->|"IP lookup, in memory"| GeoIP[(GeoIP .mmdb files)]
+  Worker["Worker process<br/>flusher + notifier"] -->|"claim batches / jobs"| Redis
+  Worker -->|"bulk insert / status updates"| PG
   Worker -->|webhook| Notify[Discord webhook / log stub]
-  Prom[Prometheus] -->|scrape /metrics| API
 ```
+
+That is production (§14.5). In development there is no Caddy: the site runs on `:3000`, the
+API on `:4000`, and the browser calls the API directly. A walkthrough of every flow, with
+diagrams: [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md).
 
 ### 2.1 Process model
 
@@ -1588,20 +1594,51 @@ gate once releases are routine.
   on `ubuntu-24.04-arm`, layers cached in the GitHub Actions cache with one scope per image).
   Guide: [docs/DOCKER.md](docs/DOCKER.md).
 
-### 14.3 Pipeline (`.github/workflows/deploy.yml`)
+### 14.3 Pipeline (`.github/workflows/deploy.yml`, `deploy/deploy.sh`)
 
 ```
-merge to main ─► CI green ─► build + push images (tag = SHA)
-                              │
-                              ▼
-               deploy job  [environment: production → waits for your approval]
-                 1. migrate          node dist/cli/migrate.js   (backward compatible, §14.4)
-                 2. seed content     node dist/cli/seed-content.js (idempotent)
-                 3. roll out         worker → api-1 → api-2 → web, one at a time (§14.5)
-                 4. smoke test       GET /health = 200 on each replica (from the host),
-                                     GET https://<host>/api/v1/projects = 200 (public)
-                 5. on failure       redeploy the previous SHA, mark the job failed
+merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
+                                  │
+                                  ▼
+   deploy job  [environment: production → waits for your approval]
+     copy deploy/ to ~/portfolio/deploy (rsync; deploy/.env excluded), then over SSH
+     deploy/deploy.sh <sha>:
+       0. pull + check    pull the images (the job's own token, not stored); `compose config`
+                          (a missing .env value) and `caddy validate`: nothing has changed yet
+       1. migrate         node dist/cli/migrate.js   (backward compatible, §14.4)
+       2. seed content    node dist/cli/seed-content.js (idempotent)
+       3. roll out        worker → api-1 → api-2 → web, one at a time (§14.5)
+       4. smoke test      GET /health = 200 on each replica, the worker running without
+                          restarts, GET /api/v1/projects and / through Caddy on the host
+       5. on failure      (3 or 4) roll out the previous release the same way, seed its
+                          content again, smoke test, fail the job
+     then from GitHub's machine: GET https://<host>/api/v1/projects and / (DNS, firewalls)
 ```
+
+- **CI runs once per commit on `main`**: `deploy.yml` calls `ci.yml` (`workflow_call`), and
+  only a passing commit is published. `publish` rebuilds from CI's cached layers and labels the
+  image with its source repository and commit.
+- **The server records the current release** in `deploy/.env` (`API_IMAGE`, `WEB_IMAGE`), so
+  `backup.sh`, `restore.sh` and `compose up` run the same images. "Previous release" is what
+  the file said before the deploy. Only the current and previous images stay on the server
+  (not "the newest N": a cached rebuild can carry an older creation time).
+- **Our own wait loop**, not `compose up --wait`: Compose v5.0 reports success when its timeout
+  passes while a container is still `starting`, which let a dead replica through in the
+  rollback test. `deploy.sh` polls Docker until `healthy` (the worker: 5 s without a restart);
+  `unhealthy`, `exited`, `restarting` or a new restart fail at once.
+- **A rollback restores** images and content, not the schema (migrations only go forward; the
+  old migrator even refuses: "applied but its file is missing") and not the deploy files.
+  Going fully back = running the workflow by hand with the older SHA (`workflow_dispatch`:
+  that commit's `deploy/`, no CI or publish, still approved).
+- **One deploy at a time**: job-level concurrency group `production` (a running deploy is never
+  cancelled; a newer waiting one replaces an older waiting one) and `flock` on the server. The
+  deploy job needs a successful `publish` (or a manual start): a commit whose CI failed or was
+  cancelled has no images.
+- **GitHub holds** (environment `production`: approved jobs from `main` only) the secret
+  `SSH_PRIVATE_KEY` and the variables `SSH_HOST`, `SSH_KNOWN_HOSTS` (pins the server's host key)
+  and `SITE_HOST`; no application secrets (§14.4). The deploy key is root-equivalent (the
+  `docker` group); its `authorized_keys` line starts with `restrict`. Guide:
+  [docs/CD.md](docs/CD.md).
 
 ### 14.4 Rules this imposes on every phase
 
@@ -1610,9 +1647,10 @@ merge to main ─► CI green ─► build + push images (tag = SHA)
   must not drop or rename anything the running version reads. A rename becomes: add the new
   column → backfill → release code using it → drop the old column in a later release.
 - **No secrets in images or Git.** Production values (`IP_HASH_SECRET`, `METRICS_TOKEN`,
-  `ADMIN_TOKEN`, `DISCORD_WEBHOOK_URL`, database passwords) live in GitHub Environment secrets and an env
-  file on the host, with a copy of that file in a password manager (GitHub never shows a
-  secret again once saved). The hostname is not in Git either (§14.5).
+  `ADMIN_TOKEN`, `DISCORD_WEBHOOK_URL`, database passwords) live only in an env file on the
+  host (`deploy/.env`, owner-only), with a copy of that file in a password manager. GitHub
+  holds just what the deploy job needs to reach the server (§14.3), so a leaked workflow log
+  or a compromised action cannot reveal them. The hostname is not in Git either (§14.5).
 - **One worker at a time** (§8.4): the rollout stops the old worker before starting the new one.
 - **Redis is a datastore, not only a cache**: production Redis must keep AOF persistence and
   the `volatile-lru` policy. This rules out hosted plans that disable persistence or force
@@ -1634,20 +1672,24 @@ account's home region) running `deploy/compose.prod.yml`: Postgres, Redis, **two
 replicas**, worker, web, and Caddy for automatic HTTPS and load balancing. It is an ordinary
 Linux server, so it mirrors local development, keeps Redis configuration under our control (§14.4),
 and costs nothing. The deploy job connects over SSH (key stored as an Environment secret),
-pulls the new tag and runs the rolling update below. Setup steps: [docs/HOSTING.md](docs/HOSTING.md).
+copies `deploy/` and runs `deploy/deploy.sh`, which pulls the new tag and does the rolling
+update below (§14.3). Setup steps: [docs/HOSTING.md](docs/HOSTING.md).
 
 What the free tier implies:
 
 - **Arm CPU**: the images are built for `linux/arm64` (§14.2).
-- **Size**: the free allowance is 2 OCPUs and 12 GB of memory. The VM takes 2 OCPUs and
-  6 GB; the stack needs roughly 2 GB (estimate, measured with `docker stats` once it runs).
+- **Size**: 1 OCPU and 6 GB (the free allowance is 2 OCPUs and 12 GB). Raising it to 2 OCPUs
+  failed with "out of host capacity" (2026-11-20), and one core is enough: images are built by
+  GitHub, not on the server, and a quiet portfolio needs little CPU. The stack needs roughly
+  2 GB (estimate, to be measured with `docker stats`).
 - **Idle reclamation**: Oracle may reclaim an Always Free VM whose CPU (95th percentile),
   network and memory use all stay below 20 % for 7 days. A quiet portfolio has low CPU and
   network use, so the VM is sized to what the stack uses rather than taking the full 12 GB.
-- **The VM is replaceable.** Images live in GHCR, configuration in Git, secrets in GitHub and a
-  password manager, and Caddy re-issues certificates by itself; the database is the only data
-  that exists solely on the VM, and it is backed up off the host weekly (§14.6). Losing the VM costs a
-  rebuild from docs/HOSTING.md plus pointing the hostname at the new IP.
+- **The VM is replaceable.** Images live in GHCR, configuration in Git, secrets in a password
+  manager (the deploy key in GitHub), and Caddy re-issues certificates by itself; the database
+  is the only data that exists solely on the VM, and it is backed up off the host weekly
+  (§14.6). Losing the VM costs a rebuild from docs/HOSTING.md plus pointing the hostname at the
+  new IP.
 
 **Hostname: one free hostname, no purchased domain.** `<name>.duckdns.org` (DuckDNS, ready in
 minutes) serves the first releases. `<name>.is-a.dev` replaces it once the site is live,
@@ -1783,16 +1825,20 @@ one at a time:
 1. stop old worker → start new worker                     (one worker at a time, §8.4)
 2. replace api-1    SIGTERM → graceful shutdown finishes in-flight requests;
                     Caddy sends new requests to api-2 meanwhile
-3. wait until the new api-1 is healthy (GET /health = 200: `up --no-deps --wait`),
-   then 6 s more: Caddy re-admits a replica only at its next 5 s check
+3. wait until Docker calls the new api-1 healthy (GET /health = 200; deploy.sh polls,
+   §14.3), then 6 s more: Caddy re-admits a replica only at its next 5 s check
 4. replace api-2, wait the same way
-5. replace web                                            (a few seconds of downtime for pages)
+5. replace web                                            (under a second of 502s for pages)
 ```
 
 Without the extra 6 s, step 4 can take api-2 down while Caddy still treats the new api-1 as
-down, leaving it no replica (measured: an occasional `503`). Between steps 2 and 4, old and new code serve requests side by side. That is exactly why cache
-keys carry a shape version (§6.2) and migrations are expand → contract (§14.4). If a wait in
-step 3 or 4 times out, the job redeploys the previous SHA the same way and fails.
+down, leaving it no replica (measured: an occasional `503`). Between steps 2 and 4, old and
+new code serve requests side by side. That is exactly why cache keys carry a shape version
+(§6.2) and migrations are expand → contract (§14.4). If a wait fails (unhealthy, crashed, or
+not healthy within 120 s), the job rolls back to the previous release the same way and fails.
+Measured on the laptop stack (6c): a request every 50 ms saw 0 failed API requests during a
+deploy (503 of 503) and during a rollback from a release whose API never answered (1,302 of
+1,302), and 5 failed page requests (`502`) while `web` was replaced.
 
 Operations included in Phase 6: weekly `pg_dump` backups copied off the host, with a restore
 that has actually been tested (§14.6).

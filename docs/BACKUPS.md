@@ -35,7 +35,7 @@ encryption).
 
 ---
 
-## 2. On the server (once the deploy, 6c, has put `deploy/` in `~/portfolio`)
+## 2. On the server (after the first deploy)
 
 ```bash
 ssh portfolio

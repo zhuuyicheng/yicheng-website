@@ -147,53 +147,35 @@ headers), **5b** the website (shared schemas, pages, contact form, beacon, priva
 
 ## Phase 6: Continuous delivery (`feat/continuous-delivery`)
 
-Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
+Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). Guides:
+[HOSTING](docs/HOSTING.md), [DOCKER](docs/DOCKER.md), [PRODUCTION-STACK](docs/PRODUCTION-STACK.md),
+[CD](docs/CD.md), [BACKUPS](docs/BACKUPS.md).
 
-- [x] Decide hosting + hostname ([DESIGN.md §14.5](DESIGN.md#145-hosting-oracle-cloud-free-tier-one-hostname)):
-      an Oracle Cloud Always Free Arm VM (2 OCPUs, 6 GB) running Docker Compose with Caddy;
-      one free hostname (DuckDNS first, then is-a.dev) with Caddy routing `/api/*` to the API
-      and everything else to the website; no purchased domain
-- [ ] Server ready: VM, both firewalls, Docker, DuckDNS hostname, HTTPS test page
-      ([docs/HOSTING.md](docs/HOSTING.md))
-- [x] `apps/api/Dockerfile` (multi-stage, non-root; one image for api/worker/migrate/seed;
-      builds `packages/shared`; downloads the GeoIP files during the build),
-      `apps/web/Dockerfile` (Next.js `output: 'standalone'`; built with an empty
-      `NEXT_PUBLIC_API_BASE_URL`, so browsers call the same origin, DESIGN.md §14.2),
-      `.dockerignore`; both built and run locally (API, worker, CLIs, site), guide
-      [docs/DOCKER.md](docs/DOCKER.md), `npm run image:api` / `image:web`
-- [x] CI: build both images for `linux/arm64` on GitHub's Arm runners on every PR (a broken
-      Dockerfile fails before merge); layers cached in the Actions cache
-- [ ] On merge to `main`: push images to GHCR tagged with the git SHA
-- [x] `deploy/compose.prod.yml` + `Caddyfile` (path routing, internal `:8080` listener for the
-      web server); production env file kept on the host only (`deploy/.env`, gitignored;
-      template `deploy/.env.example`). Run on the laptop with `npm run stack:up`; guide
-      [docs/PRODUCTION-STACK.md](docs/PRODUCTION-STACK.md)
-- [ ] `.github/workflows/deploy.yml`: migrate → seed → rolling update → smoke test → auto-rollback,
-      behind a `production` GitHub Environment with a required reviewer (continuous **delivery**)
-- [ ] Load balancing ([DESIGN.md §14.5](DESIGN.md#145-hosting-oracle-cloud-free-tier-one-hostname)):
-  - [x] Two API replicas (`api-1`, `api-2`) behind Caddy: round robin, active health checks
-        (`/health/live` every 5 s), retries, `dial_timeout 1s`
-  - [x] `GET /health/live` liveness endpoint for the load balancer (no dependency checks) + tests
-        (200 with both datastores down, no info logs, left out of the dashboard's latency;
-        305 API + 74 web tests)
-  - [ ] Rolling update: worker → api-1 (wait for `/health` = 200) → api-2 → web
-  - [ ] Per-replica numbers: Prometheus scrapes each replica directly (`instance` in the system
-        status already exists since Phase 5; set each container's hostname to `api-1`/`api-2`)
-        (hostnames set in 6b; no Prometheus server is part of the stack yet)
-  - [x] Prove it: a request loop sees no failures while one replica is stopped, or during a deploy
-        (`npm run stack:failover`: stop + restart api-1, then replace api-1 and api-2; 5 runs,
-        2,779 requests, 0 failed, slowest 1.3 s; 4,876 POSTs during a run all accepted)
-- [x] Weekly `pg_dump` backups off the host + a tested restore (owner's choice: weekly, copied
-      to their desktop; DESIGN.md §14.6, [docs/BACKUPS.md](docs/BACKUPS.md)):
-      `deploy/backup.sh` (dump, restore test into a scratch database, checksum, keep 4,
-      Discord message), `deploy/restore.sh` (load beside the live database, swap names in one
-      transaction, keep the old one), `deploy/pull-backups.sh` (desktop, read-only `rrsync`
-      key, never overwrites or deletes). Drill on the laptop stack: back up, change data,
-      restore, counts match. Server cron and the desktop's Task Scheduler entry are set up by
-      the owner once the server runs (6c)
+- [x] Hosting decided: Oracle Cloud Always Free Arm VM (1 OCPU, 6 GB) with Docker Compose and
+      Caddy; one free hostname (DuckDNS now, is-a.dev later): `/api/*` → API, the rest → website
+- [x] Server ready (checked over SSH, 2026-11-20): Ubuntu 24.04 on Arm, automatic security
+      updates, both firewalls, Docker 29.10 + Compose v5.8, key-only SSH, ports 80/443 reach a
+      container from the internet. 1 OCPU because 2 was refused (out of host capacity).
+      Learned: Docker's published ports bypass the VM's `INPUT` rules
+- [x] 6a Docker images: one API image (API, worker, CLIs; GeoIP files inside, non-root) and a
+      standalone web image with no hostname inside; CI builds both for `linux/arm64` on every PR
+- [x] 6b Production stack (`deploy/compose.prod.yml`, Caddyfile): two API replicas behind Caddy
+      (round robin, `/health/live` every 5 s, retries, `dial_timeout 1s`); secrets only in the
+      host's `deploy/.env`. Failover test: 0 failed of 2,779 requests while replicas were
+      stopped and replaced (`npm run stack:failover`)
+- [x] 6c Continuous delivery: merge → CI → images to GHCR (tag = commit SHA) → your approval →
+      `deploy/deploy.sh` over SSH: migrate, seed, rolling update (worker → api-1 → api-2 → web),
+      smoke test, automatic rollback. Tested on the laptop stack (API 503/503 OK during a deploy,
+      1,302/1,302 during a rollback) and checked against the server's versions. Found and fixed:
+      Compose's `up --wait` lets through a container that is still starting
+- [x] 6d Weekly backups: dump + test restore on the server, copied to the desktop with a
+      read-only key; restore swaps databases in one transaction. Drill passed on the laptop
+- [ ] One-time deploy setup by the owner ([CD.md §2](docs/CD.md#2-one-time-setup-about-20-minutes)):
+      deploy key, `~/portfolio/deploy/.env`, GitHub `production` environment
+- [ ] First deploy to the server; then the backup cron and the desktop's scheduled copy
+- [ ] Per-replica metrics in a Prometheus server (each replica already reports its `instance`)
 - [ ] Switch to `<name>.is-a.dev` once the site is live (you write the request by hand: their
       terms forbid AI-written pull requests)
-- [ ] `docs/CD.md`: how to release, approve, roll back, read deploy logs
 - [ ] Later: remove the approval gate (continuous **deployment**) once releases are routine
 
 ### Website polish before going live (feedback, 2026-11-18)

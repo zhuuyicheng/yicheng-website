@@ -188,13 +188,15 @@ images on every PR and every push to `main`, next to the usual `check` job:
 - On `ubuntu-24.04-arm`: GitHub's Arm machines, free for public repositories. The server is
   Arm (Oracle A1), so the images are built natively for `linux/arm64`, the same CPU type that
   will run them. Your laptop builds for its own CPU (amd64), which is fine for trying things.
-- Nothing is pushed yet: pushing to GitHub's container registry comes with the deploy (6c).
+- Nothing is pushed by this job. On `main`, the Deploy workflow's `publish` job (6c) rebuilds
+  each image from these cached layers and pushes it to GitHub's container registry as
+  `ghcr.io/<owner>/portfolio-<api|web>:<commit sha>` ([CD.md](CD.md)).
 - Layers are cached in GitHub's Actions cache, one scope per image, so a PR that only changes
   the website does not rebuild the API from scratch, and the GeoIP files are downloaded once
   a month.
 
 A broken Dockerfile now fails the PR (job `image (api)` or `image (web)`) instead of the deploy.
-If you protect `main` (docs/CI.md §5), add both jobs to the required checks.
+If you protect `main` ([CI.md §4](CI.md#4-protecting-main-recommended)), add both jobs to the required checks.
 
 ## 8. Troubleshooting
 

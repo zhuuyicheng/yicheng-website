@@ -1,14 +1,26 @@
 # Portfolio & Live Telemetry Platform
 
-A personal portfolio backed by a production-style TypeScript backend: Redis cache-aside reads,
-asynchronous event ingestion with a batch-flushing worker, a Lua sliding-window rate limiter,
-background jobs with retries and dead-letter queues, and live observability.
+My portfolio website, built like a small production system: a Next.js site on a Fastify API
+with a Redis cache, an analytics pipeline with a batch worker, a rate-limited contact form with
+background notifications, an owner dashboard, and approval-gated deploys with automatic
+rollback to an Oracle Cloud VM.
 
-- **Design**: [DESIGN.md](DESIGN.md)
-- **Progress**: [ROADMAP.md](ROADMAP.md)
-- **New here? Start with the hands-on [Guided Tour](docs/GUIDED-TOUR.md)**
-- **Guides**: [Editing the site's text](docs/EDITING-THE-SITE.md) · [Testing](docs/TESTING.md) · [CI](docs/CI.md) · [Content & cache](docs/CONTENT-AND-CACHE.md) ·
-  [Seeing the data in VS Code](docs/DATA-TOOLS.md) · [Docker images](docs/DOCKER.md) · [Production stack](docs/PRODUCTION-STACK.md) · [Backups](docs/BACKUPS.md) · [Hosting (server setup)](docs/HOSTING.md)
+**Start here: [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md)**, the whole project on one page
+(architecture, code flows with diagrams, using and editing the site, reading the data,
+interview notes).
+
+| Guide                                                                   | For                                   |
+| ----------------------------------------------------------------------- | ------------------------------------- |
+| [DESIGN.md](DESIGN.md)                                                  | The full specification                |
+| [ROADMAP.md](ROADMAP.md)                                                | Progress, phase by phase              |
+| [Guided tour](docs/GUIDED-TOUR.md)                                      | Hands-on: try every feature locally   |
+| [Editing the site](docs/EDITING-THE-SITE.md)                            | Text, page wording, photos            |
+| [Content & cache](docs/CONTENT-AND-CACHE.md)                            | The content API and its Redis cache   |
+| [Data tools](docs/DATA-TOOLS.md)                                        | Postgres and Redis in VS Code         |
+| [Testing](docs/TESTING.md) · [CI](docs/CI.md)                           | Tests and GitHub Actions              |
+| [Docker](docs/DOCKER.md) · [Production stack](docs/PRODUCTION-STACK.md) | Images; the real stack on your laptop |
+| [Hosting](docs/HOSTING.md) · [Releasing](docs/CD.md)                    | The server; deploying to it           |
+| [Backups](docs/BACKUPS.md)                                              | Weekly backups and restoring          |
 
 ## Quick start
 
@@ -21,54 +33,47 @@ cp .env.example .env
 npm run infra:up         # Postgres 16 + Redis 7 in Docker
 npm run db:migrate       # create the tables
 npm run content:seed     # load apps/api/content/portfolio.json
-npm run geoip:download   # free IP → organisation/location files (~65 MB download)
+npm run geoip:download   # free IP → organisation/location files (~65 MB)
 
 npm run dev:api          # API    → http://localhost:4000/api/v1/projects
-npm run dev:worker       # Worker → analytics events to Postgres, contact notifications
-npm run dev:web          # Web    → http://localhost:3000 (owner dashboard: /admin); each in its own terminal
+npm run dev:worker       # worker → events to Postgres, contact notifications
+npm run dev:web          # site   → http://localhost:3000 (owner page: /admin)
 ```
+
+Each `dev:*` command runs in its own terminal.
 
 ## Common commands
 
-| Command                               | What it does                                         |
-| ------------------------------------- | ---------------------------------------------------- |
-| `npm test`                            | Unit + integration tests (needs `infra:up`)          |
-| `npm run test:unit`                   | Unit tests only (no Docker needed)                   |
-| `npm run check`                       | Format, lint, typecheck, tests (CI also builds site) |
-| `npm run content:seed`                | Publish edits to `apps/api/content/portfolio.json`   |
-| `npm run dlq:replay -- telemetry`     | Retry dead-lettered analytics events after a fix     |
-| `npm run dlq:replay -- notifications` | Retry failed contact notifications after a fix       |
-| `npm run geoip:download`              | Refresh the IP databases (monthly), then restart API |
-| `npm run image:api` / `image:web`     | Build the production Docker images (docs/DOCKER.md)  |
-| `npm run stack:up` / `stack:down`     | Run the production stack locally (https://localhost) |
-| `npm run infra:down`                  | Stop the Docker datastores (data is kept)            |
+| Command                           | What it does                                         |
+| --------------------------------- | ---------------------------------------------------- |
+| `npm run check`                   | Format, lint, typecheck, tests (what CI runs)        |
+| `npm test` / `npm run test:unit`  | All tests (needs `infra:up`) / unit tests only       |
+| `npm run content:seed`            | Publish edits to `apps/api/content/portfolio.json`   |
+| `npm run dlq:replay -- telemetry` | Retry dead-lettered events (or `-- notifications`)   |
+| `npm run geoip:download`          | Refresh the IP databases (monthly), then restart API |
+| `npm run image:api` / `image:web` | Build the production Docker images                   |
+| `npm run stack:up` / `stack:down` | Run the production stack locally (https://localhost) |
+| `npm run stack:deploy -- dev`     | Deploy to that stack the way the server does         |
+| `npm run infra:down`              | Stop the Docker datastores (data is kept)            |
 
 ## Working on another machine
 
-Everything needed to rebuild the project lives in Git. Your local database contents do not,
-and don't need to: tables come from migrations and content from `portfolio.json`.
+Everything needed lives in Git; the database is rebuilt from migrations and `portfolio.json`.
+Push your branch on the old machine, then on the new one (with Git, Docker, nvm + Node 24):
 
-1. **On the old machine**, push your branch: `git push` (check with `git status` that nothing
-   is left uncommitted).
-2. **On the new machine**, install Git, Docker, and nvm + Node 24, then:
-
-   ```bash
-   git clone https://github.com/zhuuyicheng/yicheng-website.git
-   cd yicheng-website
-   git switch <your-branch>       # main, or the phase branch you were working on
-   nvm install                    # installs the Node version in .nvmrc
-   npm ci
-   cp .env.example .env           # .env is never committed
-   npm run infra:up && npm run db:migrate && npm run content:seed
-   npm run geoip:download         # the IP databases are downloaded, not committed
-   npm run check                  # confirms the new machine is set up correctly
-   ```
+```bash
+git clone https://github.com/zhuuyicheng/yicheng-website.git && cd yicheng-website
+git switch <your-branch>
+nvm install && npm ci && cp .env.example .env
+npm run infra:up && npm run db:migrate && npm run content:seed && npm run geoip:download
+npm run check            # confirms the setup
+```
 
 ## Repository layout
 
 ```
 packages/shared  The API contract: Zod schemas both apps import
-apps/api         Fastify API (controllers → managers → DAL, with dao/, schema/, views/) and the
-                 background worker (src/worker.ts, workers/)
-apps/web         Next.js + Tailwind website (portfolio pages, contact form, page-view beacon)
+apps/api         Fastify API (controllers → managers → DAL) and the background worker
+apps/web         Next.js + Tailwind website, including the owner page /admin
+deploy/          Production: compose file, Caddyfile, deploy/backup/restore scripts
 ```

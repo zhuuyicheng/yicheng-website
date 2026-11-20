@@ -2,9 +2,10 @@
 name: CI
 
 on:
-  push:
-    branches: [main] # every commit that lands on main
   pull_request: # every PR, whatever the target branch
+  # Every commit that lands on main: the deploy workflow (deploy.yml) runs this first and
+  # publishes only commits that pass (Phase 6c).
+  workflow_call:
 
 # A new push to the same branch cancels the previous, now outdated, run.
 concurrency:
@@ -57,7 +58,8 @@ jobs:
           NEXT_TELEMETRY_DISABLED: '1'
 
   # Phase 6a: build both Docker images for the production server's Arm CPU (DESIGN.md §14.2),
-  # so a broken Dockerfile fails the PR instead of the deploy. Nothing is pushed yet (6c).
+  # so a broken Dockerfile fails the PR instead of the deploy. Nothing is pushed here: on main,
+  # deploy.yml's publish job pushes them once this whole workflow has passed (6c).
   images:
     name: image (${{ matrix.image }})
     # GitHub's Arm machines (free for public repositories): native arm64 builds, no emulation.

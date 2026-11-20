@@ -81,21 +81,21 @@ so the site never shows half an edit. Try it on purpose:
 
 ## 2. Page wording: the `.tsx` files
 
-| What you see                                                                       | File (in `apps/web/src/`)                                                                                         |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Section titles: About, Experience & education, Projects, Get in touch              | `app/page.tsx`, the `<SectionHeading title="…" />` lines                                                          |
-| The "View projects" and "Get in touch" buttons, `scroll ↓`                         | `components/hero.tsx`                                                                                             |
-| Header: your name and the section links                                            | `components/site-header.tsx` (`SECTIONS` at the top)                                                              |
-| Project cards: "Read more", "Featured"                                             | `components/project-card.tsx`                                                                                     |
-| Project page: "Back to projects", "Next project", "On this page"                   | `app/[slug]/page.tsx`, `components/project-contents.tsx`                                                          |
-| Footer links (Projects, Privacy)                                                   | `components/site-footer.tsx`                                                                                      |
-| Contact form: labels and hints                                                     | `components/contact-form.tsx`                                                                                     |
-| Contact form replies ("Message sent…", the spam-limit explanation, errors)         | `lib/contact.ts` (`sentMessage`, `rateLimitedMessage`, `sendContact`)                                             |
-| Photo captions and descriptions ("Outside work")                                   | `content/photos.ts`                                                                                               |
-| Section icons                                                                      | `app/page.tsx`, the `icon={…}` of each `<SectionHeading … />` (names from [lucide.dev](https://lucide.dev/icons)) |
-| Browser-tab icon                                                                   | `app/icon.svg` (the "YC" monogram)                                                                                |
-| Browser-tab title of the other pages (`… · Portfolio`) and the default description | `app/layout.tsx` (`metadata`)                                                                                     |
-| The 404 page and your owner dashboard                                              | `app/not-found.tsx`, `app/admin/page.tsx`                                                                         |
+| What you see                                                                           | File (in `apps/web/src/`)                                                                                         |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Section titles: About Me, Experience & education, Projects, Outside work, Get in touch | `app/page.tsx`, the `<SectionHeading title="…" />` lines                                                          |
+| The "View projects" and "Get in touch" buttons                                         | `components/hero.tsx`                                                                                             |
+| Header: your name and the section links                                                | `components/site-header.tsx` (`SECTIONS` at the top)                                                              |
+| Project cards: "Read more", "Featured"                                                 | `components/project-card.tsx`                                                                                     |
+| Project page: "Back to projects", "Next project", "On this page"                       | `app/[slug]/page.tsx`, `components/project-contents.tsx`                                                          |
+| Footer links (About, Projects, Contact)                                                | `components/site-footer.tsx`                                                                                      |
+| Contact form: labels and hints                                                         | `components/contact-form.tsx`                                                                                     |
+| Contact form replies ("Message sent…", the spam-limit explanation, errors)             | `lib/contact.ts` (`sentMessage`, `rateLimitedMessage`, `sendContact`)                                             |
+| Photo captions and descriptions ("Outside work")                                       | `content/photos.ts`                                                                                               |
+| Section icons                                                                          | `app/page.tsx`, the `icon={…}` of each `<SectionHeading … />` (names from [lucide.dev](https://lucide.dev/icons)) |
+| Browser-tab icon                                                                       | `app/icon.svg` (the "YC" monogram)                                                                                |
+| Browser-tab title of the other pages (`… · Portfolio`) and the default description     | `app/layout.tsx` (`metadata`)                                                                                     |
+| The 404 page and your owner dashboard                                                  | `app/not-found.tsx`, `app/admin/page.tsx`                                                                         |
 
 **Editing JSX safely.** These files mix HTML-like tags with code. Change only the words:
 
@@ -164,15 +164,14 @@ Saving updates the page; there is no seed step for photos.
 
 ---
 
-## 4. Getting a change onto the live site (once Phase 6 deploys it)
+## 4. Getting a change onto the live site
 
-Both kinds of change travel the same way: commit → push → pull request → CI green → merge →
-approve the deploy. The deploy runs the seed itself
-([DESIGN.md §14.3](../DESIGN.md#143-pipeline-githubworkflowsdeployyml)), so you never run
+Every change travels the same way: commit → push → pull request → CI green → merge → approve
+the deploy ([CD.md §3](CD.md#3-releasing)). The deploy runs the seed itself, so you never run
 `content:seed` against production by hand.
 
-There is deliberately no admin page: Git is the editor. Every change is reviewed by CI, has a
-history, and can be rolled back by deploying the previous version.
+There is no editing page: Git is the editor (`/admin` only reads). Every change is checked by
+CI, has a history, and can be rolled back by deploying the previous version.
 
 ---
 

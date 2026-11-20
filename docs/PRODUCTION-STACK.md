@@ -26,12 +26,13 @@ themselves: [DOCKER.md](DOCKER.md).
 
 Everything is in [`deploy/`](../deploy/):
 
-| File                                             | What                                                 |
-| ------------------------------------------------ | ---------------------------------------------------- |
-| [`compose.prod.yml`](../deploy/compose.prod.yml) | the seven services, their settings and health checks |
-| [`caddy/Caddyfile`](../deploy/caddy/Caddyfile)   | HTTPS, routing, load balancing                       |
-| [`.env.example`](../deploy/.env.example)         | template for `deploy/.env`: hostname and secrets     |
-| [`failover-test.sh`](../deploy/failover-test.sh) | the proof that load balancing works (section 6)      |
+| File                                             | What                                                         |
+| ------------------------------------------------ | ------------------------------------------------------------ |
+| [`compose.prod.yml`](../deploy/compose.prod.yml) | the seven services, their settings and health checks         |
+| [`caddy/Caddyfile`](../deploy/caddy/Caddyfile)   | HTTPS, routing, load balancing                               |
+| [`.env.example`](../deploy/.env.example)         | template for `deploy/.env`: hostname and secrets             |
+| [`failover-test.sh`](../deploy/failover-test.sh) | the proof that load balancing works (section 6)              |
+| [`deploy.sh`](../deploy/deploy.sh)               | a release, rolled out one service at a time ([CD.md](CD.md)) |
 
 | Service                         | Image               | Reachable from your machine? | Health check                   |
 | ------------------------------- | ------------------- | ---------------------------- | ------------------------------ |
@@ -94,6 +95,11 @@ At the bottom, "answered by" alternates between `api-1` and `api-2`.
 ```bash
 npm run stack:down     # stop and remove the containers; the data volumes stay
 ```
+
+**Deploying the way the server does** (Phase 6c): `npm run stack:deploy -- dev` runs the same
+script as the deploy workflow on these images: migrate, seed, then a rolling update with a
+smoke test, and a rollback if that fails. Any tag works, e.g. `docker tag portfolio-api:dev
+portfolio-api:v2` (and the web image) to try a "new release". Details: [CD.md](CD.md).
 
 ---
 
@@ -176,7 +182,7 @@ The first version failed one request in a few hundred. Each failure had a cause 
    moment Docker called the new `api-1` healthy. But Caddy only re-admits a replica at its
    next 5-second check, so for a moment it had no replica at all (a `503`).
    **Rule:** after a replica is healthy, wait 6 s (one check interval plus a second) before
-   taking the other one down. The deploy (6c) follows the same rule.
+   taking the other one down. `deploy/deploy.sh` (6c) follows the same rule.
 
 Also tested: 4,876 `POST /api/v1/events` sent during a failover run all succeeded. Caddy may
 resend a request that never reached a replica; one that did is finished by the replica's

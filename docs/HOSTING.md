@@ -1,137 +1,94 @@
 # Hosting: Setting Up the Server
 
-This guide prepares the machine the site runs on: a free Oracle Cloud Arm VM with Docker,
-reachable at a free DuckDNS hostname over HTTPS. You do it once, or again if the VM is ever
-lost. From there, Phase 6's deploy workflow takes over
-([DESIGN.md §14](../DESIGN.md#14-deployment--continuous-delivery-phase-6)); why this setup was
-chosen is in [§14.5](../DESIGN.md#145-hosting-oracle-cloud-free-tier-one-hostname).
+Prepares the machine the site runs on: a free Oracle Cloud Arm VM with Docker, reachable at a
+free DuckDNS hostname over HTTPS. Done once (again only if the VM is lost); after that the
+deploy takes over ([CD.md](CD.md)). Why this setup:
+[DESIGN.md §14.5](../DESIGN.md#145-hosting-oracle-cloud-free-tier-one-hostname).
 
-Time: about an hour, plus waiting if Oracle has no free capacity at first.
-
-Each step has the same shape as the guided tour: **Do**, **See**, **Why**. Commands say where
-they run: **laptop** (your WSL terminal) or **VM** (after `ssh portfolio`, Step 5).
-
----
-
-## What you'll end up with
+About an hour. Commands say where they run: **laptop** (WSL) or **VM** (after `ssh portfolio`).
 
 ```
 your laptop (WSL)                          Oracle Cloud, your home region
-─────────────────                          ───────────────────────────────────────────
-ssh portfolio ─────── SSH, port 22 ──────► Ubuntu 24.04 VM: Arm, 2 OCPUs, 6 GB
-                                             │ 1. Oracle's firewall (security list)
-browser ── https://<name>.duckdns.org ───►   │ 2. the VM's own firewall (iptables)
-                                             └ Docker ─► later: Caddy, API ×2, worker,
-                                                                web, Postgres, Redis
+ssh portfolio ─────── SSH, port 22 ──────► Ubuntu 24.04 VM: Arm, 1 OCPU, 6 GB
+browser ── https://<name>.duckdns.org ───►   │ Oracle's firewall (security list)
+                                             │ the VM's firewall (iptables)
+                                             └ Docker: Caddy, API ×2, worker, web, Postgres, Redis
 DuckDNS:  <name>.duckdns.org  →  the VM's public IP
 ```
 
-Placeholders: `<public-ip>` is the VM's public IP address, `<name>` the DuckDNS name you pick.
-Neither goes into Git (DESIGN.md §14.5): they live in your SSH config, on DuckDNS, and later in
-the server's env file and GitHub settings.
+`<public-ip>` is the VM's IP and `<name>` your DuckDNS name. Neither goes into Git: they live
+in your SSH config, on DuckDNS, in the server's env file and in GitHub's settings.
 
 ---
 
-## Step 1: Create the Oracle Cloud account (15 min)
+## Step 1: Oracle Cloud account (browser, 15 min)
 
-**Do** (browser): go to [oracle.com/cloud/free](https://www.oracle.com/cloud/free/) →
-_Start for free_, and fill in the form.
+[oracle.com/cloud/free](https://www.oracle.com/cloud/free/) → _Start for free_.
 
-- **Home region: choose carefully.** It can never be changed, and Always Free resources exist
-  only in the home region. Pick the region closest to you and your visitors.
-- Oracle asks for a card to verify your identity (you may see a small verification hold that
-  is released). A Free Tier account is not billed: when the 30-day trial credit ends, anything
-  that isn't Always Free is stopped, not charged.
+- **Home region**: pick the closest. It can never change, and free resources exist only there.
+- A card is asked for identity only. When the 30-day trial credit ends, anything not Always
+  Free is stopped, not charged. Create only resources labelled **Always Free-eligible**.
 - Set up the multi-factor sign-in it asks for.
 
-**See**: the Oracle Cloud Console home page, with a trial credit valid for 30 days.
-
-**Why**: one rule keeps this free forever: only create resources labelled **Always
-Free-eligible**. Then nothing changes when the trial credit runs out.
-
 ---
 
-## Step 2: Make an SSH key for the server (laptop, 2 min)
-
-**Do**:
+## Step 2: An SSH key for the server (laptop, 2 min)
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/portfolio_vm -C "portfolio-vm"   # a passphrase is recommended
-cat ~/.ssh/portfolio_vm.pub
+cat ~/.ssh/portfolio_vm.pub                                        # Step 3 needs this line
 ```
 
-**See**: one line starting with `ssh-ed25519`. Keep this terminal open; Step 3 needs that line.
-
-**Why**: an SSH key is a pair. The public half (`.pub`) goes on the server; the private half
-never leaves your laptop. Oracle's Ubuntu images accept key logins only, no passwords, so the
-private key is the only way in. A key used for nothing else can be replaced without touching
-your other keys (GitHub, work). GitHub Actions will get its own key later, so either can be
-revoked without the other.
+The `.pub` half goes on the server; the private half never leaves your laptop. Oracle's
+Ubuntu accepts keys only, no passwords. A key used for nothing else can be replaced alone.
 
 ---
 
-## Step 3: Create the VM (10 min)
+## Step 3: Create the VM (browser, 10 min)
 
-**Do** (Console): ☰ menu → **Compute** → **Instances** → **Create instance**.
+Console: ☰ → **Compute** → **Instances** → **Create instance**.
 
-| Setting     | Choose                                                                                    |
-| ----------- | ----------------------------------------------------------------------------------------- |
-| Name        | `portfolio`                                                                               |
-| Image       | _Change image_ → Ubuntu → **Canonical Ubuntu 24.04** (the standard one, not "Minimal")    |
-| Shape       | _Change shape_ → **Ampere** → `VM.Standard.A1.Flex`, **2** OCPUs, **6** GB memory         |
-| Networking  | Create a new virtual cloud network with a **public** subnet; assign a public IPv4 address |
-| SSH keys    | _Paste public key_ → the `ssh-ed25519 …` line from Step 2                                 |
-| Boot volume | Leave the default (about 50 GB; the free allowance is 200 GB in total)                    |
+| Setting     | Choose                                                                           |
+| ----------- | -------------------------------------------------------------------------------- |
+| Name        | `portfolio`                                                                      |
+| Image       | _Change image_ → Ubuntu → **Canonical Ubuntu 24.04** (not "Minimal")             |
+| Shape       | _Change shape_ → **Ampere** → `VM.Standard.A1.Flex`, **1** OCPU, **6** GB memory |
+| Networking  | New virtual cloud network with a **public** subnet; assign a public IPv4 address |
+| SSH keys    | _Paste public key_ → the line from Step 2                                        |
+| Boot volume | Default (about 50 GB; 200 GB free in total)                                      |
 
-Check that the shape shows the **Always Free-eligible** label, then **Create**.
+Check for the **Always Free-eligible** label → **Create**. When it shows **RUNNING**, copy the
+**Public IP address**: that is `<public-ip>`.
 
-**See**: the state goes from PROVISIONING to **RUNNING** within a couple of minutes. On the
-instance page, copy the **Public IP address**: that is `<public-ip>`.
-
-**Why 6 GB and not the free 12 GB?** Oracle may reclaim an Always Free VM that looks idle: CPU
-(95th percentile), network **and** memory use all below 20 % for 7 days. A quiet portfolio
-uses little CPU and network, so memory decides. The stack needs roughly 2 GB, which is a fair
-share of 6 GB but under 20 % of 12 GB. 6 GB still leaves plenty of headroom, and the shape can
-be changed later (_Edit_ on the instance page). We'll measure real usage with `docker stats`
-once the stack runs.
-
-**If it says "Out of capacity" / "Out of host capacity"**: Oracle has no free Arm machines
-left there right now. Oracle's own advice: pick another availability domain under
-_Placement_ (if your region has several), or wait and try again later, since capacity frees up
-over hours or days. Upgrading the account to _Pay As You Go_ also helps; Always Free resources
-stay free on it, but a mistake could then cost money. If you upgrade, first create a budget
-with an email alert (Billing & Cost Management → Budgets, alert at $1).
+- **1 OCPU**: 2 was refused ("out of host capacity"), and one core is enough: images are built
+  by GitHub, not here. The shape can be edited later (_Edit_ on the instance page).
+- **6 GB, not the free 12**: Oracle may reclaim a VM whose CPU, network **and** memory all stay
+  under 20 % for a week. The stack uses about 2 GB: a real share of 6 GB, under 20 % of 12.
+- **"Out of capacity"**: try another availability domain (_Placement_), or again later.
+  Upgrading to _Pay As You Go_ also helps (Always Free stays free), but mistakes then cost
+  money: first add a budget alert (Billing & Cost Management → Budgets, alert at $1).
 
 ---
 
-## Step 4: Open the web ports in Oracle's firewall (5 min)
+## Step 4: Open the web ports in Oracle's firewall (browser, 5 min)
 
-Two firewalls stand between the internet and the server. This step opens the outer one,
-Oracle's network firewall (the **security list**); Step 6 opens the one inside the VM. A port
-must be open in **both**.
+Instance page → _Primary VNIC_ → the **subnet** → _Security_ → **Default Security List** →
+**Add Ingress Rules**, source `0.0.0.0/0`:
 
-**Do** (Console): instance page → _Primary VNIC_ → click the **subnet** → _Security_ → the
-**Default Security List** → **Add Ingress Rules**. Add three rules, each with source CIDR
-`0.0.0.0/0` (anyone):
+| Protocol | Port | For                                                                  |
+| -------- | ---- | -------------------------------------------------------------------- |
+| TCP      | 80   | Let's Encrypt checks it before issuing a certificate; then redirects |
+| TCP      | 443  | HTTPS                                                                |
+| UDP      | 443  | HTTP/3 (optional)                                                    |
 
-| IP protocol | Destination port | What it's for                                                                  |
-| ----------- | ---------------- | ------------------------------------------------------------------------------ |
-| TCP         | 80               | HTTP: Let's Encrypt checks it before issuing a certificate; Caddy redirects it |
-| TCP         | 443              | HTTPS                                                                          |
-| UDP         | 443              | HTTP/3 (optional: browsers fall back to TCP without it)                        |
-
-Leave the existing **TCP 22** (SSH) rule as it is.
-
-**Why not limit SSH to your own IP?** The deploy workflow will log in over SSH from GitHub's
-machines, whose IPs change all the time. What protects port 22 is key-only login: bots try it
-all day (you'll see them in `/var/log/auth.log`) and get nowhere without the private key.
+Keep the existing TCP 22 rule. SSH stays open to everyone because GitHub deploys from changing
+IPs; key-only login is what protects it.
 
 ---
 
 ## Step 5: First login (laptop, then VM, 10 min)
 
-**Do** (laptop): add this to `~/.ssh/config` (create the file if it doesn't exist), with your
-IP:
+Laptop: add to `~/.ssh/config`, then `ssh portfolio` (answer `yes` to the fingerprint):
 
 ```
 Host portfolio
@@ -140,86 +97,50 @@ Host portfolio
   IdentityFile ~/.ssh/portfolio_vm
 ```
 
-Then connect, and type `yes` when asked whether to trust the server's fingerprint:
+**See**: `ubuntu@portfolio:~$`. `uname -m` prints `aarch64` (Arm: why images are built for
+`linux/arm64`); `nproc` prints the OCPUs (one OCPU is one core).
 
-```bash
-ssh portfolio
-```
-
-**See**: a prompt like `ubuntu@portfolio:~$`. Try `uname -m`: it prints `aarch64`, which is Arm,
-the reason our images are built for `linux/arm64`.
-
-**Do** (VM): bring the system up to date, and reboot if an update asks for it:
+VM: update, and reboot if asked:
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y
 [ -f /var/run/reboot-required ] && sudo reboot
+cat /etc/apt/apt.conf.d/20auto-upgrades      # two lines ending in "1";  = daily security updates
 ```
 
-After a reboot, wait about 30 seconds and `ssh portfolio` again. Then check that security
-updates install themselves daily:
-
-```bash
-cat /etc/apt/apt.conf.d/20auto-upgrades
-```
-
-**See**: two lines, both ending in `"1";`. If the file is missing, run
-`sudo dpkg-reconfigure -plow unattended-upgrades` and answer _Yes_.
-
-**Why**: `~/.ssh/config` gives the server a short name, so neither you nor later commands need
-to remember the IP or the key path. Automatic security updates matter because this machine is
-on the internet around the clock.
+(Missing file: `sudo dpkg-reconfigure -plow unattended-upgrades` → _Yes_.)
 
 ---
 
-## Step 6: Open the web ports in the VM's own firewall (VM, 5 min)
+## Step 6: Open the web ports in the VM's firewall (VM, 5 min)
 
-Oracle's Ubuntu images ship with a strict firewall: rules loaded at every boot from
-`/etc/iptables/rules.v4` that reject everything except SSH.
-
-**Do**:
+Oracle's Ubuntu rejects everything but SSH, using rules loaded at boot from
+`/etc/iptables/rules.v4`.
 
 ```bash
-sudo iptables -L INPUT -n --line-numbers
-```
-
-**See** something like this (numbers may differ):
-
-```
-num  target  prot opt source     destination
-1    ACCEPT  all  --  0.0.0.0/0  0.0.0.0/0    state RELATED,ESTABLISHED
-2    ACCEPT  icmp --  0.0.0.0/0  0.0.0.0/0
-3    ACCEPT  all  --  0.0.0.0/0  0.0.0.0/0
-4    ACCEPT  udp  --  0.0.0.0/0  0.0.0.0/0    udp spt:123
-5    ACCEPT  tcp  --  0.0.0.0/0  0.0.0.0/0    state NEW tcp dpt:22
-6    REJECT  all  --  0.0.0.0/0  0.0.0.0/0    reject-with icmp-host-prohibited
-```
-
-Rules are checked from the top and the first match wins, so new `ACCEPT` rules must go
-**above** the `REJECT`. Replace `N` with the `REJECT` line's number (6 above):
-
-```bash
+sudo iptables -L INPUT -n --line-numbers    # find the REJECT line's number, N
 sudo iptables -I INPUT N -p tcp --dport 80 -m state --state NEW -j ACCEPT
 sudo iptables -I INPUT N -p tcp --dport 443 -m state --state NEW -j ACCEPT
 sudo iptables -I INPUT N -p udp --dport 443 -j ACCEPT
 sudo netfilter-persistent save
 ```
 
-List the rules again: three new `ACCEPT` lines now sit above `REJECT`.
+**See**: three new `ACCEPT` lines above `REJECT` (rules match top-down; the first match wins).
 
-**Why save now, before Docker?** `netfilter-persistent save` writes **all** current rules into
-`/etc/iptables/rules.v4`, the file loaded at boot. Docker adds rules of its own every time it
-starts; saving after Docker is installed would freeze copies of them into that file and
-confuse Docker after the next reboot. So save here, and never run `netfilter-persistent save`
-after Step 7. To change these rules later, edit `/etc/iptables/rules.v4` by hand and reboot
-(Docker adds its own rules back when it starts).
+- **Save now, never after Docker (Step 7)**: `save` writes _all_ current rules to the boot
+  file, and Docker's own rules frozen in there would confuse Docker after a reboot. Later
+  changes: edit `rules.v4` by hand and reboot.
+- **Docker's ports take another path.** A port published by a container skips these `INPUT`
+  rules: Docker forwards it through the `FORWARD` chain, where its own rules come first
+  (`sudo iptables -L FORWARD -n`). So for containers, Oracle's firewall (Step 4) is the one that
+  counts; these rules cover programs run directly on the VM. That is why the stack publishes
+  only Caddy's ports: Postgres and Redis publish none.
 
 ---
 
 ## Step 7: Install Docker (VM, 5 min)
 
-**Do**: install Docker's official packages, as in
-[Docker's guide for Ubuntu](https://docs.docker.com/engine/install/ubuntu/):
+From [Docker's guide for Ubuntu](https://docs.docker.com/engine/install/ubuntu/):
 
 ```bash
 sudo apt-get install -y ca-certificates curl
@@ -231,7 +152,7 @@ sudo apt-get update
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
 
-Let your user run `docker` without `sudo`, and keep container logs from growing forever:
+Use `docker` without `sudo`, and cap log sizes (the default keeps every line forever):
 
 ```bash
 sudo usermod -aG docker ubuntu
@@ -240,164 +161,103 @@ sudo systemctl restart docker
 exit
 ```
 
-Log back in (`ssh portfolio`) so the new group applies, then check:
+Log back in, then check: `docker run --rm hello-world` ("Hello from Docker!"),
+`docker compose version`, and `docker info --format '{{.LoggingDriver}}'` (`local`).
 
-```bash
-docker run --rm hello-world
-docker compose version
-docker info --format '{{.LoggingDriver}}'
-```
-
-**See**: "Hello from Docker!", a Compose version (v2 or later), and `local`.
-
-**Why**:
-
-- Docker picks the `arm64` variant of an image by itself; `hello-world` proves it works.
-- Docker's default log driver keeps every line forever, so after a few months logs could fill
-  the disk. The `local` driver keeps at most 100 MB per container (5 files of 20 MB).
-- Being in the `docker` group is as powerful as being root: anyone in it can start a container
-  that mounts the whole disk. That's fine for your own login; just don't add other users.
+The `docker` group is as powerful as root: don't add other users to it.
 
 ---
 
-## Step 8: Get your hostname from DuckDNS (browser, 5 min)
+## Step 8: A hostname from DuckDNS (browser, 5 min)
 
-**Do**:
+1. [duckdns.org](https://www.duckdns.org) → sign in (GitHub works).
+2. Type a name under _sub domain_ → **add domain**.
+3. Replace _current ip_ with `<public-ip>` (it pre-fills your home IP) → **update ip**.
 
-1. Go to [duckdns.org](https://www.duckdns.org) and sign in (GitHub works).
-2. Type the name you want under _sub domain_ → **add domain**.
-3. **Replace the _current ip_ with `<public-ip>`**, then click **update ip**. DuckDNS fills in
-   the IP of the computer you're browsing from (your home connection), not the server's.
-
-**See** (laptop), after a minute:
-
-```bash
-getent hosts <name>.duckdns.org
-```
-
-prints `<public-ip>  <name>.duckdns.org`.
-
-**Why**: DNS turns the name into the server's address. Keep the _token_ shown on the DuckDNS
-page private: anyone who has it can point your name somewhere else. Rebooting keeps the VM's
-IP, so there's nothing to automate; only deleting the VM loses the IP.
+**See** (laptop, after a minute): `getent hosts <name>.duckdns.org` prints `<public-ip>`. Keep
+the DuckDNS _token_ private: it can point your name anywhere. The IP survives reboots.
 
 ---
 
-## Step 9: Prove the whole path with a throwaway HTTPS page (VM, 5 min)
-
-Before any of our code is involved, check every link in the chain at once: DNS → Oracle's
-firewall → the VM's firewall → Docker → a real certificate.
-
-**Do**:
+## Step 9: Prove the path with a throwaway HTTPS page (VM, 5 min)
 
 ```bash
 docker run --rm -p 80:80 -p 443:443 -p 443:443/udp caddy:2 \
   caddy file-server --domain <name>.duckdns.org --root /usr/share/caddy
 ```
 
-**See**: within about 30 seconds the log shows `certificate obtained successfully`. Open
-`https://<name>.duckdns.org` in your browser: Caddy's welcome page, with a padlock. Press
-**Ctrl+C** on the VM to stop it.
+**See**: `certificate obtained successfully` in the log, then `https://<name>.duckdns.org`
+shows Caddy's page with a padlock. **Ctrl+C** to stop.
 
-**Why it works**: `--domain` tells Caddy which name it serves, and Caddy then gets a
-certificate on its own. Let's Encrypt connects to `http://<name>.duckdns.org/.well-known/…` on
-**port 80** and Caddy answers, proving it controls that name. That's why port 80 must be open
-even though visitors only use HTTPS.
+Let's Encrypt connects to port 80 and Caddy answers, proving it controls the name. Run it once
+or twice at most: the certificate is thrown away, and the same one is issued only 5 times a
+week (the real stack keeps certificates in a volume).
 
-Run it once or twice at most: this container throws its certificate away when it stops, and
-Let's Encrypt issues the same certificate only 5 times a week. The real setup keeps
-certificates in a Docker volume.
-
-**Done**: the server is ready. Nothing else runs on it until the deploy workflow arrives.
+**Done**: next, [CD.md §2](CD.md#2-one-time-setup-about-20-minutes).
 
 ---
 
-## Later: switching to `<name>.is-a.dev` (after the first deploy)
+## Later: `<name>.is-a.dev`
 
-[is-a.dev](https://docs.is-a.dev/) gives developers free subdomains, reviewed by volunteers.
-Their rules decide the timing:
-
-- They approve sites that are "at least somewhat complete", with a link and a screenshot in
-  the pull request. So ask once the site is live on DuckDNS.
-- **Their terms forbid using AI tools to write the pull request** (they name Claude Code) and
-  may block authors who do. Write the JSON file and the PR description yourself, following
-  [their quickstart](https://docs.is-a.dev/quickstart/).
-- Every later change, such as a new IP, is another reviewed pull request: one more reason to
-  keep this VM rather than recreate it.
-
-Once it's merged and `getent hosts <name>.is-a.dev` prints `<public-ip>`, switching is a
-configuration change (`SITE_HOST`, DESIGN.md §14.5), not a rebuild.
+[is-a.dev](https://docs.is-a.dev/) gives free developer subdomains, reviewed by volunteers.
+They approve sites that are "at least somewhat complete" (link + screenshot in the pull
+request), so ask once the site is live. **Their terms forbid AI-written pull requests**:
+write the JSON file and description yourself ([quickstart](https://docs.is-a.dev/quickstart/)).
+When `getent hosts <name>.is-a.dev` prints `<public-ip>`, switch `SITE_HOST` (server
+`deploy/.env` and GitHub) and deploy.
 
 ---
 
-## If the VM is ever lost
+## If the VM is lost
 
-Reclaimed by Oracle or deleted by mistake, the VM is replaceable (DESIGN.md §14.5): images are
-in GitHub's registry, configuration in Git, secrets in GitHub and your password manager, and
-Caddy fetches new certificates by itself. To rebuild: Steps 3 to 7 here, point DuckDNS (and
-is-a.dev, by pull request) at the new IP, deploy, then restore the latest database backup.
+Images are in GitHub's registry, configuration in Git, secrets in your password manager, and
+Caddy gets new certificates by itself. Rebuild: Steps 3–7, point DuckDNS (and is-a.dev) at
+the new IP, redo [CD.md §2](CD.md#2-one-time-setup-about-20-minutes) with the new `SSH_HOST`
+and `SSH_KNOWN_HOSTS`, deploy, then restore the latest backup ([BACKUPS.md](BACKUPS.md)).
 
 ---
 
 ## Troubleshooting
 
-| Symptom                                                   | Likely cause                                                      | Fix                                                                     |
-| --------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `ssh portfolio` hangs, then times out                     | Wrong IP in `~/.ssh/config`, or the TCP 22 rule was removed       | Compare with the instance page; restore the rule (Step 4)               |
-| `Permission denied (publickey)`                           | Wrong key or user                                                 | `ssh -v portfolio` shows which key it offers; the user must be `ubuntu` |
-| "Out of capacity" when creating the VM                    | No free Arm machines right now                                    | Step 3: another availability domain, or try again later                 |
-| Browser can't connect at Step 9                           | A port is closed in one of the two firewalls                      | Re-check Step 4 and Step 6 (`sudo iptables -L INPUT -n --line-numbers`) |
-| Caddy log: `challenge failed` or `timeout during connect` | Let's Encrypt can't reach port 80, or DNS isn't pointing here yet | `getent hosts <name>.duckdns.org` on the laptop; Steps 4, 6 and 8       |
-| `netfilter-persistent: command not found`                 | The package is missing                                            | `sudo apt install -y iptables-persistent`, then repeat Step 6           |
-| `permission denied … docker.sock`                         | The `docker` group isn't active in this login yet                 | Log out and back in (Step 7)                                            |
+| Symptom                                              | Cause                                         | Fix                                                                                                                                                     |
+| ---------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ssh portfolio` hangs                                | Wrong IP, or the TCP 22 rule was removed      | Compare with the instance page; restore the rule (Step 4)                                                                                               |
+| `Permission denied (publickey)`                      | Wrong key or user                             | `ssh -v portfolio` shows the key offered; the user is `ubuntu`                                                                                          |
+| "Out of capacity"                                    | No free Arm machines right now                | Another availability domain, or later (Step 3)                                                                                                          |
+| Browser can't connect at Step 9                      | A port is closed in Oracle's firewall         | Step 4; for programs on the VM also Step 6                                                                                                              |
+| Caddy: `challenge failed` / `timeout during connect` | Port 80 unreachable, or DNS not pointing here | `getent hosts <name>.duckdns.org`; Steps 4 and 8                                                                                                        |
+| Network or certificate problem?                      | Test without HTTPS (no certificate used up)   | VM: `docker run --rm -p 80:8080 -p 443:8080 caddy:2 caddy respond --listen :8080 OK`; laptop: `curl http://<name>.duckdns.org/` and `…:443/` print `OK` |
+| `netfilter-persistent: command not found`            | Package missing                               | `sudo apt install -y iptables-persistent`, redo Step 6                                                                                                  |
+| `permission denied … docker.sock`                    | The `docker` group isn't active yet           | Log out and back in (Step 7)                                                                                                                            |
 
 ---
 
 ## Check yourself
 
-<details><summary>1. Why do the web ports have to be opened in two places?</summary>
+<details><summary>1. Visitors only use HTTPS. Why must port 80 be open?</summary>
 
-There are two separate firewalls. Oracle's security list filters traffic in Oracle's network,
-before it reaches the VM (Step 4); iptables filters it again inside the VM (Step 6). A packet
-must get past both, so a port closed in either one looks exactly like a dead server.
-
-</details>
-
-<details><summary>2. Visitors only ever use HTTPS. Why must port 80 be open?</summary>
-
-To get a certificate, Let's Encrypt connects to the hostname on port 80 and asks for a token
-that only the real server can produce (the HTTP-01 challenge). Caddy also uses port 80 to
-redirect `http://` visitors to `https://`.
+Let's Encrypt connects on port 80 to check that the server controls the name (the HTTP-01
+challenge). Caddy also uses it to redirect `http://` to `https://`.
 
 </details>
 
-<details><summary>3. Why give the VM 6 GB of memory when 12 GB is free?</summary>
+<details><summary>2. Why can Postgres not be reached from the internet, whatever the firewalls say?</summary>
 
-Oracle reclaims Always Free VMs that look idle: CPU, network and memory all under 20 % for a
-week. A quiet portfolio barely uses CPU or network, so memory decides. Our ~2 GB stack is a
-real share of 6 GB, but under 20 % of 12 GB.
-
-</details>
-
-<details><summary>4. Why run <code>netfilter-persistent save</code> before installing Docker, and never after?</summary>
-
-`save` writes every current rule into the file loaded at boot. After Docker is installed, that
-would include Docker's own rules, which Docker recreates every time it starts. Loading stale
-copies at boot would conflict with them.
+Its container publishes no port. Docker forwards only published ports, and the stack
+publishes only Caddy's 80 and 443.
 
 </details>
 
-<details><summary>5. Why does the is-a.dev request wait until the site is live?</summary>
+<details><summary>3. Why 6 GB of memory when 12 GB is free?</summary>
 
-Their reviewers approve only sites that are already reasonably complete, with a link and a
-screenshot in the pull request. DuckDNS needs no review, so the site goes live there first.
+Oracle reclaims Always Free VMs whose CPU, network and memory all stay under 20 % for a week.
+The ~2 GB stack is a real share of 6 GB, but under 20 % of 12 GB.
 
 </details>
 
-<details><summary>6. SSH is open to the whole internet. Why is that acceptable here?</summary>
+<details><summary>4. SSH is open to the whole internet. Why is that acceptable?</summary>
 
-The server accepts key logins only, so without the private key (which never leaves your
-laptop) a login attempt fails. Limiting SSH to your own IP would also lock out GitHub Actions,
-which deploys from changing IPs.
+Only key logins work, and the private keys never leave your laptop and GitHub. Limiting SSH to
+your IP would also lock out GitHub's deploys, which come from changing IPs.
 
 </details>

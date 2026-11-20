@@ -532,6 +532,29 @@ What to watch:
 4. **Caddy's view.** `$C exec caddy wget -qO- http://127.0.0.1:2019/reverse_proxy/upstreams`
    lists each replica with the requests it is handling right now.
 
+### 7.7 Phase 6c: a deploy, seen from the datastores
+
+Same commands as §7.6; on the server, `C="docker compose -f ~/portfolio/deploy/compose.prod.yml"`.
+Try it on the laptop with `docker tag portfolio-api:dev portfolio-api:v2` (and the same for
+`portfolio-web`), then `npm run stack:deploy -- v2` ([CD.md](CD.md)).
+
+1. **Which release runs.** `$C ps --format '{{.Service}} {{.Image}}'`: every API container
+   (api-1, api-2, worker) shows the same tag, and `grep _IMAGE deploy/.env` names it too.
+   During a deploy, watch the tags change one service at a time.
+2. **Migrations only go forward.** In psql:
+   `SELECT version, name, applied_at FROM schema_migrations ORDER BY version;` The first deploy
+   on the server adds all 7 rows; a release with a new migration adds one row; a rollback
+   removes none (CD.md §4).
+3. **The content step clears the cache, then warms it.** Run `$C exec redis redis-cli MONITOR`,
+   then deploy: at "publishing the content" the `cache:*` keys are deleted and written again
+   (the seed's log line counts them: `cacheKeysCleared`). Afterwards
+   `$C exec redis redis-cli --scan --pattern 'cache:*'` lists them again.
+4. **No API request is lost.** Keep https://localhost/admin open during a deploy: "answered
+   by" shows `api-2` while api-1 is replaced, then `api-1` while api-2 is. Only the `web` step
+   interrupts it, for under a second, and the dashboard keeps its last numbers meanwhile.
+   The worker's queue (`LLEN telemetry:events:buffer`) may grow while the worker is
+   replaced, then drains.
+
 ## 8. Troubleshooting
 
 | Symptom                             | Fix                                                                   |

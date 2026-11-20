@@ -1,0 +1,170 @@
+# Continuous delivery (DESIGN.md §14.3). Guide: docs/CD.md
+#
+#   merge to main ─► CI (ci.yml) ─► publish: both images to GHCR, tagged with the commit SHA
+#                                     ─► deploy [environment `production`: waits for your approval]
+#                                          migrate → seed → rolling update → smoke test,
+#                                          back to the previous release if that fails
+#
+# Started by hand (Actions → Deploy → Run workflow) it deploys an earlier release again, e.g. to
+# roll back: give the full commit SHA of a release published before. CI and publishing are
+# skipped; it still waits for your approval.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full commit SHA of a published release (empty = the newest commit on main)
+        required: false
+        default: ''
+
+# Least privilege: jobs that need more ask for it themselves.
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/ci.yml
+
+  # Rebuilds each image from the layers CI just cached (no work is repeated), then pushes it.
+  # Only commits that passed CI get here, so every image in the registry is a tested release.
+  publish:
+    name: publish (${{ matrix.image }})
+    needs: ci
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io with this job's own token, valid until the job ends
+    strategy:
+      matrix:
+        image: [api, web]
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: month
+        run: echo "value=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/${{ matrix.image }}/Dockerfile
+          platforms: linux/arm64
+          push: true
+          # The tag is the commit: every release traces back to its code, and a rollback is
+          # "deploy the previous SHA" (DESIGN.md §14.2).
+          tags: ghcr.io/${{ github.repository_owner }}/portfolio-${{ matrix.image }}:${{ github.sha }}
+          # `source` links the package to this repository on GitHub.
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: ${{ matrix.image == 'api' && format('GEOIP_MONTH={0}', steps.month.outputs.value) || '' }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+
+  deploy:
+    needs: publish
+    # After a successful publish, or on its own when started by hand (CI and publish are then
+    # skipped). Not when CI failed or was cancelled by a newer push: that commit has no images.
+    if: ${{ !cancelled() && (needs.publish.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The approval gate: this job waits until a required reviewer approves it, and only then
+    # gets the environment's secrets (the SSH key). Setup: docs/CD.md §2.
+    environment:
+      name: production
+      url: ${{ steps.release.outputs.url }}
+    # One deploy at a time: a newer one waits for the running one instead of cancelling it.
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read # the server pulls the images with this job's token
+
+    steps:
+      - name: Choose the release
+        id: release
+        env:
+          SHA: ${{ inputs.sha || github.sha }}
+          SITE_HOST: ${{ vars.SITE_HOST }}
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+          HAS_SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY != '' }}
+        run: |
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Not a full commit SHA (40 characters): $SHA"
+            exit 1
+          fi
+          # Name every missing setting at once (docs/CD.md §2.3), instead of an SSH error later.
+          missing=""
+          for name in SITE_HOST SSH_HOST SSH_KNOWN_HOSTS; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          [ "$HAS_SSH_PRIVATE_KEY" = true ] || missing="$missing SSH_PRIVATE_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::The production environment is missing:$missing (docs/CD.md §2.3)"
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "url=https://$SITE_HOST" >> "$GITHUB_OUTPUT"
+
+      # The deploy files (compose file, Caddyfile, scripts) of the release being deployed.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+
+      # Never trust a host key on first sight: the expected one is SSH_KNOWN_HOSTS.
+      - name: Set up SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+          SSH_HOST: ${{ vars.SSH_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host server
+            HostName $SSH_HOST
+            User ubuntu
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            BatchMode yes
+            ServerAliveInterval 15
+          EOF
+          ssh server true
+
+      # deploy/.env (the server's secrets and current release) is excluded, so never touched.
+      - name: Copy the deploy files to ~/portfolio/deploy
+        run: rsync --archive --delete --exclude=.env deploy/ server:portfolio/deploy/
+
+      - name: Deploy (migrate, seed, rolling update, smoke test; rolls back on failure)
+        env:
+          SHA: ${{ steps.release.outputs.sha }}
+          IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/portfolio
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s\n' "$REGISTRY_PASSWORD" |
+            ssh server "REGISTRY_USER='$GITHUB_ACTOR' IMAGE_PREFIX='$IMAGE_PREFIX' bash portfolio/deploy/deploy.sh $SHA"
+
+      # The server tested itself through Caddy; this proves DNS and Oracle's firewall let the
+      # world in. A failure here is the path to the server, not the release: nothing rolls back.
+      - name: Check from the internet
+        env:
+          SITE_HOST: ${{ vars.SITE_HOST }}
+        run: |
+          for path in /api/v1/projects /; do
+            curl --silent --show-error --fail --output /dev/null --max-time 10 \
+              --retry 5 --retry-delay 5 --retry-all-errors "https://$SITE_HOST$path"
+            echo "GET https://$SITE_HOST$path → 200"
+          done

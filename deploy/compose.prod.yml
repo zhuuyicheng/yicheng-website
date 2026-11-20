@@ -5,8 +5,8 @@
 #
 # Every value comes from deploy/.env (template: deploy/.env.example), which Compose reads by
 # itself because it sits next to this file. Images default to the ones `npm run image:api` and
-# `npm run image:web` build on your laptop; the deploy (6c) sets API_IMAGE and WEB_IMAGE to the
-# released versions. Commands, from the repository root:
+# `npm run image:web` build on your laptop; deploy/deploy.sh writes the running release into
+# deploy/.env as API_IMAGE and WEB_IMAGE (docs/CD.md). Commands, from the repository root:
 #
 #   docker compose -f deploy/compose.prod.yml run --rm migrate     apply migrations
 #   docker compose -f deploy/compose.prod.yml run --rm seed        publish the content
