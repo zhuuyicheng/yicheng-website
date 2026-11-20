@@ -43,6 +43,11 @@ gh pr merge --squash --delete-branch  # when green
 git switch main && git pull
 ```
 
+`gh pr checks --watch` and `gh run rerun --failed` (§3) need a current `gh`. Ubuntu's own
+package is version 2.4 from 2022 (`gh --version`), which lacks both: install the current one
+with [GitHub's instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md), or
+use the PR's **Checks** tab and the **Re-run failed jobs** button instead.
+
 ---
 
 ## 3. When CI fails
@@ -79,8 +84,17 @@ cd - && rm -rf /tmp/ci-check
 
 ---
 
-## 4. Protecting `main` (recommended)
+## 4. Protecting `main`
 
-**Settings → Rules → Rulesets → New branch ruleset** for `main`: require a pull request,
-require the status checks `check`, `image (api)` and `image (web)`, and block force pushes.
-Then nothing reaches `main` without green CI, your own pushes included.
+`main` is protected by a ruleset, "Protect main" (since 2026-11-20). A change reaches `main`
+only through a pull request whose `check`, `image (api)` and `image (web)` jobs passed. Force
+pushes and deleting `main` are blocked, and nobody can bypass the rules, the owner included.
+
+- **See the rules**: **Settings → Rules → Rulesets**, or
+  `gh api repos/{owner}/{repo}/rules/branches/main`.
+- **Set it up again** (a new repository or a fork): **Settings → Rules → Rulesets → New
+  branch ruleset**, target `main`, then turn on _Restrict deletions_, _Require a pull request
+  before merging_, _Require status checks to pass_ (add the three jobs above) and _Block force
+  pushes_.
+- **Renaming a CI job?** Update the required checks too, or every pull request waits for a
+  check that never reports.

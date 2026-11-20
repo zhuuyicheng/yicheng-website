@@ -91,25 +91,26 @@ and everything after `--` is passed straight through to Vitest.
 A passing run ends like this:
 
 ```
- ✓ |unit| test/unit/config/env.test.ts (16 tests) 6ms
- ✓ |integration| test/integration/health.test.ts (6 tests) 52ms
+ ✓  unit  test/unit/config/env.test.ts (17 tests) 20ms
+ ✓  integration  test/integration/health.test.ts (9 tests) 122ms
  ...
- Test Files  43 passed (43)
-      Tests  286 passed (286)
+ Test Files  45 passed (45)
+      Tests  305 passed (305)
  ...
- ✓ test/lib/contact.test.ts (8 tests) 5ms
- Test Files  5 passed (5)
-      Tests  37 passed (37)
+ ✓ test/lib/contact.test.ts (11 tests) 36ms
+ Test Files  10 passed (10)
+      Tests  74 passed (74)
 ```
 
-The first block is the API (`|unit|` and `|integration|` show which Vitest project each file
-belongs to, configured in `apps/api/vitest.config.ts`); the second is the website.
+The first block is the API: the coloured `unit` or `integration` label says which Vitest
+project a file belongs to (configured in `apps/api/vitest.config.ts`). The second block is the
+website. (Counts as of 2026-11-20; they grow with every feature.)
 
 A failing test prints the test name, the assertion that failed, and the expected vs received
 values with the exact file and line:
 
 ```
- FAIL  |unit| test/unit/config/env.test.ts > loadConfig > applies defaults
+ FAIL   unit  test/unit/config/env.test.ts > loadConfig > applies defaults
 AssertionError: expected 4000 to be 8080
  ❯ test/unit/config/env.test.ts:23:31
 ```

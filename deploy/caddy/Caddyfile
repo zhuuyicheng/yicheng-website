@@ -4,6 +4,7 @@
 #
 #   https://<host>/api/*   →  api-1 / api-2   (round robin, health-checked)
 #   https://<host>/*       →  web
+#   while deploy/caddy/paused exists: the "back soon" page instead (docs/CD.md §5)
 #
 # {$SITE_HOST} comes from deploy/.env, so the hostname is never in Git. For a real name
 # (yourname.duckdns.org) Caddy gets a Let's Encrypt certificate by itself; for `localhost` it
@@ -34,16 +35,42 @@
 }
 
 {$SITE_HOST} {
-	# The owner's API routes are for the web server only, which uses :8080 below. They need
-	# the admin token anyway; this keeps them unreachable from the internet altogether.
-	handle /api/v1/admin/* {
-		respond 404
+	# Paused (docs/CD.md §5): while the file deploy/caddy/paused exists, visitors get
+	# back-soon.html (next to this file) instead of the site. Caddy looks for the file on every
+	# request, so pausing and resuming need no reload. /admin stays open (it has its own
+	# password), with the scripts and styles its pages load from /_next/.
+	@paused {
+		file {
+			root /etc/caddy
+			try_files /paused
+		}
+		not path /admin /admin/* /_next/*
 	}
-	handle /api/* {
-		import api_replicas
+	handle @paused {
+		# 503 + Retry-After: search engines treat the pause as temporary and keep the site listed.
+		header Retry-After 3600
+		header Cache-Control no-store
+		root * /etc/caddy
+		rewrite * /back-soon.html
+		file_server {
+			status 503
+		}
 	}
+
+	# Not paused. Nested so that the check above comes first for every path: on its own level,
+	# Caddy would put `handle` blocks with a path (/api/*) before it.
 	handle {
-		reverse_proxy web:3000
+		# The owner's API routes are for the web server only, which uses :8080 below. They need
+		# the admin token anyway; this keeps them unreachable from the internet altogether.
+		handle /api/v1/admin/* {
+			respond 404
+		}
+		handle /api/* {
+			import api_replicas
+		}
+		handle {
+			reverse_proxy web:3000
+		}
 	}
 }
 

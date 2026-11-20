@@ -162,7 +162,8 @@ services:
     volumes:
       # The folder, not the single file: a mounted file stays the version from when the
       # container started (editors and git replace files), a mounted folder shows the current
-      # one, so `caddy reload` picks up changes. Only this folder: deploy/.env stays out.
+      # one, so `caddy reload` picks up changes. Only this folder: deploy/.env stays out. It also
+      # holds back-soon.html and, while the site is paused, the file `paused` (docs/CD.md §5).
       - ./caddy:/etc/caddy:ro
       # Certificates live here: keep this volume, or Let's Encrypt's weekly limit is hit.
       - caddy-data:/data

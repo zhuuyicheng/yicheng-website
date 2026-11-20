@@ -96,6 +96,7 @@ so the site never shows half an edit. Try it on purpose:
 | Browser-tab icon                                                                       | `app/icon.svg` (the "YC" monogram)                                                                                |
 | Browser-tab title of the other pages (`… · Portfolio`) and the default description     | `app/layout.tsx` (`metadata`)                                                                                     |
 | The 404 page and your owner dashboard                                                  | `app/not-found.tsx`, `app/admin/page.tsx`                                                                         |
+| The "back soon" page while the site is paused ([CD.md §5](CD.md#5-pausing-the-site))   | `deploy/caddy/back-soon.html` (outside `apps/web`; repeats your LinkedIn link)                                    |
 
 **Editing JSX safely.** These files mix HTML-like tags with code. Change only the words:
 

@@ -3,14 +3,14 @@
 Each phase is built on its own branch, opened as a pull request, verified by CI, and merged
 into `main` before the next phase starts. Design details live in [DESIGN.md](DESIGN.md).
 
-| Phase | Branch                       | Module | Status         |
-| ----- | ---------------------------- | ------ | -------------- |
-| 1     | `main` (initial scaffold)    | —      | ✅ Done        |
-| 2     | `feat/portfolio-cache-api`   | A      | ✅ Done        |
-| 3     | `feat/telemetry-pipeline`    | B      | ✅ Done        |
-| 4     | `feat/contact-rate-limiter`  | C      | ✅ Done        |
-| 5     | `feat/metrics-and-dashboard` | D      | ✅ Done        |
-| 6     | `feat/continuous-delivery`   | —      | 🚧 In progress |
+| Phase | Branch                       | Module | Status                      |
+| ----- | ---------------------------- | ------ | --------------------------- |
+| 1     | `main` (initial scaffold)    | —      | ✅ Done                     |
+| 2     | `feat/portfolio-cache-api`   | A      | ✅ Done                     |
+| 3     | `feat/telemetry-pipeline`    | B      | ✅ Done                     |
+| 4     | `feat/contact-rate-limiter`  | C      | ✅ Done                     |
+| 5     | `feat/metrics-and-dashboard` | D      | ✅ Done                     |
+| 6     | `feat/continuous-delivery`   | —      | ✅ Live (backups to set up) |
 
 ---
 
@@ -165,17 +165,32 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
       stopped and replaced (`npm run stack:failover`)
 - [x] 6c Continuous delivery: merge → CI → images to GHCR (tag = commit SHA) → your approval →
       `deploy/deploy.sh` over SSH: migrate, seed, rolling update (worker → api-1 → api-2 → web),
-      smoke test, automatic rollback. Tested on the laptop stack (API 503/503 OK during a deploy,
-      1,302/1,302 during a rollback) and checked against the server's versions. Found and fixed:
-      Compose's `up --wait` lets through a container that is still starting
+      smoke test, automatic rollback. Tested on the laptop stack (all 503 API requests
+      succeeded during a deploy, all 1,302 during a rollback) and checked against the server's
+      versions. Found and fixed: Compose's `up --wait` lets through a container that is still
+      starting
 - [x] 6d Weekly backups: dump + test restore on the server, copied to the desktop with a
       read-only key; restore swaps databases in one transaction. Drill passed on the laptop
-- [ ] One-time deploy setup by the owner ([CD.md §2](docs/CD.md#2-one-time-setup-about-20-minutes)):
-      deploy key, `~/portfolio/deploy/.env`, GitHub `production` environment
-- [ ] First deploy to the server; then the backup cron and the desktop's scheduled copy
+- [x] One-time deploy setup (2026-11-20, [CD.md §2](docs/CD.md#2-one-time-setup-about-20-minutes)):
+      deploy key, `~/portfolio/deploy/.env`, GitHub `production` environment (you approve,
+      `main` only). Learned: a key pasted through the clipboard broke ("error in libcrypto");
+      the secret is now set from the file, and the job checks the key first
+- [x] **Live** (2026-11-20): first deploy in 87 s on the server, smoke test and the check from
+      the internet passed. Memory: about 600 MB for the whole stack (`docker stats`)
+- [x] Pause switch: `deploy/caddy/paused` on the server → a "back soon" page (503 +
+      `Retry-After`), `/admin` stays open, deploys still work and leave it paused
+      ([CD.md §5](docs/CD.md#5-pausing-the-site)). Tested on the laptop stack, failures included
+- [ ] Switch on the backups, on the server and the desktop
+      ([BACKUPS.md §2–3](docs/BACKUPS.md)): to do from the desktop
+- [ ] Oracle idle rule: Oracle's Memory utilization reads about 22 % (2026-11-20, first hour),
+      just above the 20 % line; CPU about 5 %. Recheck the 7-day view in a week; resize to
+      3 GB if memory falls under 20 % ([HOSTING.md](docs/HOSTING.md#check-yourself), question 3)
+- [x] Protect `main` (2026-11-20, ruleset "Protect main"): pull request required, checks
+      `check`, `image (api)` and `image (web)` required, no force push or deletion, no bypass
+      ([CI.md §4](docs/CI.md#4-protecting-main))
 - [ ] Per-replica metrics in a Prometheus server (each replica already reports its `instance`)
-- [ ] Switch to `<name>.is-a.dev` once the site is live (you write the request by hand: their
-      terms forbid AI-written pull requests)
+- [ ] Switch to `<name>.is-a.dev`, possible now that the site is live (you write the request by
+      hand: their terms forbid AI-written pull requests)
 - [ ] Later: remove the approval gate (continuous **deployment**) once releases are routine
 
 ### Website polish before going live (feedback, 2026-11-18)

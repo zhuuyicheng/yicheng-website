@@ -63,7 +63,9 @@ Check for the **Always Free-eligible** label → **Create**. When it shows **RUN
 - **1 OCPU**: 2 was refused ("out of host capacity"), and one core is enough: images are built
   by GitHub, not here. The shape can be edited later (_Edit_ on the instance page).
 - **6 GB, not the free 12**: Oracle may reclaim a VM whose CPU, network **and** memory all stay
-  under 20 % for a week. The stack uses about 2 GB: a real share of 6 GB, under 20 % of 12.
+  under 20 % for a week. 6 GB was sized for an estimated 2 GB; the stack measured about 0.6 GB,
+  and Oracle shows about 22 % for the whole VM (2026-11-20): just above the line.
+  [Check yourself](#check-yourself), question 3, says what to watch.
 - **"Out of capacity"**: try another availability domain (_Placement_), or again later.
   Upgrading to _Pay As You Go_ also helps (Always Free stays free), but mistakes then cost
   money: first add a budget alert (Billing & Cost Management → Budgets, alert at $1).
@@ -105,7 +107,7 @@ VM: update, and reboot if asked:
 ```bash
 sudo apt update && sudo apt full-upgrade -y
 [ -f /var/run/reboot-required ] && sudo reboot
-cat /etc/apt/apt.conf.d/20auto-upgrades      # two lines ending in "1";  = daily security updates
+cat /etc/apt/apt.conf.d/20auto-upgrades      # two lines ending in "1": daily security updates
 ```
 
 (Missing file: `sudo dpkg-reconfigure -plow unattended-upgrades` → _Yes_.)
@@ -201,7 +203,7 @@ week (the real stack keeps certificates in a volume).
 
 [is-a.dev](https://docs.is-a.dev/) gives free developer subdomains, reviewed by volunteers.
 They approve sites that are "at least somewhat complete" (link + screenshot in the pull
-request), so ask once the site is live. **Their terms forbid AI-written pull requests**:
+request); the site is live, so you can ask now. **Their terms forbid AI-written pull requests**:
 write the JSON file and description yourself ([quickstart](https://docs.is-a.dev/quickstart/)).
 When `getent hosts <name>.is-a.dev` prints `<public-ip>`, switch `SITE_HOST` (server
 `deploy/.env` and GitHub) and deploy.
@@ -250,8 +252,19 @@ publishes only Caddy's 80 and 443.
 
 <details><summary>3. Why 6 GB of memory when 12 GB is free?</summary>
 
-Oracle reclaims Always Free VMs whose CPU, network and memory all stay under 20 % for a week.
-The ~2 GB stack is a real share of 6 GB, but under 20 % of 12 GB.
+Oracle may reclaim Always Free VMs whose CPU, network and memory all stay under 20 % for a week
+([Oracle's rule](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)).
+A quiet site keeps CPU and network low (CPU about 5 %; a short spike above 20 % doesn't count,
+because the rule looks at the 95th percentile), so memory must stay above 20 %.
+
+6 GB was chosen for an estimated 2 GB. Measured, the stack uses about 0.6 GB (`docker stats`)
+and Oracle shows about 22 % for the whole VM, system included (2026-11-20): above the line, by
+little. What to do:
+
+1. Once a week for a while: instance page → **Metrics** → **Memory utilization**, set to the
+   last 7 days. Pausing the site doesn't change it: the containers keep running.
+2. If it falls under 20 %: **Edit** → shape → 1 OCPU, **3 GB**. The VM restarts once; Docker
+   starts the site again by itself. About 1.3 GB in use is over 40 % of 3 GB.
 
 </details>
 

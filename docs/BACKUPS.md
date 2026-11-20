@@ -4,6 +4,9 @@ Every week the server backs up the database, proves the backup restores, and tel
 Discord. Your desktop then copies it home. Design:
 [DESIGN.md §14.6](../DESIGN.md#146-backups-weekly-copied-to-the-owners-desktop).
 
+**Status**: built and drilled on the laptop (Phase 6d); not switched on yet. Sections 2 and 3
+switch it on, once, from the desktop.
+
 ```
 server, Sundays 18:00 UTC                        your desktop (WSL), Mondays 12:00
 deploy/backup.sh                                 deploy/pull-backups.sh
@@ -55,8 +58,9 @@ zone, which is UTC on Oracle's images. Each run:
 2. **test-restores** it into a scratch database and counts the rows: a backup that was never
    restored is only a hope;
 3. keeps the newest 4 (a month); your desktop keeps its own copies of all of them;
-4. posts to Discord: `Portfolio backup OK: … (20K), test restore found 1234 events and 5
-contact messages`, or `Portfolio backup FAILED while …`.
+4. posts to Discord, for example
+   `Portfolio backup OK: … (20K), test restore found 1234 events and 5 contact messages`, or
+   `Portfolio backup FAILED while …`.
 
 **If the Sunday message does not arrive, something is wrong**, even if nothing failed loudly
 (the server was down, cron was edited). Check `~/backups/backup.log` on the server.
@@ -151,10 +155,10 @@ is damaged, `0x3` no backup newer than 8 days (the server's weekly job is not ru
 
 ## 4. Restoring
 
-`deploy/restore.sh` replaces the live database with a backup:
+`deploy/restore.sh` replaces the live database with a backup. On the server:
 
 ```bash
-bash deploy/restore.sh ~/backups/portfolio/portfolio-2026-11-22-1800Z.dump
+bash ~/portfolio/deploy/restore.sh ~/backups/portfolio/portfolio-2026-11-22-1800Z.dump
 ```
 
 1. checks the file against its checksum;

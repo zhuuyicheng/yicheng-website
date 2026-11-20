@@ -64,7 +64,7 @@ diagrams: [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md).
 | ---------- | ---------------------------------- | ----------------------------------------------------------------------------------------- |
 | API        | `apps/api/src/main.ts`             | HTTP routes, cache-aside, ingestion enqueue, contact + rate limit, `/metrics`             |
 | Worker     | `apps/api/src/worker.ts` (Phase 3) | Telemetry batch flusher; (P4) notification consumer, delayed-job promoter, reconciler     |
-| Web        | `apps/web` (`next start`, Phase 5) | Renders pages from the API per request; serves the browser code (beacon, form, dashboard) |
+| Web        | `apps/web` (Phase 5)               | Renders pages from the API per request; serves the browser code (beacon, form, dashboard) |
 | Migrations | `apps/api/src/cli/migrate.ts`      | Applies SQL migrations; run as a deploy step, **never** on API boot                       |
 | Other CLIs | `apps/api/src/cli/*.ts`            | `content:seed` (P2), `dlq:replay` and `geoip:download` (P3): one-off commands, then exit  |
 
@@ -128,12 +128,13 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 ├── CLAUDE.md                             contributor / agent guide
 ├── DESIGN.md                             this document
 ├── ROADMAP.md                            phases, branches, progress checklists
-├── docs/                                 how-to guides (testing, CI, content & cache, data viewers)
+├── docs/                                 the guides (PROJECT-GUIDE.md first; README.md lists them all)
 │   └── sql/                              read-only queries for the VS Code PostgreSQL extension
 │                                         (content.sql, (P3) telemetry.sql, (P4) contact.sql)
 ├── deploy/                               (P6) the production stack (docs/PRODUCTION-STACK.md):
-│                                         compose.prod.yml, caddy/Caddyfile, .env.example
-│                                         (→ gitignored .env), failover-test.sh
+│                                         compose.prod.yml, caddy/ (Caddyfile, back-soon.html),
+│                                         .env.example (→ gitignored .env), deploy.sh,
+│                                         backup.sh, restore.sh, pull-backups.sh, failover-test.sh
 ├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests
 ├── eslint.config.mjs                     one flat config for the whole repo
 ├── package.json                          npm workspaces + repo-wide scripts
@@ -152,7 +153,9 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   ├── 0002_education.sql                (P2)
 │   │   │   ├── 0003_analytics_events.sql         (P3)
 │   │   │   ├── 0004_analytics_visitor_details.sql (P3)
-│   │   │   └── 0005_contact_messages.sql         (P4)
+│   │   │   ├── 0005_contact_messages.sql         (P4)
+│   │   │   ├── 0006_project_sections.sql         (P6)
+│   │   │   └── 0007_analytics_ip_address.sql     (P6)
 │   │   ├── src/
 │   │   │   ├── main.ts                   API composition root + process lifecycle
 │   │   │   ├── worker.ts                 (P3) worker composition root + process lifecycle
@@ -164,7 +167,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── content.controller.ts         (P2) profile, projects
 │   │   │   │   ├── events.controller.ts          (P3) telemetry ingestion
 │   │   │   │   ├── contact.controller.ts         (P4)
-│   │   │   │   └── system.controller.ts          (P5) /metrics, system status
+│   │   │   │   ├── system.controller.ts          (P5) /metrics
+│   │   │   │   └── admin.controller.ts           (P6) owner routes: system status, visitor summary
 │   │   │   ├── services/                 business rules ("managers")
 │   │   │   │   ├── health.manager.ts
 │   │   │   │   ├── cache-aside.manager.ts        (P2) generic cache-aside + single-flight + TTL jitter
@@ -177,7 +181,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── rate-limiter.manager.ts       (P4) sliding window per hashed IP, fail closed
 │   │   │   │   ├── notification.manager.ts       (P4) one job: send → sent / retry / DLQ; promote; reconcile
 │   │   │   │   ├── notification-dlq.manager.ts   (P4) dead-letter replay: reopen FAILED messages
-│   │   │   │   └── system-status.manager.ts      (P5) status JSON (5 s cache) + Prometheus text
+│   │   │   │   ├── system-status.manager.ts      (P5) status JSON (5 s cache) + Prometheus text
+│   │   │   │   └── visitor-insights.manager.ts   (P6) ranks visits for the owner's summary
 │   │   │   ├── dal/                      the only datastore code
 │   │   │   │   ├── content.dal.ts                (P2) Postgres
 │   │   │   │   ├── content-cache.dal.ts          (P2) Redis
@@ -189,6 +194,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── rate-limit.dal.ts             (P4) Redis
 │   │   │   │   ├── notification-queue.dal.ts     (P4) Redis
 │   │   │   │   ├── queue-depth.dal.ts            (P5) Redis: LLEN/ZCARD of every queue, one round trip
+│   │   │   │   ├── visitor-insights.dal.ts       (P6) Postgres: visits grouped by session
 │   │   │   │   ├── redis-exec.ts                 (P4) MULTI/pipeline that throws if any command failed
 │   │   │   │   └── lua/                          (P3/P4) Lua scripts as TS string constants
 │   │   │   │       ├── bounded-enqueue.lua.ts    (P3) + its typed ioredis command
@@ -205,14 +211,16 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── analytics-event.schema.ts     (P3) request, visitor details, buffered event, dead letter
 │   │   │   │   ├── contact-message.schema.ts     (P4)
 │   │   │   │   ├── notification-job.schema.ts    (P4)
-│   │   │   │   └── system-status.schema.ts       (P5)
+│   │   │   │   ├── system-status.schema.ts       (P5)
+│   │   │   │   └── visitor-insights.schema.ts    (P6)
 │   │   │   ├── views/
 │   │   │   │   ├── data.view.ts          (P3) the { data } envelope type
 │   │   │   │   ├── error.view.ts         { error: { code, message, requestId } }
 │   │   │   │   ├── content.view.ts       (P2) { data } bodies for profile/projects
 │   │   │   │   ├── telemetry.view.ts     (P3) { data: { eventId } }
 │   │   │   │   ├── contact.view.ts       (P4) { data: { id, status } }
-│   │   │   │   └── system-status.view.ts (P5) { data: { … } } for the dashboard
+│   │   │   │   ├── system-status.view.ts (P5) { data: { … } } for the dashboard
+│   │   │   │   └── visitor-insights.view.ts (P6) { data: VisitorSummary }
 │   │   │   ├── workers/                  (P3/P4) background loops started by worker.ts
 │   │   │   │   ├── telemetry-flusher.worker.ts   (P3) when to flush: interval, backoff, drain on stop
 │   │   │   │   ├── notification-consumer.worker.ts (P4) one job after another; backoff on outages
@@ -223,7 +231,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── error-handler.ts      maps any error to the error view
 │   │   │   │   ├── rate-limit.ts         (P4) onRequest hook: X-RateLimit-* headers, 429
 │   │   │   │   ├── http-metrics.ts       (P5) onResponse hook: duration histogram, counter, rolling window
-│   │   │   │   ├── bearer-token.ts       (P5) onRequest hook for /metrics: constant-time token check
+│   │   │   │   ├── bearer-token.ts       (P5) onRequest hook for /metrics, (P6) owner routes: constant-time check
 │   │   │   │   └── security.ts           (P5) Helmet headers + CORS allow-list
 │   │   │   ├── errors/app-error.ts       AppError + ErrorCode catalog
 │   │   │   ├── config/env.ts             Zod env schema → typed AppConfig (fail-fast)
@@ -261,19 +269,24 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │       │   │   ├── layout.tsx            header, footer, page-view beacon
 │       │   │   ├── page.tsx              home: hero, about, experience, projects, outside work, contact
 │       │   │   ├── [slug]/               one project, at /<slug> (old /projects/* links redirect)
-│       │   │   ├── admin/                owner dashboard + its status route (password-protected)
-│       │   │   ├── error.tsx             "API unreachable" + retry
+│       │   │   ├── admin/                (P6) owner dashboard + its status route (password-protected)
+│       │   │   ├── error.tsx             "This page couldn't load" + Try again
 │       │   │   ├── not-found.tsx
+│       │   │   ├── icon.svg, apple-icon.png   browser-tab and home-screen icons
 │       │   │   └── globals.css           theme tokens, reveal, reduced motion
+│       │   ├── proxy.ts                  (P6) HTTP Basic login in front of /admin
 │       │   ├── components/               sections and effects ('use client' only where needed)
+│       │   ├── content/                  photos.ts + the photos (web copies, metadata removed)
 │       │   └── lib/                      logic without React: api (server fetch), telemetry
-│       │                                 (beacon), contact, sliding-window, format, config
+│       │                                 (beacon), contact, status, carousel, scroll-spy,
+│       │                                 section-scroll, project-page, format, config,
+│       │                                 (P6) admin-auth, admin-api, visitors
 │       └── test/lib/                     unit tests mirroring src/lib
 └── packages/
     └── shared/                           (P5) the API contract: Zod schemas for every public
         ├── package.json                  request/response (content, contact, events, system
-        ├── tsconfig.json / .build.json   status, error envelope). Built to dist/ (`build:shared`,
-        └── src/                          run by postinstall, dev:*, typecheck and test)
+        ├── tsconfig.json / .build.json   status, (P6) visitors, error envelope). Built to dist/
+        └── src/                          (`build:shared`, run by postinstall, dev:*, typecheck, test)
 ```
 
 ---
@@ -310,17 +323,17 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `NOTIFY_MAX_ATTEMPTS`               | 4     | `3`                     | 1–10. Total attempts including the first.                                 |
 | `NOTIFY_BACKOFF_BASE_MS`            | 4     | `5000`                  | Delay = base × 2^(attempt−1) ± 20 % jitter, capped at 4 min.              |
 | `METRICS_TOKEN`                     | 5     | unset                   | ≥ 16 chars. If set, `/metrics` requires `Authorization: Bearer <token>`.  |
-| `ADMIN_TOKEN`                       | 6     | unset                   | ≥ 32 chars. Owner area (§8.7): API bearer token and /admin password.      |
 | `CORS_ORIGINS`                      | 5     | `http://localhost:3000` | Comma-separated origins (`https://host[:port]`, no path, no `/`).         |
 | `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side, read at request time).                        |
 | `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API. Baked in at `next build`. Empty = same origin (§14.5).     |
+| `ADMIN_TOKEN`                       | 6     | unset                   | ≥ 32 chars. Owner area (§8.7): API bearer token and /admin password.      |
 
 The web variables are read by Next.js from the environment or from `apps/web/.env*` files
 (not the root `.env`); the defaults suit local development. `ADMIN_TOKEN` is set in both apps
 (the API checks it, the web server sends it and checks the owner's password against it);
 `apps/web/.env.development`, read by `next dev` only, holds the same development value as
-`.env.example`. `NEXT_PUBLIC_*` values are
-copied into the JavaScript bundle when the site is built, so changing one means rebuilding.
+`.env.example`. `NEXT_PUBLIC_*` values are copied into the JavaScript bundle when the site is
+built, so changing one means rebuilding.
 
 Docker Compose additionally reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
 `POSTGRES_PORT`, `REDIS_PORT` (all with local-dev defaults).
@@ -444,7 +457,7 @@ sections, and a body or at least one point under every heading).
 CREATE TABLE analytics_events (
   id             UUID        PRIMARY KEY,          -- assigned at ingestion → idempotent replays
   event_type     TEXT        NOT NULL CHECK (event_type IN ('page_view', 'interaction')),
-  event_name     TEXT,                             -- e.g. 'click:github-link'; interactions only
+  event_name     TEXT,                             -- e.g. 'click:linkedin-link'; interactions only
   path           TEXT        NOT NULL,             -- query string stripped
   referrer_host  TEXT,                             -- host only, never the full URL
   session_id     TEXT        NOT NULL,             -- opaque, client-generated
@@ -725,7 +738,7 @@ one of `ready`, `processing`, `delayed` or `dlq`, never in none.
 | ---- | ------------------------ | -------------------------------------------------- |
 | 400  | `VALIDATION_ERROR`       | Body/query/params fail schema validation           |
 | 400  | `BAD_REQUEST`            | Malformed JSON or other client error               |
-| 401  | `UNAUTHORIZED`           | Missing/invalid `/metrics` token                   |
+| 401  | `UNAUTHORIZED`           | Missing/invalid `/metrics` or owner token          |
 | 404  | `NOT_FOUND`              | Unknown route or missing resource                  |
 | 413  | `PAYLOAD_TOO_LARGE`      | Body exceeds 16 KiB                                |
 | 415  | `UNSUPPORTED_MEDIA_TYPE` | Non-JSON body                                      |
@@ -826,7 +839,7 @@ All three set `X-Cache: hit | miss`.
 ```json
 {
   "type": "page_view",
-  "path": "/projects/portfolio-telemetry-platform?ref=acme&utm_source=linkedin",
+  "path": "/portfolio-telemetry-platform?ref=acme&utm_source=linkedin",
   "referrer": "https://www.linkedin.com/",
   "sessionId": "k3J9xQ2mP0aZ",
   "name": null,
@@ -922,12 +935,12 @@ Always `200`, even with a datastore down: a source that cannot be read becomes `
 has a 2 s timeout. Concurrent requests during a refresh share it (single-flight).
 
 Rolling percentiles come from an in-process ring buffer (10 000 samples) of the last 5 minutes
-of request durations (Prometheus histograms are cumulative, not rolling). Requests to `/health`,
-`/health/live` (the load balancer's check), `/metrics` and the owner endpoints are left out of it (Prometheus still counts them), or a
-dashboard polling every few seconds would mostly measure itself. `cache` counts content-cache lookups
-since the process started. Values are per API instance;
-`instance` (the container hostname) says which one answered, because with two replicas
-(§14.5) consecutive polls can reach different instances.
+of request durations (Prometheus histograms are cumulative, not rolling). Requests to
+`/health`, `/health/live` (the load balancer's check), `/metrics` and the owner endpoints are
+left out of it (Prometheus still counts them), or a dashboard polling every few seconds would
+mostly measure itself. `cache` counts content-cache lookups since the process started. Values
+are per API instance; `instance` (the container hostname) says which one answered, because
+with two replicas (§14.5) consecutive polls can reach different instances.
 
 ### 7.8 Owner endpoints (Phase 6)
 
@@ -984,10 +997,9 @@ which key, schema and DAL query to use.
    written on error) and, in one transaction, upserts the profile, replaces all experiences
    and education entries (their ids change per seed), upserts projects by slug and deletes
    projects no longer in the file. It then deletes every content cache key (`SCAN` for
-   `cache:v2:project:*`) and warms
-   the cache through the normal read path. If clearing the cache fails, the command exits `1`
-   (Postgres is already updated; cached copies may be stale until their TTL). There is no admin
-   HTTP endpoint.
+   `cache:v2:project:*`) and warms the cache through the normal read path. If clearing the
+   cache fails, the command exits `1` (Postgres is already updated; cached copies may be stale
+   until their TTL). There is no HTTP endpoint for editing content.
 
 ### 8.2 Module B: Telemetry pipeline
 
@@ -1233,9 +1245,9 @@ from the site itself), body text the system sans-serif. Colors are named theme t
 components never use raw palette colors, so a theme change is one block of CSS. Lines that
 only separate areas (`line` 1.6:1, `line-strong` 2:1 on white) may be soft, but form inputs
 are outlined in `field` (3.3:1, WCAG 1.4.11): the outline shows where to type. A 1.3:1 line
-color vanished on some screens (Chrome on Windows draws thinner than Firefox). No terminal imitation
-(prompts, `./` prefixes, fake commands); monospace remains only for the owner dashboard's
-numbers. Status colors keep their meaning (green healthy, amber degraded, red down).
+color vanished on some screens (Chrome on Windows draws thinner than Firefox). No terminal
+imitation (prompts, `./` prefixes, fake commands); monospace remains only for the owner
+dashboard's numbers. Status colors keep their meaning (green healthy, amber degraded, red down).
 
 **Photos and icons.** The hero shows a portrait beside the name, the header a round avatar,
 and the "Outside work" section a carousel (`components/photo-carousel.tsx`; photos listed in
@@ -1244,9 +1256,10 @@ point). The photos sit on a turning ring (`lib/carousel.ts`): the active one in 
 its caption, its neighbours angled away on each side, the rest behind (hidden and inert).
 Arrow buttons, dots, a click on a side photo, ← → keys and a horizontal swipe all turn it,
 wrapping round at the ends; CSS animates each move, and a polite live region announces the
-new photo. No autoplay: the visitor decides. Photos are static imports, so `next/image` knows their size, serves resized WebP/AVIF copies and shows a blurred
-preview while loading; the committed files are resized and stripped of metadata (camera and
-GPS data would otherwise be published). Section titles carry an icon (lucide-react; the
+new photo. No autoplay: the visitor decides. Photos are static imports, so `next/image` knows
+their size, serves resized WebP/AVIF copies and shows a blurred preview while loading; the
+committed files are resized and stripped of metadata (camera and GPS data would otherwise be
+published). Section titles carry an icon (lucide-react; the
 LinkedIn mark from Simple Icons). The browser tab shows `app/icon.svg` (a "YC" monogram);
 phones saving the site get `app/apple-icon.png`, the avatar.
 
@@ -1263,11 +1276,10 @@ none, so nothing stays lit above the first section.
 **Effects.** Scroll-linked effects write one CSS variable (`--progress`,
 `components/use-scroll-progress.ts`) per animation frame instead of re-rendering React: the
 hero stays fully visible until 60 % of it has scrolled off the top, then fades as the rest
-leaves (and drifts up 2 rem), and the timeline line fills. Sections reveal once on entering the screen
-(IntersectionObserver), and the header highlights the section being read. Content is in the
-server-rendered HTML first; effects only enhance
-it, so without JavaScript or with `prefers-reduced-motion: reduce` everything is visible and
-still.
+leaves (and drifts up 2 rem), and the timeline line fills. Sections reveal once on entering
+the screen (IntersectionObserver), and the header highlights the section being read. Content
+is in the server-rendered HTML first; effects only enhance it, so without JavaScript or with
+`prefers-reduced-motion: reduce` everything is visible and still.
 
 **Projects.** Each card is one large link: the title link's `::after` covers the card, so the
 whole box opens the project while screen readers hear only the title. Hovering lifts the card
@@ -1432,14 +1444,17 @@ matters most for deploys: the old worker empties the buffer before the new one s
   job in `processing`, reconciler); backoff/jitter bounds; Discord notifier status
   classification, timeout and payload (mentions off, truncation); consumer and periodic loops
   with a fake `sleep`; shutdown steps receive the time left.
-- (P5) Web (`apps/web/test/lib`, Vitest, no browser): the sliding-window replay matches the
-  API's rule; beacon session ids, referrer filtering, path trimming, time zone fallback,
-  interaction names; contact validation and every API answer (202/400/429/503/garbage);
-  date formatting; dashboard fetching/validation, health summary, uptime and "—" formatting,
-  chart path (gaps break the line) and scale.
 - (P5) Rolling percentile tracker (nearest rank, window expiry, fixed capacity); system status
   manager (5 s cache, single-flight, unreadable sources → `null` + metric, hit ratio, queue
   gauges reset when Redis is down); CORS origin and metrics token config.
+- (P6) Visitor-insights manager (ranking, day filling); the content file's rules for project
+  sections.
+- Web (`apps/web/test/lib`, Vitest, no browser). (P5) Beacon session ids, referrer filtering,
+  path trimming, time zone fallback, interaction names; contact validation and every API
+  answer (202/400/429/503/garbage); date formatting; dashboard fetching/validation, health
+  summary, uptime and "—" formatting, chart path (gaps break the line) and scale. (P6) The
+  owner's login check, the visitor summary, `shouldRecord`, the photo carousel, scrollspy,
+  section scrolling, project-page anchors, chart time ticks.
 
 **Integration tests** (`apps/api/test/integration`, real Postgres + Redis from docker
 compose, run serially):
@@ -1454,22 +1469,27 @@ compose, run serially):
   inserted) → no duplicate rows; poison events → DLQ (invalid JSON, CHECK violation `23514`);
   Postgres down → batch stays in flight; buffer cap → 503; IP lookup on MaxMind's test
   databases; `dlq:replay` CLI; **real worker process**: `SIGTERM` drains the buffer, exit `0`.
-- (P5) the system status endpoint (`/api/v1/admin/system-status` since P6) with live datastores (traffic excluding monitors, page views,
-  queues, 5 s cache) and with Redis down; `/metrics` (route templates, `unmatched`, queue
-  gauges, histogram buckets); bearer token 401/200; Helmet headers; CORS preflight (not
-  rate-limited), exposed rate-limit headers, other origins refused.
 - (P4) Rate limiter: limit, sliding expiry, `Retry-After`, **20 concurrent requests across 4
   API instances admit exactly 3**, Redis down → 503; notification worker against a local stub
   HTTP server (API → webhook end to end; fail twice then succeed → `SENT`; always 500 → DLQ +
   `FAILED`; 400 → immediate DLQ); crash recovery from `processing`; Postgres down mid-job;
   reconciler; promoter; `dlq:replay -- notifications`; **real worker process** sends a queued
   notification and stops on `SIGTERM` without waiting out `BLMOVE`.
+- (P5) The system status endpoint (`/api/v1/admin/system-status` since P6) with live
+  datastores (traffic excluding monitors, page views, queues, 5 s cache) and with Redis down;
+  `/metrics` (route templates, `unmatched`, queue gauges, histogram buckets); bearer token
+  401/200; Helmet headers; CORS preflight (not rate-limited), exposed rate-limit headers,
+  other origins refused.
+- (P6) Owner endpoints: 401 without the token, 200 with it, 404 when `ADMIN_TOKEN` is unset,
+  answers match the contract; the visitor summary's aggregation (bots, `/admin` and older
+  events left out); `/health/live`; a project's detail with and without sections.
 
 **CI** (from Phase 2): GitHub Actions runs `format:check`, `lint`, `typecheck` and the full
-test suite (API unit + integration, web unit) against Postgres and Redis service containers on
-every push and pull request, then (P5) `next build` for the website, which must succeed
-without the API running.
-See [docs/CI.md](docs/CI.md).
+test suite (API unit + integration, web unit) against Postgres and Redis service containers,
+then (P5) `next build` for the website, which must succeed without the API running, and (P6)
+builds both Docker images for `linux/arm64`. It runs on every pull request, and on every
+commit to `main` inside the Deploy workflow (§14.3); `main` only accepts pull requests that
+passed it. See [docs/CI.md](docs/CI.md).
 
 ---
 
@@ -1484,8 +1504,8 @@ counting unique visitors. **IP addresses are stored since Phase 6** (`ip_address
 owner chose to see them on `/admin`, reversing the Phase 3 choice not to. They are personal
 data under the GDPR. **Retention: kept indefinitely, with no notice to visitors** (the owner's
 decision, 2026-11-19; nothing deletes them). They are never written to logs, and they are in
-the database backups. Referrers keep their host, which is nearly all
-browsers send (§8.2). Contact-form emails are not linked to browsing sessions (on hold).
+the database backups. Referrers keep their host, which is nearly all browsers send (§8.2).
+Contact-form emails are not linked to browsing sessions (on hold).
 
 Consequences:
 
@@ -1504,31 +1524,32 @@ Other measures:
 - (P6) The owner area: `ADMIN_TOKEN` (≥ 32 characters) is the `/admin` password and the bearer
   token for `/api/v1/admin/*`; both compare in constant time, and Caddy refuses the API's owner
   routes from outside the server (§7.8, §8.7, §14.5).
-- Docker ports bind to `127.0.0.1` only (Redis has no password in local dev).
+- Datastore ports: in development Docker publishes them on `127.0.0.1` only (Redis has no
+  password locally); in production they publish none (§14.5).
 - Logs redact `authorization` and `cookie` headers.
 - Error responses never leak internal messages or stack traces.
 - (P5) `@fastify/helmet` security headers on every response, and an explicit CORS allow-list
   (`CORS_ORIGINS`) for the web app: methods `GET`/`POST`, request headers `content-type` and
   `x-request-id`, and the web app may read `x-request-id`, `x-ratelimit-*` (limit, remaining,
-  window), `retry-after` and
-  `x-cache` (browsers hide other response headers from scripts). Preflights are cached for
-  10 minutes and never reach the rate limiter. CORS only governs what browsers let scripts
-  read; it is not access control (curl ignores it). In production the site and the API share
-  one origin (§14.5), so browsers make no cross-origin calls there; the allow-list matters in
-  local development, where the site (`:3000`) and the API (`:4000`) are different origins.
+  window), `retry-after` and `x-cache` (browsers hide other response headers from scripts).
+  Preflights are cached for 10 minutes and never reach the rate limiter. CORS only governs what
+  browsers let scripts read; it is not access control (curl ignores it). In production the site and
+  the API share one origin (§14.5), so browsers make no cross-origin calls there; the allow-list
+  matters in local development, where the site (`:3000`) and the API (`:4000`) are different
+  origins.
 
 ---
 
 ## 13. Roadmap
 
-| Phase | Branch                       | Scope                                                                                                                     |
-| ----- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| 1     | `main` (initial scaffold)    | Monorepo, Docker infra, config, logging, migrator, graceful shutdown, `/health`                                           |
-| 2     | `feat/portfolio-cache-api`   | CI workflow; Module A: profile/projects endpoints, Redis cache-aside, cache metrics                                       |
-| 3     | `feat/telemetry-pipeline`    | Module B: event ingestion, visitor details, Redis buffer, batch flusher worker, DLQ + replay, SIGTERM drain               |
-| 4     | `feat/contact-rate-limiter`  | Module C: Lua sliding-window limiter, contact endpoint, notification worker + backoff                                     |
-| 5     | `feat/metrics-and-dashboard` | Module D: `/metrics`, system status API, Next.js portfolio + live dashboard                                               |
-| 6     | `feat/continuous-delivery`   | Docker images, GHCR, deploy with approval gate, two API replicas behind Caddy, rolling update, smoke test, rollback (§14) |
+| Phase | Branch                       | Scope                                                                                                                                                                   |
+| ----- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | `main` (initial scaffold)    | Monorepo, Docker infra, config, logging, migrator, graceful shutdown, `/health`                                                                                         |
+| 2     | `feat/portfolio-cache-api`   | CI workflow; Module A: profile/projects endpoints, Redis cache-aside, cache metrics                                                                                     |
+| 3     | `feat/telemetry-pipeline`    | Module B: event ingestion, visitor details, Redis buffer, batch flusher worker, DLQ + replay, SIGTERM drain                                                             |
+| 4     | `feat/contact-rate-limiter`  | Module C: Lua sliding-window limiter, contact endpoint, notification worker + backoff                                                                                   |
+| 5     | `feat/metrics-and-dashboard` | Module D: `/metrics`, system status API, Next.js portfolio + live dashboard                                                                                             |
+| 6     | `feat/continuous-delivery`   | Docker images, GHCR, deploy with approval gate, two API replicas behind Caddy, rolling update, smoke test, rollback, backups, pause switch (§14); the owner area (§8.7) |
 
 Detailed checklists and current status: [ROADMAP.md](ROADMAP.md).
 
@@ -1560,16 +1581,16 @@ gate once releases are routine.
 
 - `apps/api/Dockerfile`, multi-stage: install (`npm ci` for the API and shared workspaces) →
   `tsc` build of `packages/shared` and the API → small runtime image with production
-  dependencies and `packages/shared/dist` only, running as the non-root `node` user. One image, several
-  commands: `node dist/main.js` (API), `node dist/worker.js`, `node dist/cli/migrate.js`,
-  `node dist/cli/seed-content.js`, `node dist/cli/replay-dlq.js`. It contains `migrations/` and
-  `content/`. The GeoIP files (§8.2) are not in Git: a `geoip` build stage runs the downloader
-  (with `tsx`, from only its own source files, so a code change elsewhere reuses the cached
-  ~140 MB download), and each image carries that month's files. The build argument
-  `GEOIP_MONTH` (CI passes the current `YYYY-MM`) is part of the cache key, so a month's first
-  build fetches fresh files; an image older than a month should be rebuilt to refresh them.
-  `GEOIP_*_DB_PATH` default to those files in the image, and `NODE_OPTIONS=--enable-source-maps`
-  maps stack traces to the TypeScript lines.
+  dependencies and `packages/shared/dist` only, running as the non-root `node` user. One
+  image, several commands: `node dist/main.js` (API), `node dist/worker.js`,
+  `node dist/cli/migrate.js`, `node dist/cli/seed-content.js`, `node dist/cli/replay-dlq.js`.
+  It contains `migrations/` and `content/`. The GeoIP files (§8.2) are not in Git: a `geoip`
+  build stage runs the downloader (with `tsx`, from only its own source files, so a code change
+  elsewhere reuses the cached ~140 MB download), and each image carries that month's files.
+  The build argument `GEOIP_MONTH` (CI passes the current `YYYY-MM`) is part of the cache key,
+  so a month's first build fetches fresh files; an image older than a month should be rebuilt
+  to refresh them. `GEOIP_*_DB_PATH` default to those files in the image, and
+  `NODE_OPTIONS=--enable-source-maps` maps stack traces to the TypeScript lines.
 - Both images: `node:24-trixie-slim` (Debian, glibc, which the lockfile's prebuilt native
   packages target; Alpine's musl is avoided). Package files are copied and installed before
   the source, so a code change reuses the installed packages; `npm ci --ignore-scripts`, then
@@ -1601,7 +1622,7 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
                                   │
                                   ▼
    deploy job  [environment: production → waits for your approval]
-     copy deploy/ to ~/portfolio/deploy (rsync; deploy/.env excluded), then over SSH
+     copy deploy/ to ~/portfolio/deploy (rsync; deploy/.env, caddy/paused excluded), then over SSH
      deploy/deploy.sh <sha>:
        0. pull + check    pull the images (the job's own token, not stored); `compose config`
                           (a missing .env value) and `caddy validate`: nothing has changed yet
@@ -1610,9 +1631,12 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
        3. roll out        worker → api-1 → api-2 → web, one at a time (§14.5)
        4. smoke test      GET /health = 200 on each replica, the worker running without
                           restarts, GET /api/v1/projects and / through Caddy on the host
+                          (paused: both inside the web container, and the back-soon page
+                          through Caddy, §14.5)
        5. on failure      (3 or 4) roll out the previous release the same way, seed its
                           content again, smoke test, fail the job
-     then from GitHub's machine: GET https://<host>/api/v1/projects and / (DNS, firewalls)
+     then from GitHub's machine: GET https://<host>/api/v1/projects and / (DNS, firewalls;
+     paused: / must answer 503, the back-soon page)
 ```
 
 - **CI runs once per commit on `main`**: `deploy.yml` calls `ci.yml` (`workflow_call`), and
@@ -1637,7 +1661,9 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
 - **GitHub holds** (environment `production`: approved jobs from `main` only) the secret
   `SSH_PRIVATE_KEY` and the variables `SSH_HOST`, `SSH_KNOWN_HOSTS` (pins the server's host key)
   and `SITE_HOST`; no application secrets (§14.4). The deploy key is root-equivalent (the
-  `docker` group); its `authorized_keys` line starts with `restrict`. Guide:
+  `docker` group); its `authorized_keys` line starts with `restrict`. The job checks the key
+  before using it: a key broken by copy and paste fails with a clear message, not SSH's
+  "error in libcrypto" (set the secret from the file: `gh secret set … < file`). Guide:
   [docs/CD.md](docs/CD.md).
 
 ### 14.4 Rules this imposes on every phase
@@ -1680,23 +1706,27 @@ What the free tier implies:
 - **Arm CPU**: the images are built for `linux/arm64` (§14.2).
 - **Size**: 1 OCPU and 6 GB (the free allowance is 2 OCPUs and 12 GB). Raising it to 2 OCPUs
   failed with "out of host capacity" (2026-11-20), and one core is enough: images are built by
-  GitHub, not on the server, and a quiet portfolio needs little CPU. The stack needs roughly
-  2 GB (estimate, to be measured with `docker stats`).
+  GitHub, not on the server, and a quiet portfolio needs little CPU. Measured on the server
+  (`docker stats`, 2026-11-20, idle): about 600 MB for all seven containers (each API replica
+  and web ~170 MB, worker 45 MB, Postgres 30 MB, Caddy 15 MB, Redis 5 MB).
 - **Idle reclamation**: Oracle may reclaim an Always Free VM whose CPU (95th percentile),
   network and memory use all stay below 20 % for 7 days. A quiet portfolio has low CPU and
-  network use, so the VM is sized to what the stack uses rather than taking the full 12 GB.
+  network use (CPU ~5 %), so memory has to stay above the line. 6 GB was chosen for an
+  estimated 2 GB; the stack measured ~0.6 GB, and Oracle's Memory utilization metric reads
+  ~22 % for the whole VM (2026-11-20): above the line by a small margin. Open (ROADMAP.md):
+  watch the 7-day metric; if it falls under 20 %, resize to 3 GB (~1.3 GB in use is over 40 %).
 - **The VM is replaceable.** Images live in GHCR, configuration in Git, secrets in a password
   manager (the deploy key in GitHub), and Caddy re-issues certificates by itself; the database
-  is the only data that exists solely on the VM, and it is backed up off the host weekly
-  (§14.6). Losing the VM costs a rebuild from docs/HOSTING.md plus pointing the hostname at the
-  new IP.
+  is the only data that exists solely on the VM, and it is to be backed up off the host weekly
+  (§14.6; not switched on yet). Losing the VM costs a rebuild from docs/HOSTING.md plus
+  pointing the hostname at the new IP.
 
 **Hostname: one free hostname, no purchased domain.** `<name>.duckdns.org` (DuckDNS, ready in
-minutes) serves the first releases. `<name>.is-a.dev` replaces it once the site is live,
-because is-a.dev only approves finished sites; its terms also forbid AI-written requests, so
-the owner writes that pull request. Both are plain A records pointing at the VM's public IP,
-so Caddy gets Let's Encrypt certificates the usual way (HTTP-01 challenge on port 80). The
-hostname is not in Git: it is `SITE_HOST` in the host's env file and a GitHub Environment
+minutes) serves the site (live since 2026-11-20). `<name>.is-a.dev` is to replace it: it was waiting
+for a live site, because is-a.dev only approves finished ones. Its terms also forbid AI-written
+requests, so the owner writes that pull request. Both are plain A records pointing at the VM's
+public IP, so Caddy gets Let's Encrypt certificates the usual way (HTTP-01 challenge on port 80).
+The hostname is not in Git: it is `SITE_HOST` in the host's env file and a GitHub Environment
 variable, so switching hostnames is a configuration change, not a rebuild.
 
 **One origin, split by path.** The site and the API share the hostname, and Caddy routes by path:
@@ -1710,8 +1740,17 @@ https://<host>/*       →  web
   needs no hostname (§14.2).
 - Only `/api/*` reaches the API from outside. `/health`, `/health/live` and `/metrics` are not
   routed publicly: Caddy calls `/health/live` on each replica directly, the deploy job checks
-  `/health` from the host, and Prometheus scrapes each replica directly.
+  `/health` from the host, and a Prometheus server (not set up yet) would scrape each replica
+  directly.
 - One certificate and one DNS record to manage.
+
+**Pause switch** ([docs/CD.md §5](docs/CD.md#5-pausing-the-site)). While the file
+`deploy/caddy/paused` exists on the host, Caddy answers every public request with
+`deploy/caddy/back-soon.html`, status `503` and `Retry-After` (a temporary outage to search
+engines), except `/admin` and the `/_next/` files its pages load. Caddy checks for the file on
+each request, so pausing needs no reload, and every container keeps running. The deploy never
+removes the file (rsync excludes it) and still works while paused: its smoke test checks the
+pages from inside the web container and expects the back-soon page at the public address.
 
 #### Load balancing: two API replicas behind Caddy
 
@@ -1745,15 +1784,33 @@ https://<host>/*       →  web
 }
 
 {$SITE_HOST} {
-	# The owner's API routes are for the web server only, which uses :8080 below.
-	handle /api/v1/admin/* {
-		respond 404
+	@paused {                        # the pause switch (above)
+		file {
+			root /etc/caddy
+			try_files /paused
+		}
+		not path /admin /admin/* /_next/*
 	}
-	handle /api/* {
-		import api_replicas
+	handle @paused {
+		header Retry-After 3600
+		header Cache-Control no-store
+		root * /etc/caddy
+		rewrite * /back-soon.html
+		file_server {
+			status 503
+		}
 	}
-	handle {
-		reverse_proxy web:3000
+	handle {                         # nested, so the pause is checked first for every path
+		# The owner's API routes are for the web server only, which uses :8080 below.
+		handle /api/v1/admin/* {
+			respond 404
+		}
+		handle /api/* {
+			import api_replicas
+		}
+		handle {
+			reverse_proxy web:3000
+		}
 	}
 }
 
@@ -1805,9 +1862,10 @@ long-running service restarts `unless-stopped` and keeps at most 3 × 10 MB of l
 | Single-flight (§8.1)                      | Per process                  | At most one Postgres query per key **per replica**: harmless      |
 | Metrics, rolling percentiles, status (P5) | Per process                  | Each replica reports its own numbers (see below)                  |
 
-Per-process numbers: Prometheus scrapes each replica directly (`api-1:4000`, `api-2:4000`),
-never through Caddy, which would hand it a random replica each time. The system status
-includes `instance` (§7.7), so the dashboard shows which replica answered.
+Per-process numbers: a Prometheus server (an open item in ROADMAP.md) must scrape each replica
+directly (`api-1:4000`, `api-2:4000`), never through Caddy, which would hand it a random
+replica each time. The system status includes `instance` (§7.7), so the dashboard shows which
+replica answered.
 
 **The load balancer must not use `/health`.** `/health` returns `503` when Redis is down, on
 both replicas at once. Caddy would then remove both and answer every request with an error, even
@@ -1836,9 +1894,9 @@ down, leaving it no replica (measured: an occasional `503`). Between steps 2 and
 new code serve requests side by side. That is exactly why cache keys carry a shape version
 (§6.2) and migrations are expand → contract (§14.4). If a wait fails (unhealthy, crashed, or
 not healthy within 120 s), the job rolls back to the previous release the same way and fails.
-Measured on the laptop stack (6c): a request every 50 ms saw 0 failed API requests during a
-deploy (503 of 503) and during a rollback from a release whose API never answered (1,302 of
-1,302), and 5 failed page requests (`502`) while `web` was replaced.
+Measured on the laptop stack (6c), with a request every 50 ms: no API request failed, neither
+during a deploy (all 503 succeeded) nor during a rollback from a release whose API never
+answered (all 1,302); 5 page requests got a `502` while `web` was replaced.
 
 Operations included in Phase 6: weekly `pg_dump` backups copied off the host, with a restore
 that has actually been tested (§14.6).
@@ -1848,6 +1906,9 @@ that has actually been tested (§14.6).
 Postgres is the only data that exists nowhere else (§14.5). Redis holds seconds of in-flight
 work and is not backed up; certificates, images and configuration are recreated. Guide:
 [docs/BACKUPS.md](docs/BACKUPS.md).
+
+**Status**: built and drilled on the laptop stack (6d); the server's cron job and the
+desktop's scheduled copy are not set up yet (ROADMAP.md).
 
 **Weekly** (the owner's choice; a week of visits is the most that can be lost). Size measured
 in 6d: ~20 KB plus ~44 bytes per page view (compressed test data), so a year at 100 page views

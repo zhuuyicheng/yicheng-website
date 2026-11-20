@@ -27,7 +27,7 @@ A personal portfolio website with a production-style backend behind it.
   wait, a rate-limited contact form with background notifications, an owner-only dashboard,
   and a deploy pipeline with an approval gate and automatic rollback.
 - **Runs on** one free Oracle Cloud Arm VM (1 OCPU, 6 GB) with Docker Compose, at
-  `https://<name>.duckdns.org`.
+  `https://<name>.duckdns.org`, live since 2026-11-20.
 
 | Part                      | Choice                                            | Why                                                        |
 | ------------------------- | ------------------------------------------------- | ---------------------------------------------------------- |
@@ -77,7 +77,8 @@ flowchart LR
 | `redis`          | Content cache, event buffer, job queues, rate-limit windows                             | key list: [DESIGN.md §6.2](../DESIGN.md#62-key-catalog)              |
 
 All shared state lives in Postgres and Redis, so the two API replicas need no coordination.
-Only Caddy is reachable from the internet (ports 80 and 443).
+Only Caddy is reachable from the internet (ports 80 and 443). Memory, measured on the server
+(2026-11-20): about 600 MB for all seven, mostly the two API replicas and `web` (~170 MB each).
 
 ---
 
@@ -327,12 +328,16 @@ flowchart LR
 ```
 
 - **Zero downtime for the API**: replicas are replaced one at a time; Caddy sends traffic to
-  the other one meanwhile (measured: 0 failed requests of 503; pages blink < 1 s).
+  the other one meanwhile (measured: all 503 API requests during a deploy succeeded; pages
+  blink for under a second while `web` restarts).
 - **Safe migrations**: the old code keeps running on the new schema, so migrations only add
   (expand → contract). That is also what makes a rollback safe.
 - **Secrets** live only in the server's `deploy/.env` (and your password manager). GitHub holds
   just the SSH key, usable only after your approval.
 - **Backups**: weekly `pg_dump` with a test restore, pulled to your desktop by a read-only key.
+  Built and drilled on the laptop; not switched on yet ([BACKUPS.md §2–3](BACKUPS.md)).
+- **Pausing**: one file on the server switches the site to a "back soon" page; `/admin` and
+  deploys keep working ([CD.md §5](CD.md#5-pausing-the-site)).
 
 ```mermaid
 flowchart LR
@@ -368,6 +373,9 @@ Code: [deploy.yml](../.github/workflows/deploy.yml), [deploy.sh](../deploy/deplo
 
 **To learn who opened a link**, share a tagged link such as `https://<name>.duckdns.org/?ref=acme`.
 That visit then shows `acme` under "Tagged links" and in its row of "Recent visits".
+
+**To take the site offline for a while**: `ssh portfolio 'touch ~/portfolio/deploy/caddy/paused'`;
+`rm` instead of `touch` brings it back ([CD.md §5](CD.md#5-pausing-the-site)).
 
 ---
 
@@ -431,7 +439,7 @@ have opened `/admin` in it.
 | Visit           | One browser tab's session: everything someone did in that tab                  |
 | Page view       | One page shown (a reload counts again; jumping to a section does not)          |
 | Unique visitors | Different people per day (the hash changes daily, so there is no period total) |
-| Link click      | A click on a link that leaves the site (e.g. a project's GitHub)               |
+| Link click      | A click on a link that leaves the site (e.g. the LinkedIn button)              |
 | Organisation    | Who owns the visitor's network: a company on its own network, else an ISP      |
 
 ### Where to look
@@ -471,8 +479,8 @@ Locally, the same data is visible in VS Code's PostgreSQL and Redis panels:
 | Web unit        | [apps/web/test/lib](../apps/web/test/lib)                 | logic only, no browser  |
 
 `npm run check` runs what CI runs (format, lint, types, all tests); CI also builds the site and
-both Docker images, on every pull request. Protecting `main` makes passing CI required
-([CI.md §4](CI.md#4-protecting-main-recommended)). Guide: [TESTING.md](TESTING.md).
+both Docker images, on every pull request. `main` is protected, so a pull request merges only
+with passing CI ([CI.md §4](CI.md#4-protecting-main)). Guide: [TESTING.md](TESTING.md).
 
 ---
 
