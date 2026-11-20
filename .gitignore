@@ -21,3 +21,6 @@ apps/web/next-env.d.ts
 
 # Downloaded data (npm run geoip:download)
 apps/api/data/
+
+# The pause switch (docs/CD.md §5): it belongs on the server, never in Git
+deploy/caddy/paused

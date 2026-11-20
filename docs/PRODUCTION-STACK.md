@@ -1,7 +1,7 @@
 # The production stack (Phase 6b)
 
-What will run on the server, and how to run exactly that on your laptop first: the same
-images, the same Caddy rules, the same two API replicas. Design:
+What runs on the server, and how to run exactly that on your laptop: the same images, the
+same Caddy rules, the same two API replicas. Design:
 [DESIGN.md §14.5](../DESIGN.md#145-hosting-oracle-cloud-free-tier-one-hostname). The images
 themselves: [DOCKER.md](DOCKER.md).
 
@@ -10,7 +10,7 @@ themselves: [DOCKER.md](DOCKER.md).
 ## 1. The picture
 
 ```
-            browser ── https://localhost (on the server: https://<you>.duckdns.org)
+            browser ── https://localhost (on the server: https://<name>.duckdns.org)
                                 │ :80 → redirect, :443
                         ┌───────▼────────┐
                         │     caddy      │ HTTPS, routing by path, load balancing
@@ -26,13 +26,14 @@ themselves: [DOCKER.md](DOCKER.md).
 
 Everything is in [`deploy/`](../deploy/):
 
-| File                                             | What                                                         |
-| ------------------------------------------------ | ------------------------------------------------------------ |
-| [`compose.prod.yml`](../deploy/compose.prod.yml) | the seven services, their settings and health checks         |
-| [`caddy/Caddyfile`](../deploy/caddy/Caddyfile)   | HTTPS, routing, load balancing                               |
-| [`.env.example`](../deploy/.env.example)         | template for `deploy/.env`: hostname and secrets             |
-| [`failover-test.sh`](../deploy/failover-test.sh) | the proof that load balancing works (section 6)              |
-| [`deploy.sh`](../deploy/deploy.sh)               | a release, rolled out one service at a time ([CD.md](CD.md)) |
+| File                                                     | What                                                                              |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| [`compose.prod.yml`](../deploy/compose.prod.yml)         | the seven services, their settings and health checks                              |
+| [`caddy/Caddyfile`](../deploy/caddy/Caddyfile)           | HTTPS, routing, load balancing                                                    |
+| [`caddy/back-soon.html`](../deploy/caddy/back-soon.html) | what visitors see while the site is paused ([CD.md §5](CD.md#5-pausing-the-site)) |
+| [`.env.example`](../deploy/.env.example)                 | template for `deploy/.env`: hostname and secrets                                  |
+| [`failover-test.sh`](../deploy/failover-test.sh)         | the proof that load balancing works (section 6)                                   |
+| [`deploy.sh`](../deploy/deploy.sh)                       | a release, rolled out one service at a time ([CD.md](CD.md))                      |
 
 | Service                         | Image               | Reachable from your machine? | Health check                   |
 | ------------------------------- | ------------------- | ---------------------------- | ------------------------------ |
@@ -64,8 +65,9 @@ Fill in `POSTGRES_PASSWORD`, `IP_HASH_SECRET`, `METRICS_TOKEN` and `ADMIN_TOKEN`
 laptop keep `SITE_HOST=localhost` and `NOTIFIER_DRIVER=log` (so trying the stack never posts
 to your Discord channel). A missing value stops Compose with a message naming it.
 
-(Phase 6b created a `deploy/.env` like this for you, with fresh random secrets. On the server
-you will make a new one with new secrets, and keep a copy in your password manager.)
+(Phase 6b created a `deploy/.env` like this for you, with fresh random secrets. The server has
+its own, with different secrets ([CD.md §2.2](CD.md#22-the-servers-settings-file)); keep a
+copy of that one in your password manager.)
 
 **Each container gets only what it needs.** The compose file passes variables one by one
 instead of handing every container the whole file: the web server gets `API_BASE_URL` and
@@ -98,8 +100,9 @@ npm run stack:down     # stop and remove the containers; the data volumes stay
 
 **Deploying the way the server does** (Phase 6c): `npm run stack:deploy -- dev` runs the same
 script as the deploy workflow on these images: migrate, seed, then a rolling update with a
-smoke test, and a rollback if that fails. Any tag works, e.g. `docker tag portfolio-api:dev
-portfolio-api:v2` (and the web image) to try a "new release". Details: [CD.md](CD.md).
+smoke test, and a rollback if that fails. Any tag works: to try a "new release", run
+`docker tag portfolio-api:dev portfolio-api:v2` (and the same for the web image), then
+`npm run stack:deploy -- v2`. Details: [CD.md](CD.md).
 
 ---
 
@@ -210,6 +213,9 @@ $C exec caddy caddy reload --config /etc/caddy/Caddyfile   # apply a Caddyfile c
   when Caddy was still running the old rules.
 - **Restarts**: every long-running service has `restart: unless-stopped`, so after a crash or
   a server reboot Docker starts it again.
+- **Pausing**: `touch deploy/caddy/paused` and https://localhost shows the "back soon" page
+  (`/admin` still works); `rm deploy/caddy/paused` brings the site back. No reload either way
+  ([CD.md §5](CD.md#5-pausing-the-site)).
 - **Data**: `stack:down` keeps the volumes (database, Redis, certificates).
   `docker compose -f deploy/compose.prod.yml down -v` deletes them: on the server that is the
   database, so never there. Keep `caddy-data` too: it holds the certificates, and Let's

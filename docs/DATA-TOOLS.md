@@ -68,13 +68,14 @@ Redis has numbered "logical databases" inside one server. We use **DB 0** for de
 
 ## 2. What lives where
 
-| Phase | PostgreSQL (database `portfolio`)                  | Redis (DB 0)                                                         |
-| ----- | -------------------------------------------------- | -------------------------------------------------------------------- |
-| 1     | `schema_migrations`                                | —                                                                    |
-| 2     | `profile`, `experiences`, `education`, `projects`  | `cache:v2:profile`, `cache:v1:projects`, `cache:v2:project:<slug>`   |
-| 3     | `analytics_events`                                 | `telemetry:events:buffer` / `:inflight` / `:dlq`, `telemetry:salt:*` |
-| 4     | `contact_messages`                                 | `ratelimit:contact:<hash>`, `jobs:notifications:*`                   |
-| 5     | — (the website fills the tables above via the API) | — (the status endpoint reads queue lengths)                          |
+| Phase | PostgreSQL (database `portfolio`)                              | Redis (DB 0)                                                         |
+| ----- | -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 1     | `schema_migrations`                                            | —                                                                    |
+| 2     | `profile`, `experiences`, `education`, `projects`              | `cache:v2:profile`, `cache:v1:projects`, `cache:v2:project:<slug>`   |
+| 3     | `analytics_events`                                             | `telemetry:events:buffer` / `:inflight` / `:dlq`, `telemetry:salt:*` |
+| 4     | `contact_messages`                                             | `ratelimit:contact:<hash>`, `jobs:notifications:*`                   |
+| 5     | — (the website fills the tables above via the API)             | — (the status endpoint reads queue lengths)                          |
+| 6     | new columns `projects.sections`, `analytics_events.ip_address` | — (a project's cache key became `v2`, for its sections)              |
 
 Full key catalog: DESIGN.md §6.2. Tables: DESIGN.md §5.
 
@@ -178,8 +179,8 @@ Arrange four terminals: `npm run dev:api`, `npm run dev:worker`, `MONITOR` (§4)
 `curl`. Keep the Redis view and the `analytics_events` table open. Remember ↻ in the Redis view.
 
 1. **Drain what is already waiting.** Before you start the worker, click
-   `telemetry:events:buffer` in the Redis view: the events you sent while trying step 3 of the
-   phase are still there, because nothing consumed them. Now start `npm run dev:worker`. Its
+   `telemetry:events:buffer` in the Redis view: any events sent while no worker was running
+   are still there, because nothing consumed them. Now start `npm run dev:worker`. Its
    log says `worker started`, then `telemetry batch flushed` with `claimed` and `inserted`
    counts. Refresh: the buffer key is gone (Redis deletes empty lists). Select Top 1000 on
    `analytics_events`: the rows are there. Events sent before migration 0004 have empty visitor
@@ -276,8 +277,8 @@ from `.env.example` into your `.env`, run `npm run db:migrate` (it applies
    `429 Too Many Requests` with `retry-after: 5xx` (seconds until your first message leaves
    the 10-minute window) and `x-ratelimit-remaining: 0`. Refresh the ZSET: still **3**
    members. Rejected requests are not recorded, so hammering the endpoint while blocked never
-   extends the lockout. `MONITOR` shows the script ran `ZRANGE … WITHSCORES` (to find the oldest member)
-   instead of `ZADD`.
+   extends the lockout. `MONITOR` shows the script ran `ZRANGE … WITHSCORES` (to find the
+   oldest member) instead of `ZADD`.
 4. **Watch the window slide.** Waiting 10 minutes is dull, so restart the API with a short
    window: `CONTACT_RATE_LIMIT_WINDOW_SECONDS=30 npm run dev:api`. Delete the ZSET key in the
    Redis view (that resets your window), send 3 messages a few seconds apart, then a fourth:
@@ -371,7 +372,7 @@ Two ways to ask the API how it is doing (DESIGN.md §7.7):
 - `GET /api/v1/admin/system-status`: JSON, for people, owner-only since Phase 6 (it needs the
   `ADMIN_TOKEN` bearer token). The `/admin` page shows it.
 
-Restart `npm run dev:api` to load the new code, then:
+With `npm run dev:api` running:
 
 1. **Read the Prometheus format.** Make a few requests, then look at one metric:
 
@@ -424,10 +425,11 @@ Restart `npm run dev:api` to load the new code, then:
    is watched. Stop Postgres: still `200`, `postgres` is `down` and `pageViewsLast24h` is
    `null`.
 
-6. **Protect `/metrics`.** Restart with a token: `METRICS_TOKEN=local-test-token-1234 npm run dev:api`.
+6. **Protect `/metrics`.** Restart with a token:
+   `METRICS_TOKEN=local-test-token-1234 npm run dev:api`.
    `curl -si localhost:4000/metrics | head -5` answers `401` with `www-authenticate: Bearer`;
    `curl -s -H 'authorization: Bearer local-test-token-1234' localhost:4000/metrics | head -3`
-   works. The status endpoint stays public: it shows counts only.
+   works. The status endpoint has its own token, `ADMIN_TOKEN` (step 5).
 
 7. **Security headers and CORS.** `curl -si localhost:4000/api/v1/projects | head -20` shows
    Helmet's headers (`x-content-type-options: nosniff`, `strict-transport-security`, …). Then
@@ -450,30 +452,31 @@ Until now you played the browser with `curl`. Now a real browser sends the same 
 Run `npm run dev:api`, `npm run dev:worker`, `npm run dev:web` and `MONITOR`, and open
 http://localhost:3000 in Chrome or Firefox with the developer tools open (F12).
 
-1. **Your own page view.** On load, the Network tab shows a `POST` to
-   `localhost:4000/api/v1/events` (`202`). Just one request: the beacon sends its JSON as
-   `text/plain`, which browsers treat as a "simple" request that needs no CORS preflight.
-   (The contact form in step 4 sends `application/json`, and there you will see the
-   `OPTIONS` preflight first: the browser asking whether localhost:3000 may POST JSON.) `MONITOR` shows the bounded-enqueue `evalsha`; within 5 s the worker
-   flushes it. In `analytics_events` the newest row now has a real `browser`, `os` and
-   `device_type` (not curl's empty values) and your `timezone`. The Request payload in the
-   Network tab shows exactly what was sent, including the `sessionId` from session storage
-   (Application tab → Session storage → `portfolio.sessionId`).
+1. **Your own page view.** On load, the Network tab shows a `POST` to `localhost:4000/api/v1/events`
+   (`202`). Just one request: the beacon sends its JSON as `text/plain`, which browsers treat as a
+   "simple" request that needs no CORS preflight. (The contact form in step 4 sends
+   `application/json`, and there you will see the `OPTIONS` preflight first: the browser asking
+   whether localhost:3000 may POST JSON.) `MONITOR` shows the bounded-enqueue `evalsha`; within 5 s
+   the worker flushes it. In `analytics_events` the newest row now has a real `browser`, `os` and
+   `device_type` (not curl's empty values) and your `timezone`. The Request payload in the Network
+   tab shows exactly what was sent, including the `sessionId` from session storage (Application tab
+   → Session storage → `portfolio.sessionId`).
 2. **A tagged link.** Open http://localhost:3000/?ref=acme&utm_source=linkedin: the row has
    `ref = acme` and `utm_source = linkedin`. Click to a project page and back: more page views
    with the same `session_id`, and `referrer_host` empty after the first one (only the first
    view says where you came from).
-3. **A click.** Click the GitHub link in the hero: an `interaction` row with
-   `event_name = click:github-link`. It is sent with `keepalive`, so it arrives even though
+3. **A click.** Click the LinkedIn button in the hero: an `interaction` row with
+   `event_name = click:linkedin-link`. It is sent with `keepalive`, so it arrives even though
    the click opened another tab.
 4. **The contact form.** Send a message from the "Get in touch" section: `202`, a new
    `contact_messages` row, the worker's `notification sent` (or your Discord channel). Send
-   four: the fourth shows "Too many messages for now. Please try again in 10 minutes", read
-   from the `Retry-After` header (readable only because the API exposes it, §7.3 step 7).
+   four: the fourth shows "To keep spam out, the form accepts 3 messages per person every 10
+   minutes. Please try again in 10 minutes", built from the `X-RateLimit-*` and `Retry-After`
+   headers (readable only because the API exposes them, §7.3 step 7).
    Delete the `ratelimit:contact:…` key to reset. Try an invalid email: the error appears
    instantly, before any request (the form uses the API's own schema from `packages/shared`).
-5. **The API goes away.** Stop `dev:api` and reload: the "the backend did not answer" page
-   with a retry button (`app/error.tsx`). Start it again and press retry.
+5. **The API goes away.** Stop `dev:api` and reload: the "This page couldn't load" page with
+   a **Try again** button (`app/error.tsx`). Start the API again and press it.
 6. **Every device.** In the developer tools, toggle the device toolbar (Ctrl+Shift+M) and try
    a phone, a tablet and a desktop width: one column and a `menu` button on phones, two to
    three project columns on wider screens, nothing scrolling sideways. Under Rendering, set
@@ -502,9 +505,7 @@ The system dashboard is at the bottom of the page, under the visitor summary.
    Then stop `dev:api`: the banner turns red ("Lost contact… from N s ago") and the last
    numbers stay on screen. Start it again and the page recovers by itself.
 5. **A dead letter.** `RPUSH telemetry:events:dlq '{"x":1}'` in the Redis CLI panel: the
-   telemetry dead-letter row says "! needs attention". Delete the key afterwards.
-6. **The hero pill.** The home page's hero shows "live · api p95 … → status", refreshed every
-   30 s; it says "api offline" while the API is stopped.
+   telemetry dead-letter row says "needs attention". Delete the key afterwards.
 
 ### 7.6 Phase 6b: the production stack on your laptop
 

@@ -161,7 +161,7 @@ so losing it degrades speed, not correctness.
 
 **See**
 
-1. The new headline appears immediately (the seed clears and re-warms the cache. Terminal C
+1. The new headline appears immediately: the seed clears and re-warms the cache (Terminal C
    shows the `del` and the `get`/`set` pairs).
 2. The seed refuses, listing **every** problem with its location, and writes nothing:
 
@@ -186,8 +186,8 @@ end up with half-published content.
 **Do**: in the PostgreSQL sidebar, open `portfolio` → `public` → Tables, then open
 [docs/sql/content.sql](sql/content.sql) and run each query.
 
-**See**: `schema_migrations` lists every applied migration (`0001`–`0007`) with checksums; the `pg_stat_activity`
-query shows a connection named `portfolio-api` (your running API).
+**See**: `schema_migrations` lists every applied migration (`0001`–`0007`) with checksums;
+the `pg_stat_activity` query shows a connection named `portfolio-api` (your running API).
 
 **Experiment: why you must never edit an applied migration**
 
@@ -405,10 +405,11 @@ Postgres. `/health` deliberately reports _every_ dependency so operators notice 
 
 </details>
 
-<details><summary>3. Why is the profile cached under <code>cache:v2:profile</code> but projects under <code>v1</code>?</summary>
+<details><summary>3. Why is the profile cached under <code>cache:v2:profile</code> but the project list under <code>cache:v1:projects</code>?</summary>
 
 Adding `education` changed the profile's JSON shape, so its key version was bumped; old
-entries are never read again and simply expire. Project shapes didn't change.
+entries are never read again and simply expire. The list's shape never changed. A single
+project is at `cache:v2:project:<slug>`: Phase 6 added `sections` to it.
 
 </details>
 
@@ -421,9 +422,10 @@ source load between concurrent misses" in `test/unit/services/cache-aside.manage
 
 <details><summary>5. You want to add a "certifications" list. What do you create?</summary>
 
-A new migration (the next free number, never an edit to an applied one), a row type in `content.dao.ts`, Zod
-schemas in `content.schema.ts`, SQL + a row mapping in `content.dal.ts`, a view mapping, tests,
-and a profile cache key bump to `v3`.
+A new migration (the next free number, never an edit to an applied one), a row type in
+`content.dao.ts`, Zod schemas in `content.schema.ts` (and the shared contract in
+`packages/shared`), SQL + a row mapping in `content.dal.ts`, a view mapping, tests, and a
+profile cache key bump to `v3`.
 
 </details>
 
@@ -513,7 +515,7 @@ just by requesting random paths. Unknown URLs become `route="unmatched"`
 
 </details>
 
-<details><summary>16. Redis is down. What does the status page show, and why does it not just fail?</summary>
+<details><summary>16. Redis is down. What does the system dashboard on <code>/admin</code> show, and why does it not just fail?</summary>
 
 The status endpoint still answers 200: Redis is `down` in `dependencies`, and `queues` is
 `null` (unknown, not zero), counted in `observability_read_errors_total`. A status page that

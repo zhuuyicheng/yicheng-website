@@ -2,8 +2,8 @@
 
 My portfolio website, built like a small production system: a Next.js site on a Fastify API
 with a Redis cache, an analytics pipeline with a batch worker, a rate-limited contact form with
-background notifications, an owner dashboard, and approval-gated deploys with automatic
-rollback to an Oracle Cloud VM.
+background notifications, and an owner dashboard. Releases go to an Oracle Cloud VM after my
+approval, with automatic rollback. Live since 2026-11-20.
 
 **Start here: [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md)**, the whole project on one page
 (architecture, code flows with diagrams, using and editing the site, reading the data,
@@ -19,7 +19,7 @@ interview notes).
 | [Data tools](docs/DATA-TOOLS.md)                                        | Postgres and Redis in VS Code         |
 | [Testing](docs/TESTING.md) · [CI](docs/CI.md)                           | Tests and GitHub Actions              |
 | [Docker](docs/DOCKER.md) · [Production stack](docs/PRODUCTION-STACK.md) | Images; the real stack on your laptop |
-| [Hosting](docs/HOSTING.md) · [Releasing](docs/CD.md)                    | The server; deploying to it           |
+| [Hosting](docs/HOSTING.md) · [Releasing](docs/CD.md)                    | The server; deploying, pausing        |
 | [Backups](docs/BACKUPS.md)                                              | Weekly backups and restoring          |
 
 ## Quick start
@@ -75,5 +75,5 @@ npm run check            # confirms the setup
 packages/shared  The API contract: Zod schemas both apps import
 apps/api         Fastify API (controllers → managers → DAL) and the background worker
 apps/web         Next.js + Tailwind website, including the owner page /admin
-deploy/          Production: compose file, Caddyfile, deploy/backup/restore scripts
+deploy/          Production: compose file, Caddy, "back soon" page, deploy/backup/restore scripts
 ```

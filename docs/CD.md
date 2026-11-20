@@ -13,19 +13,20 @@ merge ─► ci (tests, images build) ─► publish (images → ghcr.io, tag = 
                      → smoke test ──fails──► back to the previous release
 ```
 
-`<public-ip>` is the server's IP and `<name>` your DuckDNS name; neither goes into Git.
+`<name>` is your DuckDNS name. Neither it nor the server's IP goes into Git.
 
 ---
 
 ## 1. What runs where
 
-| Where                 | What                                                    | File                           |
-| --------------------- | ------------------------------------------------------- | ------------------------------ |
-| GitHub, job `ci`      | format, lint, types, tests, site build, image builds    | `.github/workflows/ci.yml`     |
-| GitHub, job `publish` | push both images to GHCR as `…:<commit sha>`            | `.github/workflows/deploy.yml` |
-| GitHub, job `deploy`  | wait for approval, copy `deploy/` to the server, SSH in | `.github/workflows/deploy.yml` |
-| The server            | the deploy itself, and the rollback                     | `deploy/deploy.sh`             |
-| The server, not Git   | secrets, hostname, the release now running              | `~/portfolio/deploy/.env`      |
+| Where                 | What                                                    | File                              |
+| --------------------- | ------------------------------------------------------- | --------------------------------- |
+| GitHub, job `ci`      | format, lint, types, tests, site build, image builds    | `.github/workflows/ci.yml`        |
+| GitHub, job `publish` | push both images to GHCR as `…:<commit sha>`            | `.github/workflows/deploy.yml`    |
+| GitHub, job `deploy`  | wait for approval, copy `deploy/` to the server, SSH in | `.github/workflows/deploy.yml`    |
+| The server            | the deploy itself, and the rollback                     | `deploy/deploy.sh`                |
+| The server, not Git   | secrets, hostname, the release now running              | `~/portfolio/deploy/.env`         |
+| The server, not Git   | the pause switch, when the site is paused (§5)          | `~/portfolio/deploy/caddy/paused` |
 
 The deploy is a script on the server, not workflow steps, so the same thing runs from GitHub,
 by hand on the server, and on your laptop (`npm run stack:deploy -- dev`) where it was tested.
@@ -36,7 +37,8 @@ command (`backup.sh`, `restore.sh`, `docker compose … up`) uses the same image
 
 ## 2. One-time setup (about 20 minutes)
 
-You need the server from [HOSTING.md](HOSTING.md) (Steps 1–9).
+Done on 2026-11-20. Repeat it only for a new server or a new repository. You need the server
+from [HOSTING.md](HOSTING.md) (Steps 1–9).
 
 ### 2.1 A key for GitHub (laptop)
 
@@ -44,7 +46,10 @@ You need the server from [HOSTING.md](HOSTING.md) (Steps 1–9).
 ssh-keygen -t ed25519 -f ~/.ssh/portfolio_deploy -N "" -C "github-actions-deploy"
 { printf 'restrict '; cat ~/.ssh/portfolio_deploy.pub; } |
   ssh portfolio 'cat >> ~/.ssh/authorized_keys'
-ssh -i ~/.ssh/portfolio_deploy -o IdentitiesOnly=yes ubuntu@<public-ip> 'echo deploy key works'
+
+# Test it. -F /dev/null ignores ~/.ssh/config, so your own key can't stand in for it.
+ip=$(ssh -G portfolio | awk '$1 == "hostname" { print $2 }')
+ssh -F /dev/null -i ~/.ssh/portfolio_deploy -o IdentitiesOnly=yes "ubuntu@$ip" 'echo deploy key works'
 ```
 
 GitHub gets its own key (no passphrase: nobody is there to type it), so it can be revoked
@@ -77,28 +82,31 @@ nano ~/portfolio/deploy/.env
 
 ### 2.3 The `production` environment on GitHub
 
-**Before merging the pull request that adds `deploy.yml`**: a job that names a missing
-environment creates it without protection, so the first deploy would not ask you.
+**Set this up before the first deploy**: a job that names a missing environment creates it
+without protection, so that deploy would not ask for your approval.
 
 Repository → **Settings** → **Environments** → **New environment** → `production`:
 
 1. **Required reviewers**: yourself → **Save protection rules** (leave _Prevent self-review_
    off: you are the only reviewer).
 2. **Deployment branches and tags**: _Selected branches and tags_ → add `main`.
-3. **Environment secret** `SSH_PRIVATE_KEY`: all of `cat ~/.ssh/portfolio_deploy`.
-4. **Environment variables**:
+3. **Environment secret** `SSH_PRIVATE_KEY`, straight from the file (pasting a key through
+   the clipboard can break it): `gh secret set SSH_PRIVATE_KEY --env production < ~/.ssh/portfolio_deploy`
+4. **Environment variables**: `SSH_HOST`, `SITE_HOST` (`<name>.duckdns.org`) and
+   `SSH_KNOWN_HOSTS`. The other two come from your laptop:
 
-| Name              | Value                                                                    |
-| ----------------- | ------------------------------------------------------------------------ |
-| `SSH_HOST`        | `<public-ip>`                                                            |
-| `SITE_HOST`       | `<name>.duckdns.org`                                                     |
-| `SSH_KNOWN_HOSTS` | the output of `ssh-keygen -F <public-ip> \| grep -v '^#'` on your laptop |
+```bash
+ip=$(ssh -G portfolio | awk '$1 == "hostname" { print $2 }')
+echo "$ip"                            # SSH_HOST
+ssh-keygen -F "$ip" | grep -v '^#'    # SSH_KNOWN_HOSTS: every line it prints
+```
 
-Then `rm ~/.ssh/portfolio_deploy` (keep the `.pub`): GitHub has the only copy it needs.
+Once the first deploy has worked, delete the private key: `rm ~/.ssh/portfolio_deploy`. GitHub
+has the only copy it needs. The `.pub` file next to it is not secret; leave it there.
 
-Why: the approval click is what makes this continuous _delivery_; `main` only means no branch
-can deploy or read the key; `SSH_KNOWN_HOSTS` pins the server's identity, so the job never
-talks to an impostor. The app's secrets never leave the server.
+Why: the approval click is what makes this continuous _delivery_; the `main`-only rule means
+no other branch can deploy or read the key; `SSH_KNOWN_HOSTS` pins the server's identity, so
+the job never talks to an impostor. The app's secrets never leave the server.
 
 ---
 
@@ -108,7 +116,7 @@ talks to an impostor. The app's secrets never leave the server.
 2. **Actions** → the **Deploy** run: `ci`, then `publish (api)` and `publish (web)`, then
    `deploy` shows **Waiting** and GitHub emails you.
 3. **Review deployments** → tick `production` → **Approve and deploy** (**Reject** skips it).
-4. The step "Deploy (migrate, seed, …)" shows progress (§5). The run's summary links to the site.
+4. The step "Deploy (migrate, seed, …)" shows progress (§6). The run's summary links to the site.
 
 ```bash
 gh run list --workflow deploy.yml --limit 5     # recent deploys
@@ -153,7 +161,29 @@ Environments → production** lists each deploy, or `git log --format='%H %s' ma
 
 ---
 
-## 5. Reading a deploy's log
+## 5. Pausing the site
+
+Takes the site offline for a while: visitors get a "back soon" page, everything else keeps
+running.
+
+```bash
+ssh portfolio 'touch ~/portfolio/deploy/caddy/paused'    # pause
+ssh portfolio 'rm ~/portfolio/deploy/caddy/paused'       # resume
+```
+
+- **Instant**: Caddy looks for that file on every request. No restart, nothing lost.
+- **Visitors** get [back-soon.html](../deploy/caddy/back-soon.html) (edit it to change the
+  words) with status 503 and `Retry-After`, so search engines treat the pause as temporary.
+- **Still working**: `/admin` (with your password), the worker, the database, backups, and
+  deploys. A deploy leaves the site paused and checks the new release from inside the server.
+- **Don't stop the VM** in Oracle's console instead: starting an Arm VM again can fail with
+  "out of host capacity".
+- **On your laptop's stack**: `touch deploy/caddy/paused`, then https://localhost. Git ignores
+  the file.
+
+---
+
+## 6. Reading a deploy's log
 
 The `deploy` job → step **Deploy (migrate, seed, rolling update, smoke test; …)**:
 
@@ -185,31 +215,34 @@ grep _IMAGE ~/portfolio/deploy/.env    # the release the server considers curren
 
 ---
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
-| Symptom                                    | Fix                                                                                        |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| Stays at **Waiting**                       | Approve it (§3)                                                                            |
-| `The production environment is missing: …` | Add the named secret or variables (§2.3)                                                   |
-| `Not a full commit SHA`                    | Use all 40 characters (`git log --format=%H`)                                              |
-| `Host key verification failed`             | Set `SSH_KNOWN_HOSTS` again (wrong, or the server was rebuilt)                             |
-| `Permission denied (publickey)`            | Redo §2.1 and the secret (key not on the server, or secret incomplete)                     |
-| `Missing …/deploy/.env`                    | §2.2                                                                                       |
-| `Invalid environment configuration`        | A value in `deploy/.env` is missing or invalid; the message names it. Fix, **Re-run jobs** |
-| `required variable X is missing a value`   | The release needs a new setting: add `X` to `deploy/.env` and your password manager        |
-| `could not log in to the registry`         | Re-run the job; if it persists, see the next row                                           |
-| `denied` / `unauthorized` while pulling    | Package → Package settings → Manage Actions access → add this repository (Read)            |
-| `Another deploy is running`                | A deploy started by hand on the server; wait                                               |
-| `ROLLED BACK`                              | The release is broken: the log above says which step                                       |
-| `ROLLBACK FAILED`                          | Both releases fail: `$C ps`, `$C logs` (§5); likely the database or disk                   |
-| "Check from the internet" fails            | The server works but isn't reachable: DNS or Oracle's firewall ([HOSTING.md](HOSTING.md))  |
+| Symptom                                                                             | Fix                                                                                            |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Stays at **Waiting**                                                                | Approve it (§3)                                                                                |
+| `The production environment is missing: …`                                          | Add the named secret or variables (§2.3)                                                       |
+| `Not a full commit SHA`                                                             | Use all 40 characters (`git log --format=%H`)                                                  |
+| `Host key verification failed`                                                      | Set `SSH_KNOWN_HOSTS` again (wrong, or the server was rebuilt)                                 |
+| `SSH_PRIVATE_KEY is not a usable private key` (or `Load key …: error in libcrypto`) | The secret was pasted incompletely: set it from the file (§2.3 step 3), **Re-run failed jobs** |
+| `Permission denied (publickey)`                                                     | The key isn't on the server: §2.1, then its test line                                          |
+| `Missing …/deploy/.env`                                                             | §2.2                                                                                           |
+| `Invalid environment configuration`                                                 | A value in `deploy/.env` is missing or invalid; the message names it. Fix, **Re-run jobs**     |
+| `required variable X is missing a value`                                            | The release needs a new setting: add `X` to `deploy/.env` and your password manager            |
+| `could not log in to the registry`                                                  | Re-run the job; if it persists, see the next row                                               |
+| `denied` / `unauthorized` while pulling                                             | Package → Package settings → Manage Actions access → add this repository (Read)                |
+| `Another deploy is running`                                                         | A deploy started by hand on the server; wait                                                   |
+| `ROLLED BACK`                                                                       | The release is broken: the log above says which step                                           |
+| `ROLLBACK FAILED`                                                                   | Both releases fail: `$C ps`, `$C logs` (§6); likely the database or disk                       |
+| "Check from the internet" fails                                                     | The server works but isn't reachable: DNS or Oracle's firewall ([HOSTING.md](HOSTING.md))      |
+| The site shows "Back soon"                                                          | It is paused: `ssh portfolio 'rm ~/portfolio/deploy/caddy/paused'` (§5)                        |
 
-**A new deploy key**: make one (§2.1), replace the `github-actions-deploy` line in the
-server's `~/.ssh/authorized_keys`, update the `SSH_PRIVATE_KEY` secret.
+**A new deploy key**: make one (§2.1), set the secret again (§2.3 step 3), then delete the old
+`github-actions-deploy` line from the server's `~/.ssh/authorized_keys` (`ssh-keygen -l -f`
+on that file lists each key's fingerprint).
 
 ---
 
-## 7. What protects what
+## 8. What protects what
 
 | Credential                  | Lives                        | Protected by                                                      |
 | --------------------------- | ---------------------------- | ----------------------------------------------------------------- |
@@ -221,12 +254,23 @@ server's `~/.ssh/authorized_keys`, update the `SSH_PRIVATE_KEY` secret.
 
 ## What was tested
 
-On the laptop stack (2026-11-19), with a request every 50 ms: a new release (API 503/503 OK;
-pages 5 × `502` while `web` restarted); a release whose API never answers (stopped at api-1,
-rolled back; 1,302/1,302 OK); a crashing worker (rolled back); same release again; invalid
-Caddyfile, missing setting, missing image, two deploys at once (each stopped before changing
-anything); image clean-up. On the server (2026-11-20): the script, compose file and Caddyfile
-are valid under its versions; ports 80/443 reach a container from the internet.
+- **On the laptop stack** (2026-11-19), with a request every 50 ms:
+  - a new release: all 503 API requests succeeded; pages answered `502` five times while `web`
+    restarted;
+  - a release whose API never answers: stopped at api-1 and rolled back; all 1,302 requests
+    succeeded;
+  - a crashing worker: rolled back;
+  - the same release again, and the clean-up of old images;
+  - an invalid Caddyfile, a missing setting, a missing image, two deploys at once: each stopped
+    before changing anything.
+- **On the server** (2026-11-20): the script, compose file and Caddyfile are valid under the
+  server's versions, and ports 80/443 reach a container from the internet.
+- **First real deploy** (2026-11-20): 87 s on the server; the smoke test and the check from
+  the internet passed.
+- **The pause** (laptop stack, 2026-11-20): pages, API and project pages answer 503 with the
+  "back soon" page; `/admin` asks for its password and works with it; pausing and resuming
+  take effect at once; a deploy while paused passes and leaves the site paused. Its checks
+  fail when they should: API replicas stopped, the site not actually paused, the page missing.
 
 The first version trusted `docker compose up --wait`, which reports success when its timeout
 passes while a container is still _starting_: a dead replica got through and the script took

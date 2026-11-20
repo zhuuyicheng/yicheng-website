@@ -111,9 +111,10 @@ update it in the same change when a flow, an endpoint or a file it links to chan
 4. `feat/contact-rate-limiter`: Lua sliding-window limiter, contact API, notification worker
    (done)
 5. `feat/metrics-and-dashboard`: `/metrics`, system status API, Next.js portfolio + dashboard
-   (built; PR in review)
-6. `feat/continuous-delivery`: Docker images, GHCR, deploy workflow with approval gate, rollback
-   (built and tested on the laptop stack; first server deploy after merge, docs/CD.md §2)
+   (done)
+6. `feat/continuous-delivery`: Docker images, GHCR, deploy workflow with approval gate, rollback,
+   pause switch (done: live since 2026-11-20; backups are open and Oracle's memory metric is
+   watched, ROADMAP.md)
 
 One phase per branch → pull request → CI green → merge. Stop for review between phases.
 Each phase adds a "what to watch" section to `docs/DATA-TOOLS.md` (Postgres/Redis VS Code views).

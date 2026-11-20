@@ -10,7 +10,8 @@
 #   3. publish the new image's content
 #   4. roll out: worker → api-1 → api-2 → web, one at a time, each healthy before the next
 #   5. smoke test: /health on each replica, the worker still running, the API and the home page
-#      through Caddy under the site's real name
+#      through Caddy under the site's real name (while the site is paused: from inside the web
+#      container, and the "back soon" page under the real name)
 #   6. if 4 or 5 fails: roll out the previous release the same way, publish its content again
 #      (no migrate: migrations only go forward), smoke test, and exit 1
 #   7. on success: delete older downloaded images (this release and the previous one stay)
@@ -39,7 +40,15 @@ ENV_FILE="$DEPLOY_DIR/.env"
 # How long a new container may take to become healthy. A replica is healthy in seconds; one that
 # never answers is reported unhealthy by Docker only after ~2.5 minutes, so stop waiting sooner.
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-120}"
-HEALTH_CHECK='fetch("http://127.0.0.1:4000/health").then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))'
+# A Node one-liner for `docker compose exec` (the images have no curl): exits 0 when GET <url>
+# answers 2xx within 10 s.
+node_get() {
+  printf 'fetch("%s", { signal: AbortSignal.timeout(10000) }).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))' "$1"
+}
+HEALTH_CHECK="$(node_get http://127.0.0.1:4000/health)"
+# While this file exists the site is paused (docs/CD.md §5): Caddy gives visitors the "back
+# soon" page. Deploys still run, and leave it paused.
+PAUSE_FLAG="$DEPLOY_DIR/caddy/paused"
 
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 step() { printf '\n%s ▶ %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
@@ -192,9 +201,24 @@ roll_out() {
   compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || return 1
 }
 
+# Runs a command until it succeeds: 12 tries, 5 s apart (as long as the curl checks retry).
+retry() {
+  for _ in {1..12}; do
+    "$@" && return 0
+    sleep 5
+  done
+  return 1
+}
+
+# While paused: Caddy answers the site's real name with the back-soon page (status 503).
+shows_back_soon_page() {
+  [ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 10 "${INSECURE[@]}" \
+    --resolve "$SITE_HOST:443:127.0.0.1" "https://$SITE_HOST/")" = 503 ]
+}
+
 smoke_test() {
   step "smoke test"
-  local replica path state
+  local replica path state url
   for replica in api-1 api-2; do
     compose exec -T "$replica" node -e "$HEALTH_CHECK" || {
       log "$replica: GET /health did not answer 200 (Postgres or Redis unreachable?)"
@@ -210,6 +234,24 @@ smoke_test() {
     return 1
   }
   log "worker: running, no restarts since it started"
+  if [ -e "$PAUSE_FLAG" ]; then
+    # Paused: visitors get the back-soon page, so the pages are checked from inside the web
+    # container instead, the way Caddy reaches them (the home page calls the API through
+    # Caddy's :8080), and the site's real name must answer with that page.
+    for url in http://caddy:8080/api/v1/projects http://127.0.0.1:3000/; do
+      retry compose exec -T web node -e "$(node_get "$url")" || {
+        log "GET $url inside the web container failed"
+        return 1
+      }
+      log "GET $url (inside the web container) → 200"
+    done
+    retry shows_back_soon_page || {
+      log "GET https://$SITE_HOST/ through Caddy did not answer with the back-soon page (503)"
+      return 1
+    }
+    log "GET https://$SITE_HOST/ → 503, the back-soon page (the site is paused)"
+    return 0
+  fi
   # Through Caddy, under the real name and with the real certificate, but on this machine, so
   # the result does not depend on DNS (the workflow checks from the internet afterwards). On
   # the first deploy Caddy is still getting its certificate: retried for about a minute.
@@ -247,6 +289,7 @@ remove_old_images() {
 step "deploying $tag"
 log "new release:      $new_api, $new_web"
 log "current release:  ${previous_api:-none (first deploy)}${previous_web:+, $previous_web}"
+[ ! -e "$PAUSE_FLAG" ] || log "the site is paused: visitors keep getting the back-soon page"
 
 step "pulling the images"
 pull_images "$new_api" "$new_web"

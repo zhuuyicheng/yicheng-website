@@ -60,7 +60,7 @@ SELECT device_type, browser, os, count(*) AS events
  GROUP BY device_type, browser, os
  ORDER BY events DESC;
 
--- Clicks (interactions) by name, e.g. click:github-link.
+-- Clicks (interactions) by name, e.g. click:linkedin-link.
 SELECT event_name, count(*) AS clicks, count(DISTINCT visitor_hash) AS visitors
   FROM analytics_events
  WHERE event_type = 'interaction'
