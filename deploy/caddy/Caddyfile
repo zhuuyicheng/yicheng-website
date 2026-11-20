@@ -1,0 +1,54 @@
+# Caddy: HTTPS, routing by path, and load balancing for the production stack (DESIGN.md §14.5).
+# Guide: docs/PRODUCTION-STACK.md. Apply a change without downtime:
+#   docker compose -f deploy/compose.prod.yml exec caddy caddy reload --config /etc/caddy/Caddyfile
+#
+#   https://<host>/api/*   →  api-1 / api-2   (round robin, health-checked)
+#   https://<host>/*       →  web
+#
+# {$SITE_HOST} comes from deploy/.env, so the hostname is never in Git. For a real name
+# (yourname.duckdns.org) Caddy gets a Let's Encrypt certificate by itself; for `localhost` it
+# makes one with its own local authority, which browsers warn about (fine for trying it out).
+
+# The two API replicas, used by both sites below.
+(api_replicas) {
+	reverse_proxy api-1:4000 api-2:4000 {
+		lb_policy round_robin
+		# A replica that refuses the connection (stopped, restarting): retry the request on
+		# the other one, for up to 5 s, instead of answering with an error.
+		lb_try_duration 5s
+		# Active health checks: GET /health/live on each replica every 5 s; one that fails is
+		# skipped until it answers again. Not /health, which fails on both replicas at once
+		# when Postgres or Redis is down (DESIGN.md §14.5).
+		# A rolling update therefore waits 6 s (one interval, plus a second) after a new replica
+		# is healthy before replacing the other one: by then Caddy has seen it and uses it.
+		health_uri /health/live
+		health_interval 5s
+		health_timeout 2s
+		transport http {
+			# Connecting includes looking the name up. During a rolling update the old container
+			# is gone before the health check notices, and a lookup of a name Docker no longer
+			# knows can hang for seconds. Give up after 1 s, leaving time to retry elsewhere.
+			dial_timeout 1s
+		}
+	}
+}
+
+{$SITE_HOST} {
+	# The owner's API routes are for the web server only, which uses :8080 below. They need
+	# the admin token anyway; this keeps them unreachable from the internet altogether.
+	handle /api/v1/admin/* {
+		respond 404
+	}
+	handle /api/* {
+		import api_replicas
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}
+
+# Not published on the host: the web server's own API calls (API_BASE_URL=http://caddy:8080),
+# balanced the same way, without leaving the server or paying for TLS.
+:8080 {
+	import api_replicas
+}

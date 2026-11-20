@@ -32,6 +32,7 @@ function rateLimitHeaders(response: LightMyRequestResponse) {
   return {
     limit: response.headers['x-ratelimit-limit'],
     remaining: response.headers['x-ratelimit-remaining'],
+    window: response.headers['x-ratelimit-window'],
     retryAfter: response.headers['retry-after'],
   };
 }
@@ -141,6 +142,7 @@ describe('POST /api/v1/contact with live Postgres and Redis', () => {
     expect(rateLimitHeaders(response)).toEqual({
       limit: '3',
       remaining: '2',
+      window: '600',
       retryAfter: undefined,
     });
     expect(await storedMessages()).toEqual([]);

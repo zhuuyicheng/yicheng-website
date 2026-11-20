@@ -2,13 +2,9 @@
   "profile": {
     "fullName": "Zhu Yicheng",
     "headline": "Software Engineer · Backend Systems, APIs & Test Automation",
-    "summary": "Software engineer in Singapore and NUS Computer Science graduate. I build backend services and APIs in TypeScript/Node.js and Java/Spring Boot, and I care about what keeps them reliable in production: meaningful metrics and alerting, thorough automated tests, and documented root-cause analysis. This website is itself one of my projects: a TypeScript backend with Redis caching, asynchronous event ingestion and live observability.",
+    "summary": "I'm a singaporean software engineer based in Singapore and NUS Computer Science graduate. I build backend services and APIs in TypeScript/Node.js and Java/Spring Boot, and I care about what keeps them reliable in production: meaningful metrics and alerting, thorough automated tests, and documented root-cause analysis. This website is itself one of my projects: a TypeScript backend with Redis caching, asynchronous event ingestion and live observability.",
     "location": "Singapore",
     "links": [
-      {
-        "label": "GitHub",
-        "url": "https://github.com/zhuuyicheng"
-      },
       {
         "label": "LinkedIn",
         "url": "https://www.linkedin.com/in/yichengzhu01"
@@ -24,7 +20,7 @@
       "highlights": [
         "Developed the backend and API layer (16 endpoints) for a server-driven App Store / Google Play review-invitation system in TypeScript/Node.js, replacing hard-coded app rules with admin-configured campaigns and a maker-checker approval workflow; shipped to production in Aug 2026.",
         "Designed and built business metrics for a software-release platform in Java/Spring Boot, with root-cause miss reasons and growth-based alerting that made a silent failure class alertable.",
-        "Grew a 27K-line device platform's unit tests from 7 to 1,005 cases (79 suites) in two weeks, uncovering 9 production defects, such as a cache-key mismatch and a stalled background job, each documented with root cause and fix."
+        "Grew a 27K-line device platform's unit tests from 7 to 1,005 cases (79 suites) in two weeks, uncovering production defects, such as a cache-key mismatch and a stalled background job, each documented with root cause and fix."
       ]
     },
     {
@@ -74,9 +70,57 @@
       "summary": "This website: a TypeScript backend with Redis caching, async event ingestion, rate limiting and live observability.",
       "description": "A Fastify API in a layered MVC structure backed by PostgreSQL and Redis. Content is served cache-aside with single-flight loading and TTL jitter; telemetry events are buffered in Redis and flushed in batches by a worker; the contact form is protected by an atomic Lua sliding-window rate limiter. Every retry and fallback is logged and counted in Prometheus metrics.",
       "techStack": ["TypeScript", "Node.js", "Fastify", "PostgreSQL", "Redis", "Next.js"],
-      "repoUrl": "https://github.com/zhuuyicheng/yicheng-website",
+      "repoUrl": null,
       "liveUrl": null,
-      "featured": true
+      "featured": true,
+      "sections": [
+        {
+          "heading": "How a page is served",
+          "body": "Each page is rendered on the server by Next.js from the API's data, so content changes appear without rebuilding the site.",
+          "points": [
+            "The API reads content through a Redis cache (cache-aside): a hit is answered from memory; a miss loads the data from PostgreSQL and keeps a copy for about five minutes.",
+            "Expiry times are spread out at random so entries don't all expire at once, and simultaneous misses for the same data share a single database query.",
+            "If Redis fails, content is served straight from PostgreSQL, and the fallback is logged and counted.",
+            "Content is written in a JSON file, checked in full, and saved to the database in one transaction, so a mistake never publishes half an update."
+          ]
+        },
+        {
+          "heading": "Visitor analytics",
+          "body": "Page views are recorded without slowing the page down: the API accepts each event almost instantly and a background worker does the rest.",
+          "points": [
+            "The browser sends a small event; the API validates it and adds the visitor's country, organisation and browser from local lookups. The raw IP address is never stored.",
+            "Unique visitors are counted with a hash that changes every day, so no one can be followed from one day to the next.",
+            "Events wait in a Redis queue, and a worker writes them to PostgreSQL in batches.",
+            "Failed writes are retried with increasing delays; an event that can never be stored is set aside in a dead-letter queue and can be replayed later."
+          ]
+        },
+        {
+          "heading": "Contact form and rate limiting",
+          "body": "Messages are saved first and delivered in the background, so a slow or failing notification service never loses one.",
+          "points": [
+            "A sliding-window rate limiter, written as a Lua script that runs atomically inside Redis, allows three messages per sender every ten minutes, even when requests reach different servers at the same moment.",
+            "Each message is stored in PostgreSQL, and a job is queued for a worker that forwards it to Discord.",
+            "Failed deliveries are retried with exponential backoff, then moved to a dead-letter queue; a reconciler re-queues any message whose job never made it into the queue."
+          ]
+        },
+        {
+          "heading": "Monitoring",
+          "points": [
+            "Prometheus metrics cover request latency, cache hit ratio, queue sizes, retries and fallbacks.",
+            "The public status page shows live health, response times (p50 and p95), the cache hit ratio and queue sizes, refreshed every five seconds.",
+            "Structured logs carry a request ID, so one request can be followed through every layer."
+          ]
+        },
+        {
+          "heading": "Engineering practices",
+          "points": [
+            "A layered API: controllers handle HTTP, managers hold the business rules, and data-access modules are the only code that talks to PostgreSQL or Redis.",
+            "Strict TypeScript; every input from outside is validated, and the API and the website share one set of request and response schemas.",
+            "Over 300 automated tests, including integration tests against real PostgreSQL and Redis, run on every pull request in GitHub Actions.",
+            "Graceful shutdown: on a restart, requests in progress finish and the worker drains its queue before stopping."
+          ]
+        }
+      ]
     },
     {
       "slug": "bowling-buddy",
@@ -86,7 +130,58 @@
       "techStack": ["React Native", "JavaScript", "Python", "Node.js", "Firebase", "Heroku"],
       "repoUrl": null,
       "liveUrl": null,
-      "featured": false
+      "featured": false,
+      "sections": [
+        {
+          "heading": "Score tracker",
+          "body": "Players record a game as they bowl by tapping the pins still standing after each roll, and the scoreboard updates straight away.",
+          "points": [
+            "Strike, Spare and Reset buttons for quick input, and a Confirm button to lock in each roll.",
+            "Scoring follows the ten-pin rules, including strike and spare bonuses and the tenth frame, with the usual X, / and - symbols.",
+            "Every frame (pins left, both rolls and the score) is saved to the player's account in Firebase."
+          ]
+        },
+        {
+          "heading": "Performance tracker",
+          "body": "An Analytics tab turns past games into statistics, so players can see where they are improving and where they are not.",
+          "points": [
+            "Three views: today's games, the last 30 games and all games.",
+            "Summary statistics: games played, highest and average score, strike rate, spare rate and first-shot average.",
+            "A pie chart of open, spare and strike frames, and charts of score, strike and spare rate, and first-shot average across games; tap and hold a point to see its value."
+          ]
+        },
+        {
+          "heading": "Spare guide",
+          "body": "Spares decide scores: nine pins and a spare in every frame scores 190, while missing every spare scores 90. For the pins left standing, the guide shows where to stand and where to aim, with the ball's path drawn on a lane diagram.",
+          "points": [
+            "Available during a game, on the second roll of a frame, and as a separate Guide tab.",
+            "Each pin combination (for example 2-4-5-8, the \"bucket\") is looked up in a library stored in Firebase; combinations not added yet show \"No spare found\"."
+          ]
+        },
+        {
+          "heading": "Ball collection",
+          "body": "Bowlers keep their arsenal in the app, to choose the right ball for the lane's oil conditions.",
+          "points": [
+            "Each ball records its name, weight, differential, radius of gyration and the oil condition it suits.",
+            "Search by name as you type, and sort by any column, with oil conditions ordered from light to heavy."
+          ]
+        },
+        {
+          "heading": "Accounts",
+          "points": [
+            "Sign-up and login with email and password through Firebase Authentication; users stay signed in between sessions.",
+            "Each player's games, statistics and balls are stored under their own account in Cloud Firestore."
+          ]
+        },
+        {
+          "heading": "How we built it",
+          "points": [
+            "Built by a team of two with React Native and Expo, and shared through Expo Go on Android and iOS.",
+            "Work was planned with GitHub issues and milestones; each change went through a branch and a reviewed pull request.",
+            "Prettier kept the code consistent; unit tests covered logic such as the score-symbol converter (all 17 combinations of strikes, spares, gutters and open frames), and every feature had smoke tests."
+          ]
+        }
+      ]
     },
     {
       "slug": "brainhack-image-recognition",
@@ -96,7 +191,24 @@
       "techStack": ["Python", "PyTorch", "NumPy"],
       "repoUrl": null,
       "liveUrl": null,
-      "featured": false
+      "featured": false,
+      "sections": [
+        {
+          "heading": "Object detection with Faster R-CNN",
+          "body": "One of the models takes an image and returns a box around each object it finds, with a label and a confidence score. The team's own images came with annotations in the COCO format: a bounding box and a category for each object, one category being \"fallen\".",
+          "points": [
+            "Transfer learning: training starts from a Faster R-CNN model (a ResNet-50 backbone with a feature pyramid network) already trained on the large COCO dataset, and only its final classification layer is replaced, which suits a small dataset.",
+            "A custom PyTorch dataset reads the annotations with pycocotools and converts each box from [x, y, width, height] to the corner coordinates the model expects.",
+            "Training images are randomly flipped left to right, together with their boxes, so the model sees more variety from the same data.",
+            "The model is trained with stochastic gradient descent, lowering the learning rate tenfold every three epochs; some images are held back for testing.",
+            "Results are scored with the COCO metrics, which measure how much each predicted box overlaps the true one (intersection over union), and predictions are drawn on test images to check them by eye."
+          ]
+        },
+        {
+          "heading": "Tools",
+          "body": "Python, PyTorch and TorchVision, NumPy and pycocotools, in a Deepnote notebook, adapting TorchVision's object-detection fine-tuning recipe to the team's own data."
+        }
+      ]
     }
   ]
 }

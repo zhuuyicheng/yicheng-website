@@ -13,3 +13,8 @@ export interface HealthReport {
   status: 'ok' | 'degraded';
   checks: Record<string, DependencyHealth>;
 }
+
+/** `GET /health/live`: the process can answer. Checks nothing else, on purpose. */
+export interface LivenessReport {
+  status: 'ok';
+}

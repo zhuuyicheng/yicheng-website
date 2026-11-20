@@ -18,6 +18,7 @@ export {
   profileSchema,
   projectListSchema,
   projectSchema,
+  projectSectionSchema,
   projectSlugSchema,
   projectSummarySchema,
   type Education,
@@ -25,6 +26,7 @@ export {
   type Profile,
   type ProfileLink,
   type Project,
+  type ProjectSection,
   type ProjectSummary,
 } from '@portfolio/shared';
 
@@ -75,8 +77,29 @@ const contentEducationSchema = z
   })
   .refine(datesInOrder.check, datesInOrder.params);
 
+/** A project page section needs something under its heading: a paragraph, points, or both. */
+const contentProjectSectionSchema = z
+  .object({
+    heading: text(120),
+    body: text(2_000).nullable().default(null),
+    points: z.array(text(500)).default([]),
+  })
+  .refine((section) => section.body !== null || section.points.length > 0, {
+    message: 'needs a body or at least one point',
+    path: ['points'],
+  });
+
+/**
+ * Projects live at `/<slug>` on the website, beside its own pages, so a slug must not take one
+ * of their addresses (`/projects` redirects old links, `/admin` is the owner's page).
+ */
+export const RESERVED_PROJECT_SLUGS = ['admin', 'projects', 'privacy'] as const;
+
 const contentProjectSchema = z.object({
-  slug: projectSlugSchema,
+  slug: projectSlugSchema.refine(
+    (slug) => !(RESERVED_PROJECT_SLUGS as readonly string[]).includes(slug),
+    { message: 'is already a page of the site; choose another slug' },
+  ),
   title: text(200),
   summary: text(500),
   description: text(10_000),
@@ -84,6 +107,7 @@ const contentProjectSchema = z.object({
   repoUrl: webUrl.nullable().default(null),
   liveUrl: webUrl.nullable().default(null),
   featured: z.boolean().default(false),
+  sections: z.array(contentProjectSectionSchema).max(20).default([]),
 });
 
 export const portfolioContentSchema = z.object({

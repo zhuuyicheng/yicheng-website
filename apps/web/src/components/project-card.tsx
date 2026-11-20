@@ -1,81 +1,46 @@
-'use client';
-
 import type { ProjectSummary } from '@portfolio/shared';
+import { ArrowRight, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import type { PointerEvent } from 'react';
-import { trackName } from '@/lib/telemetry';
-import { TrackedLink } from './tracked-link';
 
-/** Moves the card's glow to where the pointer is (CSS reads --mx/--my). */
-function followPointer(event: PointerEvent<HTMLElement>) {
-  const rect = event.currentTarget.getBoundingClientRect();
-  event.currentTarget.style.setProperty('--mx', `${String(event.clientX - rect.left)}px`);
-  event.currentTarget.style.setProperty('--my', `${String(event.clientY - rect.top)}px`);
-}
-
-/** One project: title (to its page), summary, stack, links. Glows where the pointer is. */
+/**
+ * One project as a card. The whole card opens the project's page: the title link's `::after`
+ * stretches over the card, so the full box is clickable while screen readers still hear just
+ * the title as the link. Hovering lifts the card; keyboard focus outlines it.
+ */
 export function ProjectCard({ project }: { project: ProjectSummary }) {
   return (
-    <article
-      onPointerMove={followPointer}
-      className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-white/10 bg-zinc-900/40 p-6 transition-colors hover:border-emerald-400/40"
-    >
-      <div
-        aria-hidden
-        className="spotlight pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-      />
-
-      <div className="relative flex items-start justify-between gap-4">
-        <h3 className="text-lg font-medium text-zinc-100">
-          <Link href={`/projects/${project.slug}`} className="after:absolute after:inset-0">
+    <article className="group relative flex h-full flex-col rounded-2xl border border-line bg-surface p-6 shadow-sm transition duration-200 hover:-translate-y-1 hover:border-brand/50 hover:shadow-lg active:translate-y-0 has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-brand/70 motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+      <div className="flex items-start justify-between gap-4">
+        <h3 className="font-display text-xl font-semibold text-ink">
+          <Link
+            href={`/${project.slug}`}
+            className="after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none"
+          >
             {project.title}
           </Link>
         </h3>
         {project.featured && (
-          <span className="shrink-0 rounded border border-emerald-400/30 px-1.5 py-0.5 font-mono text-[10px] tracking-wide text-emerald-300 uppercase">
-            featured
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand">
+            <Sparkles aria-hidden className="size-3" />
+            Featured
           </span>
         )}
       </div>
 
-      <p className="relative mt-3 flex-1 text-sm leading-relaxed text-zinc-400">
-        {project.summary}
-      </p>
+      <p className="mt-3 flex-1 text-sm leading-relaxed text-muted">{project.summary}</p>
 
-      <ul className="relative mt-5 flex flex-wrap gap-1.5" aria-label="Technologies">
+      <ul className="mt-5 flex flex-wrap gap-1.5" aria-label="Technologies">
         {project.techStack.map((tech) => (
-          <li
-            key={tech}
-            className="rounded bg-white/5 px-2 py-0.5 font-mono text-[11px] text-zinc-300"
-          >
+          <li key={tech} className="rounded-full bg-sunken px-2.5 py-0.5 text-xs text-body">
             {tech}
           </li>
         ))}
       </ul>
 
-      {(project.repoUrl !== null || project.liveUrl !== null) && (
-        // `relative z-10`: above the title link's full-card click area.
-        <div className="relative z-10 mt-5 flex gap-4 font-mono text-xs">
-          {project.repoUrl !== null && (
-            <TrackedLink
-              href={project.repoUrl}
-              track={trackName(project.slug, 'repo')}
-              className="text-zinc-400 hover:text-emerald-300"
-            >
-              source ↗
-            </TrackedLink>
-          )}
-          {project.liveUrl !== null && (
-            <TrackedLink
-              href={project.liveUrl}
-              track={trackName(project.slug, 'live')}
-              className="text-zinc-400 hover:text-emerald-300"
-            >
-              live ↗
-            </TrackedLink>
-          )}
-        </div>
-      )}
+      <p aria-hidden className="mt-6 flex items-center gap-1.5 text-sm font-medium text-brand">
+        Read more
+        <ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-1 motion-reduce:transition-none" />
+      </p>
     </article>
   );
 }

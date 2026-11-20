@@ -1,34 +1,29 @@
-import Link from 'next/link';
+import { SectionLink } from './section-link';
 
-/** Footer: what the site runs on, and the privacy notice. */
+const LINKS = [
+  { id: 'about', label: 'About' },
+  { id: 'projects', label: 'Projects' },
+  { id: 'contact', label: 'Contact' },
+] as const;
+
+/** Footer: links back to the main sections of the home page. */
 export function SiteFooter() {
   return (
-    <footer className="border-t border-white/5">
-      <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 font-mono text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <p>
-          <span className="text-emerald-400">●</span> built with Next.js, Fastify, PostgreSQL and
-          Redis
-        </p>
-        <nav aria-label="Footer">
-          <ul className="flex gap-5">
-            <li>
-              <Link href="/projects" className="hover:text-zinc-300">
-                ./projects
-              </Link>
+    <footer className="border-t border-line">
+      <nav
+        aria-label="Footer"
+        className="mx-auto flex max-w-6xl justify-end px-4 py-8 text-xs text-muted sm:px-6"
+      >
+        <ul className="flex gap-5">
+          {LINKS.map((link) => (
+            <li key={link.id}>
+              <SectionLink id={link.id} className="hover:text-body">
+                {link.label}
+              </SectionLink>
             </li>
-            <li>
-              <Link href="/status" className="hover:text-zinc-300">
-                ./status
-              </Link>
-            </li>
-            <li>
-              <Link href="/privacy" className="hover:text-zinc-300">
-                ./privacy
-              </Link>
-            </li>
-          </ul>
-        </nav>
-      </div>
+          ))}
+        </ul>
+      </nav>
     </footer>
   );
 }

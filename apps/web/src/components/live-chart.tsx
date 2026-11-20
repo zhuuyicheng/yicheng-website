@@ -1,61 +1,74 @@
 'use client';
 
 import { useState, type PointerEvent } from 'react';
-import { linePath, niceCeiling } from '@/lib/status';
+import {
+  CHART_TICK_MS,
+  formatClock,
+  nearestPoint,
+  niceCeiling,
+  timeLinePath,
+  timeTicks,
+  timeX,
+  type TimePoint,
+} from '@/lib/status';
 
 interface LiveChartProps {
   title: string;
-  /** One value per sample, oldest first; `null` = no data at that moment. */
-  values: readonly (number | null)[];
-  /** Sample times (ms since epoch), same length as `values`. */
-  times: readonly number[];
+  /** Oldest first; `value: null` = no data at that moment. */
+  points: readonly TimePoint[];
+  /** The right edge of the time axis (now); the axis covers `windowMs` before it. */
+  end: number;
+  windowMs: number;
+  /** Longest pause between samples that is still drawn as one line. */
+  maxGapMs: number;
   format: (value: number | null) => string;
 }
 
 const WIDTH = 600;
 const HEIGHT = 140;
-const TIME = new Intl.DateTimeFormat('en', {
+const TIME = new Intl.DateTimeFormat('en-GB', {
   hour: '2-digit',
   minute: '2-digit',
   second: '2-digit',
+  hourCycle: 'h23',
 });
 
 /**
- * One measure over the minutes the page has been open: a 2 px line, a recessive grid with the
- * scale's top value, and a crosshair + tooltip on hover or touch. One series per chart (never two
- * y-axes); the title names it, so no legend is needed.
+ * One measure over the last `windowMs`, placed by time: a 2 px line, a recessive grid with
+ * the scale's top value, a labelled tick every 5 minutes, and a crosshair + tooltip on hover
+ * or touch. One series per chart (never two y-axes); the title names it, so no legend.
  */
-export function LiveChart({ title, values, times, format }: LiveChartProps) {
-  const [hover, setHover] = useState<number | null>(null);
-  const ceiling = niceCeiling(values);
-  const path = linePath(values, WIDTH, HEIGHT, ceiling);
-  const latest = values.at(-1) ?? null;
+export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: LiveChartProps) {
+  const [hoverAt, setHoverAt] = useState<number | null>(null);
+  const scale = { start: end - windowMs, end, width: WIDTH };
+  const visible = points.filter((point) => point.at >= scale.start);
+  const ceiling = niceCeiling(visible.map((point) => point.value));
+  const path = timeLinePath(visible, { ...scale, height: HEIGHT, ceiling, maxGapMs });
+  const ticks = timeTicks(scale.start, scale.end, CHART_TICK_MS);
+  const latest = visible.at(-1)?.value ?? null;
 
   const onPointer = (event: PointerEvent<SVGSVGElement>) => {
-    if (values.length === 0) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const fraction = (event.clientX - rect.left) / rect.width;
-    setHover(Math.round(Math.min(1, Math.max(0, fraction)) * (values.length - 1)));
+    const fraction = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    setHoverAt(scale.start + fraction * windowMs);
   };
 
-  const hoverValue = hover === null ? undefined : values[hover];
-  const hoverTime = hover === null ? undefined : times[hover];
-  const hoverX =
-    hover === null || values.length < 2 ? WIDTH / 2 : (hover / (values.length - 1)) * WIDTH;
+  const hover = hoverAt === null ? null : nearestPoint(visible, hoverAt);
+  const hoverX = hover === null ? 0 : timeX(hover.at, scale);
+  const hoverValue = hover?.value ?? null;
   const hoverY =
-    hoverValue === undefined || hoverValue === null
-      ? null
-      : HEIGHT - (Math.min(hoverValue, ceiling) / ceiling) * HEIGHT;
+    hoverValue === null ? null : HEIGHT - (Math.min(hoverValue, ceiling) / ceiling) * HEIGHT;
+  const percent = (x: number) => `${String((x / WIDTH) * 100)}%`;
 
   return (
-    <figure className="rounded-xl border border-white/10 bg-zinc-900/40 p-4 sm:p-5">
+    <figure className="rounded-xl border border-line bg-surface p-4 sm:p-5">
       <figcaption className="flex items-baseline justify-between gap-3">
-        <span className="font-mono text-xs text-zinc-400">{title}</span>
-        <span className="font-mono text-sm text-zinc-100">{format(latest)}</span>
+        <span className="text-xs text-muted">{title}</span>
+        <span className="text-sm text-ink tabular-nums">{format(latest)}</span>
       </figcaption>
 
       <div className="relative mt-4">
-        <span className="absolute -top-1 left-0 font-mono text-[10px] text-zinc-600">
+        <span className="absolute -top-1 left-0 text-[10px] text-faint tabular-nums">
           {format(ceiling)}
         </span>
         <svg
@@ -63,13 +76,24 @@ export function LiveChart({ title, values, times, format }: LiveChartProps) {
           preserveAspectRatio="none"
           className="h-32 w-full touch-none overflow-visible"
           role="img"
-          aria-label={`${title}: latest ${format(latest)}, ${String(values.length)} samples`}
+          aria-label={`${title}, last ${String(windowMs / 60_000)} minutes: latest ${format(latest)}`}
           onPointerMove={onPointer}
           onPointerDown={onPointer}
           onPointerLeave={() => {
-            setHover(null);
+            setHoverAt(null);
           }}
         >
+          {ticks.map((at) => (
+            <line
+              key={at}
+              x1={timeX(at, scale)}
+              x2={timeX(at, scale)}
+              y1={0}
+              y2={HEIGHT}
+              className="stroke-line"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
           {[0.5, 1].map((level) => (
             <line
               key={level}
@@ -77,7 +101,7 @@ export function LiveChart({ title, values, times, format }: LiveChartProps) {
               x2={WIDTH}
               y1={HEIGHT - level * HEIGHT}
               y2={HEIGHT - level * HEIGHT}
-              className="stroke-white/5"
+              className="stroke-line"
               vectorEffect="non-scaling-stroke"
             />
           ))}
@@ -86,14 +110,14 @@ export function LiveChart({ title, values, times, format }: LiveChartProps) {
             x2={WIDTH}
             y1={HEIGHT}
             y2={HEIGHT}
-            className="stroke-white/15"
+            className="stroke-line-strong"
             vectorEffect="non-scaling-stroke"
           />
           {path && (
             <path
               d={path}
               fill="none"
-              className="stroke-emerald-400"
+              className="stroke-brand"
               strokeWidth={2}
               strokeLinejoin="round"
               strokeLinecap="round"
@@ -106,8 +130,7 @@ export function LiveChart({ title, values, times, format }: LiveChartProps) {
               x2={hoverX}
               y1={0}
               y2={HEIGHT}
-              className="stroke-zinc-500"
-              strokeDasharray="3 3"
+              className="stroke-faint"
               vectorEffect="non-scaling-stroke"
             />
           )}
@@ -117,29 +140,39 @@ export function LiveChart({ title, values, times, format }: LiveChartProps) {
         {hoverY !== null && (
           <span
             aria-hidden
-            className="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-400 ring-2 ring-canvas"
-            style={{
-              left: `${String((hoverX / WIDTH) * 100)}%`,
-              top: `${String((hoverY / HEIGHT) * 100)}%`,
-            }}
+            className="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand ring-2 ring-surface"
+            style={{ left: percent(hoverX), top: `${String((hoverY / HEIGHT) * 100)}%` }}
           />
         )}
-        {hover !== null && hoverTime !== undefined && (
+        {hover !== null && (
           <div
-            className={`pointer-events-none absolute -top-9 rounded border border-white/10 bg-zinc-950/95 px-2 py-1 font-mono text-[11px] whitespace-nowrap text-zinc-200 ${
+            className={`pointer-events-none absolute -top-9 rounded bg-ink px-2 py-1 text-[11px] whitespace-nowrap text-white tabular-nums shadow-md ${
               hoverX > WIDTH / 2 ? '-translate-x-full' : ''
             }`}
-            style={{ left: `${String((hoverX / WIDTH) * 100)}%` }}
+            style={{ left: percent(hoverX) }}
           >
-            {format(hoverValue ?? null)}{' '}
-            <span className="text-zinc-500">· {TIME.format(hoverTime)}</span>
+            {format(hover.value)} <span className="text-white/70">· {TIME.format(hover.at)}</span>
           </div>
         )}
-        {values.length < 2 && (
-          <p className="absolute inset-0 flex items-center justify-center font-mono text-xs text-zinc-600">
-            collecting samples…
+        {visible.length < 2 && (
+          <p className="absolute inset-0 flex items-center justify-center text-xs text-faint">
+            Collecting samples…
           </p>
         )}
+
+        {/* The time axis: a label under every 5-minute tick, inside the figure's height. */}
+        <div aria-hidden className="relative mt-2 h-4 text-[10px] text-muted tabular-nums">
+          {ticks.map((at) => {
+            const x = timeX(at, scale);
+            // Too close to an edge, a centred label would stick out of the card.
+            if (x < WIDTH * 0.04 || x > WIDTH * 0.96) return null;
+            return (
+              <span key={at} className="absolute -translate-x-1/2" style={{ left: percent(x) }}>
+                {formatClock(at)}
+              </span>
+            );
+          })}
+        </div>
       </div>
     </figure>
   );

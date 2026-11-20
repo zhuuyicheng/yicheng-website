@@ -1,7 +1,7 @@
 # Content API & Redis Cache (Phase 2)
 
-This guide explains how the portfolio content gets from a JSON file to an HTTP response, why
-Redis sits in the middle, and how to watch it work. Design reference: DESIGN.md §7.4 and §8.1.
+How your content gets from a JSON file to an HTTP response, why Redis sits in the middle, and
+how to watch it work. Design: DESIGN.md §7.4 and §8.1.
 
 ---
 
@@ -20,7 +20,7 @@ Redis  cache:v1:projects  (expires after ~5 min)   fast copy
 GET /api/v1/projects  →  { "data": [...] }   with header  X-Cache: hit | miss
 ```
 
-There is no admin page: to change your portfolio, edit the JSON and re-run the seed.
+To change your portfolio, edit the JSON and re-run the seed (there is no editing page).
 
 ## 2. Cache-aside in plain words
 
@@ -42,7 +42,7 @@ Three extra safeguards, each with a test:
 
 ## 3. Where the code lives (follow one request)
 
-`GET /api/v1/projects/note-g`:
+`GET /api/v1/projects/bowling-buddy`:
 
 | Step | File                                                                                   | Job                                                                                                 |
 | ---- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
@@ -96,13 +96,7 @@ docker compose start redis
 
 ## 5. Editing your content
 
-1. Edit [apps/api/content/portfolio.json](../apps/api/content/portfolio.json). Array order is
-   display order; projects with `"featured": true` are listed first.
-2. Run `npm run content:seed`. If the file has mistakes, every problem is listed with its
-   location (e.g. `projects.0.slug: must be lowercase letters/digits separated by hyphens`)
-   and nothing is written.
-3. The seed clears the old cache entries and warms new ones, so the API serves your edit
-   immediately, and so does the website (http://localhost:3000), which renders each page from
-   the API on request.
-
-`slug` is the project's URL name (`/projects/<slug>`): lowercase words joined by hyphens.
+Edit [portfolio.json](../apps/api/content/portfolio.json), run `npm run content:seed`, reload.
+The seed lists every mistake with its location and writes nothing; on success it clears the old
+cache entries and warms new ones, so the change shows at once. Which field appears where:
+[EDITING-THE-SITE.md](EDITING-THE-SITE.md).

@@ -1,7 +1,7 @@
-import type { ProfileLink } from '../schema/content.schema.js';
+import type { ProfileLink, ProjectSection } from '../schema/content.schema.js';
 
 /**
- * Row types: one per table, column for column, as defined in migrations 0001 and 0002.
+ * Row types: one per table, column for column, as defined in migrations 0001, 0002 and 0006.
  * The DAL reads rows in exactly this shape and maps them to the API types in `schema/`, so
  * database naming (`snake_case`) never leaks into responses.
  *
@@ -61,6 +61,8 @@ export interface ProjectRow {
   repo_url: string | null;
   live_url: string | null;
   featured: boolean;
+  /** JSONB (migration 0006), written only by content:seed after validation. */
+  sections: ProjectSection[];
   sort_order: number;
   created_at: Date;
   updated_at: Date;

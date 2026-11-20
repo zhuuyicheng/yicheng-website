@@ -1,21 +1,16 @@
-interface SectionHeadingProps {
-  /** `01`, `02`, … in page order. */
-  index: string;
-  /** The "terminal command" shown above the title, e.g. `cat about.md`. */
-  command: string;
-  title: string;
-}
+import type { LucideIcon } from 'lucide-react';
 
-/** Section title in the site's terminal style: `01 // $ cat about.md`, then a large heading. */
-export function SectionHeading({ index, command, title }: SectionHeadingProps) {
+/** A section's title with its icon, on the home page and the projects page. */
+export function SectionHeading({ title, icon: Icon }: { title: string; icon: LucideIcon }) {
   return (
-    <div className="mb-10 sm:mb-14">
-      <p className="font-mono text-xs text-zinc-500 sm:text-sm">
-        <span className="text-emerald-400">{index}</span>
-        <span className="mx-2 text-zinc-700">{'//'}</span>
-        <span className="text-zinc-600">$</span> {command}
-      </p>
-      <h2 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
+    <div className="mb-10 flex items-center gap-4 sm:mb-14">
+      <span
+        aria-hidden
+        className="flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand"
+      >
+        <Icon className="size-5" strokeWidth={1.75} />
+      </span>
+      <h2 className="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
         {title}
       </h2>
     </div>

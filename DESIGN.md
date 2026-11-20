@@ -19,8 +19,10 @@ processing, observability, and disciplined testing.
 **Non-goals**
 
 - Horizontally scaled workers (we design for **one worker process**; see §8.4).
-- An admin UI or CMS. Portfolio content lives in a version-controlled JSON file.
-- User accounts or authentication (the only protected surface is `/metrics`, by token).
+- A CMS. Portfolio content lives in a version-controlled JSON file; the only owner page is
+  the read-only `/admin` (§8.7).
+- User accounts. The owner's token (`ADMIN_TOKEN`) and the metrics token are the only
+  credentials.
 
 **Tech stack**
 
@@ -40,17 +42,21 @@ processing, observability, and disciplined testing.
 
 ```mermaid
 flowchart LR
-  Browser -->|HTTP| Web[Next.js web app]
-  Browser -->|beacon / fetch| API
-  Web -->|server-side fetch| API[API process<br/>Fastify]
-  API -->|cache-aside, rate limit,<br/>event buffer, job enqueue| Redis[(Redis 7)]
-  API -->|content reads,<br/>contact inserts| PG[(PostgreSQL 16)]
-  API -->|IP lookup, in memory| GeoIP[(GeoIP .mmdb files)]
-  Worker[Worker process<br/>flusher + notifier] -->|claim batches / jobs| Redis
-  Worker -->|bulk insert / status updates| PG
+  Browser -->|HTTPS| Caddy["Caddy<br/>TLS, routing, load balancing"]
+  Caddy -->|"/api/*"| API["API, two replicas<br/>Fastify"]
+  Caddy -->|pages| Web[Next.js web app]
+  Web -->|"server-side fetch, through Caddy"| API
+  API -->|"cache-aside, rate limit,<br/>event buffer, job enqueue"| Redis[(Redis 7)]
+  API -->|"content reads,<br/>contact inserts"| PG[(PostgreSQL 16)]
+  API -->|"IP lookup, in memory"| GeoIP[(GeoIP .mmdb files)]
+  Worker["Worker process<br/>flusher + notifier"] -->|"claim batches / jobs"| Redis
+  Worker -->|"bulk insert / status updates"| PG
   Worker -->|webhook| Notify[Discord webhook / log stub]
-  Prom[Prometheus] -->|scrape /metrics| API
 ```
+
+That is production (§14.5). In development there is no Caddy: the site runs on `:3000`, the
+API on `:4000`, and the browser calls the API directly. A walkthrough of every flow, with
+diagrams: [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md).
 
 ### 2.1 Process model
 
@@ -111,7 +117,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 ```
 .
 ├── .github/workflows/ci.yml              (P2) format, lint, typecheck, unit + integration tests,
-│                                         (P5) web unit tests + the site's production build
+│                                         (P5) web unit tests + the site's production build,
+│                                         (P6) both Docker images built for linux/arm64
 ├── .github/workflows/deploy.yml          (P6) build images → approve → migrate → deploy → smoke test
 ├── .vscode/extensions.json               recommended extensions (PostgreSQL, Redis, ESLint, Prettier)
 ├── .dockerignore                         (P6)
@@ -124,7 +131,9 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 ├── docs/                                 how-to guides (testing, CI, content & cache, data viewers)
 │   └── sql/                              read-only queries for the VS Code PostgreSQL extension
 │                                         (content.sql, (P3) telemetry.sql, (P4) contact.sql)
-├── deploy/                               (P6) compose.prod.yml + Caddyfile for the production host
+├── deploy/                               (P6) the production stack (docs/PRODUCTION-STACK.md):
+│                                         compose.prod.yml, caddy/Caddyfile, .env.example
+│                                         (→ gitignored .env), failover-test.sh
 ├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests
 ├── eslint.config.mjs                     one flat config for the whole repo
 ├── package.json                          npm workspaces + repo-wide scripts
@@ -250,13 +259,12 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │       ├── src/
 │       │   ├── app/                      routes (App Router)
 │       │   │   ├── layout.tsx            header, footer, page-view beacon
-│       │   │   ├── page.tsx              home: hero, about, experience, projects, lab, contact
-│       │   │   ├── projects/             list + [slug] detail
-│       │   │   ├── privacy/              privacy notice (static)
-│       │   │   ├── status/               live dashboard (static page, browser polls)
+│       │   │   ├── page.tsx              home: hero, about, experience, projects, outside work, contact
+│       │   │   ├── [slug]/               one project, at /<slug> (old /projects/* links redirect)
+│       │   │   ├── admin/                owner dashboard + its status route (password-protected)
 │       │   │   ├── error.tsx             "API unreachable" + retry
 │       │   │   ├── not-found.tsx
-│       │   │   └── globals.css           theme, grid/glow, reveal, reduced motion
+│       │   │   └── globals.css           theme tokens, reveal, reduced motion
 │       │   ├── components/               sections and effects ('use client' only where needed)
 │       │   └── lib/                      logic without React: api (server fetch), telemetry
 │       │                                 (beacon), contact, sliding-window, format, config
@@ -302,12 +310,16 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `NOTIFY_MAX_ATTEMPTS`               | 4     | `3`                     | 1–10. Total attempts including the first.                                 |
 | `NOTIFY_BACKOFF_BASE_MS`            | 4     | `5000`                  | Delay = base × 2^(attempt−1) ± 20 % jitter, capped at 4 min.              |
 | `METRICS_TOKEN`                     | 5     | unset                   | ≥ 16 chars. If set, `/metrics` requires `Authorization: Bearer <token>`.  |
+| `ADMIN_TOKEN`                       | 6     | unset                   | ≥ 32 chars. Owner area (§8.7): API bearer token and /admin password.      |
 | `CORS_ORIGINS`                      | 5     | `http://localhost:3000` | Comma-separated origins (`https://host[:port]`, no path, no `/`).         |
 | `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side, read at request time).                        |
-| `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API (beacon, contact form). Baked in at `next build`.           |
+| `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API. Baked in at `next build`. Empty = same origin (§14.5).     |
 
-The two web variables are read by Next.js from the environment or from `apps/web/.env*`
-files (not the root `.env`); the defaults suit local development. `NEXT_PUBLIC_*` values are
+The web variables are read by Next.js from the environment or from `apps/web/.env*` files
+(not the root `.env`); the defaults suit local development. `ADMIN_TOKEN` is set in both apps
+(the API checks it, the web server sends it and checks the owner's password against it);
+`apps/web/.env.development`, read by `next dev` only, holds the same development value as
+`.env.example`. `NEXT_PUBLIC_*` values are
 copied into the JavaScript bundle when the site is built, so changing one means rebuilding.
 
 Docker Compose additionally reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
@@ -409,6 +421,23 @@ CREATE TABLE education (
 CREATE INDEX education_display_order_idx ON education (sort_order, start_date DESC);
 ```
 
+### 5.2c `0006_project_sections.sql` (Phase 6)
+
+Structured detail for project pages. Expand-only (a column with a default), so the code that
+was deployed before it keeps working (§14.4).
+
+```sql
+ALTER TABLE projects
+  ADD COLUMN sections JSONB NOT NULL DEFAULT '[]'::jsonb,
+  ADD CONSTRAINT projects_sections_is_array CHECK (jsonb_typeof(sections) = 'array');
+```
+
+Each element is `{ "heading": text, "body": text | null, "points": [text] }`. JSONB rather
+than a child table: sections are always read and written together with their project, never
+queried on their own. Only `content:seed` writes them, after the content file's schema has
+checked every section (heading ≤ 120 characters, body ≤ 2,000, points ≤ 500 each, at most 20
+sections, and a body or at least one point under every heading).
+
 ### 5.3 `0003_analytics_events.sql` (Phase 3)
 
 ```sql
@@ -461,6 +490,20 @@ the table is small, and these columns are read by occasional ad-hoc queries
 (`docs/sql/telemetry.sql`), not by request paths. `device_type` has no `CHECK`, because a new
 value from the user-agent parser must not make inserts fail.
 
+### 5.3c `0007_analytics_ip_address.sql` (Phase 6)
+
+The visitor's IP address, kept with each event at the owner's request (§12). Expand-only.
+
+```sql
+ALTER TABLE analytics_events ADD COLUMN ip_address INET;
+```
+
+`INET` holds IPv4 and IPv6 addresses and refuses anything else, so the API stores `NULL` for
+a `request.ip` that is not a valid address (`storableIp`): one bad value would otherwise fail
+the worker's whole batch insert. Events buffered before this release have no address and are
+stored with `NULL`. Behind Caddy the address is the visitor's only with `TRUST_PROXY=true`
+(§14.4); in local development every visit is `127.0.0.1` or `::1`.
+
 ### 5.4 `0005_contact_messages.sql` (Phase 4)
 
 ```sql
@@ -502,7 +545,7 @@ CREATE INDEX contact_messages_created_at_idx ON contact_messages (created_at DES
 | ------------------------------- | ------------------------ | ------------------------- | ----- | --------------------------------------------------------- |
 | `cache:v2:profile`              | STRING (JSON)            | `CACHE_TTL_SECONDS` ±10 % | 2     | Profile + experiences + education response                |
 | `cache:v1:projects`             | STRING (JSON)            | same                      | 2     | Project list response                                     |
-| `cache:v1:project:{slug}`       | STRING (JSON)            | same                      | 2     | Single project                                            |
+| `cache:v2:project:{slug}`       | STRING (JSON)            | same                      | 2     | Single project (v2: added `sections`)                     |
 | `telemetry:salt:{YYYY-MM-DD}`   | STRING (hex)             | 48 h                      | 3     | Daily visitor-hash salt (UTC date); created with `SET NX` |
 | `telemetry:events:buffer`       | LIST (JSON)              | none                      | 3     | Ingested events awaiting flush                            |
 | `telemetry:events:inflight`     | LIST (JSON)              | none                      | 3     | Batch claimed by the flusher, not yet committed           |
@@ -698,6 +741,9 @@ because tools consume it directly.
 
 **`GET /health/live` (Phase 6)**: liveness check for the load balancer. `200 {"status":"ok"}`
 whenever the process can answer; checks no dependencies, on purpose (§14.5 explains why).
+Both health routes log at `warn`: Caddy calls `/health/live` every 5 s and Docker calls
+`/health` every 30 s, per replica, and Fastify's two info-level request lines would otherwise
+fill the logs. A dependency failing its check is still logged (`warn`).
 
 `200 OK`
 
@@ -766,8 +812,10 @@ Failure reasons are **logged** (with `requestId`), never returned; they can cont
 `GET /api/v1/projects` → `200 { "data": [ProjectSummary] }`, ordered by featured, then `sort_order`.
 `ProjectSummary = { slug, title, summary, techStack[], repoUrl|null, liveUrl|null, featured }`
 
-`GET /api/v1/projects/:slug` → `200 { "data": Project }` (`ProjectSummary` + `description`), `404` if
-no such project, or `400 VALIDATION_ERROR` if the slug is malformed (`^[a-z0-9]+(-[a-z0-9]+)*$`, ≤ 100).
+`GET /api/v1/projects/:slug` → `200 { "data": Project }`, `404` if no such project, or
+`400 VALIDATION_ERROR` if the slug is malformed (`^[a-z0-9]+(-[a-z0-9]+)*$`, ≤ 100).
+`Project = ProjectSummary + { description, sections: [{ heading, body|null, points[] }] }`
+(`sections` since migration 0006; `[]` for a project without any).
 
 All three set `X-Cache: hit | miss`.
 
@@ -819,7 +867,8 @@ Limits: name 1–100, email valid ≤ 254, message 1–5000 chars (trimmed).
 `202 Accepted` → `{ "data": { "id": "uuid", "status": "PENDING" } }`
 
 Rate-limit headers on **every** response from this route once the limiter has run (all but a
-`503` caused by Redis being down): `X-RateLimit-Limit: 3`, `X-RateLimit-Remaining: 2`. On
+`503` caused by Redis being down): `X-RateLimit-Limit: 3`, `X-RateLimit-Remaining: 2`,
+`X-RateLimit-Window: 600` (seconds; so the form can say "3 messages every 10 minutes"). On
 `429`, additionally `Retry-After: <seconds, rounded up>`.
 
 | Status | When                                                                                   |
@@ -836,7 +885,8 @@ Rate-limit headers on **every** response from this route once the limiter has ru
 and `WWW-Authenticate: Bearer`. The token is compared in constant time (both sides hashed,
 then `timingSafeEqual`), so response timing reveals nothing about it.
 
-`GET /api/v1/system/status` → `200`, served from a 5 s in-process cache:
+`GET /api/v1/admin/system-status` → `200`, served from a 5 s in-process cache. Owner-only
+(§7.8): it needs the admin bearer token, like every `/api/v1/admin/*` route.
 
 ```json
 {
@@ -873,11 +923,44 @@ has a 2 s timeout. Concurrent requests during a refresh share it (single-flight)
 
 Rolling percentiles come from an in-process ring buffer (10 000 samples) of the last 5 minutes
 of request durations (Prometheus histograms are cumulative, not rolling). Requests to `/health`,
-`/metrics` and this endpoint are left out of it (Prometheus still counts them), or a dashboard
-polling every few seconds would mostly measure itself. `cache` counts content-cache lookups
+`/health/live` (the load balancer's check), `/metrics` and the owner endpoints are left out of it (Prometheus still counts them), or a
+dashboard polling every few seconds would mostly measure itself. `cache` counts content-cache lookups
 since the process started. Values are per API instance;
 `instance` (the container hostname) says which one answered, because with two replicas
 (§14.5) consecutive polls can reach different instances.
+
+### 7.8 Owner endpoints (Phase 6)
+
+Read by the web app's password-protected `/admin` page (§8.7), never by browsers directly.
+Every route under `/api/v1/admin/` needs `Authorization: Bearer <ADMIN_TOKEN>` (the same
+constant-time check as `/metrics`) and answers `Cache-Control: no-store`. Without
+`ADMIN_TOKEN` the routes are not registered at all (`404`). In production Caddy also refuses
+`/api/v1/admin/*` from the internet (§14.5): only the web server, inside the server, calls them.
+
+`GET /api/v1/admin/system-status`: the status report of §7.7.
+
+`GET /api/v1/admin/visitors?days=7` (`days` 1–365, default 7; today in UTC is the first day)
+→ `200 { "data": VisitorSummary }`:
+
+| Field                            | What                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------ |
+| `days`, `since`, `generatedAt`   | The period: `since` is UTC midnight of the first day                                 |
+| `totals`                         | `{ pageViews, visits, clicks }`                                                      |
+| `daily[]`                        | `{ day, pageViews, visitors }` for every UTC day, zeros included                     |
+| `referrers[]`                    | `{ referrer \| null, visits }`; `null` = direct or unknown                           |
+| `campaigns[]`                    | `{ ref, utmSource, utmMedium, utmCampaign, visits }` for tagged visits               |
+| `locations[]`, `organizations[]` | `{ countryCode, city, visits }`; `{ organization, countryCode, visits, lastSeenAt }` |
+| `pages[]`, `clicks[]`            | `{ path, views, visits }`; `{ name, clicks }`                                        |
+| `devices[]`, `browsers[]`        | `{ deviceType, visits }`; `{ browser, visits }`                                      |
+| `recentVisits[]`                 | the 50 newest visits, each with every field above and its `ipAddress`                |
+| `truncated`                      | `true` if the period had more than 20,000 visits (the newest are used)               |
+
+Ranked lists hold at most 10 entries. A **visit** is one browser tab's `session_id`: Postgres
+groups its events (`GROUP BY session_id`) and takes the first non-null referrer, tagged-link
+field, place, network and device in time order; the manager
+(`services/visitor-insights.manager.ts`) ranks the visits. Unique visitors are counted per UTC
+day only, because the visitor hash changes every day (§8.2). Crawlers (`device_type = 'bot'`)
+and `/admin` pages are never counted.
 
 ---
 
@@ -901,7 +984,7 @@ which key, schema and DAL query to use.
    written on error) and, in one transaction, upserts the profile, replaces all experiences
    and education entries (their ids change per seed), upserts projects by slug and deletes
    projects no longer in the file. It then deletes every content cache key (`SCAN` for
-   `cache:v1:project:*`) and warms
+   `cache:v2:project:*`) and warms
    the cache through the normal read path. If clearing the cache fails, the command exits `1`
    (Postgres is already updated; cached copies may be stale until their TTL). There is no admin
    HTTP endpoint.
@@ -925,11 +1008,13 @@ which key, schema and DAL query to use.
    unambiguous. It counts unique visitors per day; a new salt each day means the same person
    cannot be linked across days.
 6. Build the buffered event: `id` (a new UUID), `type`, `name`, `path`, `referrerHost`,
-   `sessionId`, `visitorHash`, `receivedAt`, plus the `campaign`, `device` and `network` groups.
+   `sessionId`, `visitorHash`, `receivedAt`, the `campaign`, `device` and `network` groups,
+   and `ipAddress` (since migration 0007).
 7. Bounded enqueue script → `202`, or `503` (+ `telemetry_events_rejected_total{reason}`).
 
-The raw IP and user agent are used in steps 2 and 5, then discarded: they reach neither Redis,
-nor Postgres, nor the logs.
+The raw user agent is used in steps 2 and 5, then discarded: it reaches neither Redis, nor
+Postgres, nor the logs. The IP address is also kept, in the event (`ipAddress`) and its row
+(`ip_address`), by the owner's choice (§12); it never appears in logs.
 
 #### Visitor details: what is (and is not) possible
 
@@ -949,8 +1034,8 @@ nor Postgres, nor the logs.
   Cost: ~140 MB of RAM per API process (the City file is 127 MB; a country-only file is a
   drop-in replacement if memory is tight). The organisation is a company's name for visitors on
   its own network, and an ISP for people at home or on mobile data; VPNs change both.
-- **Why look up at ingestion, not in the worker:** the raw IP never has to leave the API
-  process, and the lookup cannot fail because a server is down.
+- **Why look up at ingestion, not in the worker:** the GeoIP files are loaded in the API
+  already, and the lookup cannot fail because a server is down.
 - **Configuration**: a path that is unset turns that lookup off (a `warn` at startup, the
   columns stay `NULL`); a path that is set but unreadable stops the API from starting.
 - **Queued data outlives the code that wrote it.** Events buffered before migration 0004 have
@@ -1108,7 +1193,12 @@ save. Plain `node` (production) and every tool then import ordinary JavaScript.
 schemas, and never depend on the API during `next build`. The API's Redis cache keeps this
 cheap. React `cache()` dedupes `getProfile()` between `generateMetadata` and the page. A
 missing profile (not seeded) shows a hint; an unknown project is a 404; an unreachable API
-renders `error.tsx` with a retry button. `/privacy` has no data and is prerendered.
+renders `error.tsx` with a retry button. Projects live at `/<slug>` (`app/[slug]`): static
+routes such as `/admin` take precedence, the content file refuses slugs that would collide
+with them (`admin`, `projects`, `privacy`), a path that cannot be a slug is a 404 without
+asking the API, and `next.config.ts` redirects the old `/projects` and `/projects/<slug>`
+addresses permanently (and the removed `/privacy` to the home page). There is no separate
+projects list: the home page's Projects section is the list.
 
 **Page-view beacon** (`components/page-view-beacon.tsx`, logic in `lib/telemetry.ts`):
 
@@ -1128,34 +1218,131 @@ renders `error.tsx` with a retry button. `/privacy` has no data and is prerender
   ignored on purpose: analytics must never break the page.
 
 **Contact form** (`components/contact-form.tsx`, `lib/contact.ts`): validated in the browser
-with the API's schema, then sent. Every answer has a message: `202` (with the remaining count
-from `X-RateLimit-Remaining`), `400` (the API's field details under each field), `429` (the
-wait from `Retry-After`, rounded up), `503` and network failures.
+with the API's schema, then sent. Every answer has a message: `202` explains the spam limit
+from the `X-RateLimit-*` headers ("… the form accepts 3 messages per person every 10 minutes,
+so you can send 2 more in that time"), `400` puts the API's field details under each field,
+`429` gives the rule and the wait from `Retry-After` (rounded up), and `503` and network
+failures each have their own message. The wording lives in `lib/contact.ts`
+(`sentMessage`, `rateLimitedMessage`).
 
-**Effects.** Dark theme with monospace "terminal" details. Scroll-linked effects write one
-CSS variable (`--progress`, `components/use-scroll-progress.ts`) per animation frame instead
-of re-rendering React: the hero drifts and fades, the timeline line fills. Sections reveal
-once on entering the screen (IntersectionObserver), the header highlights the section being
-read, the hero glow follows a precise pointer, and the rate-limiter lab replays the API's
-sliding window (`lib/sliding-window.ts`) with sliders, a play button and tap-to-add requests.
-Content is in the server-rendered HTML first; effects only enhance it, so without JavaScript
-or with `prefers-reduced-motion: reduce` everything is visible and still.
+**Look.** Warm and personal rather than technical: a light "paper" background, white cards,
+warm grey text, and a terracotta accent taken from the photos, with a soft green for
+education. Headings use Fraunces, a soft serif (loaded by `next/font` at build time and served
+from the site itself), body text the system sans-serif. Colors are named theme tokens in
+`globals.css` (`canvas`, `surface`, `ink`, `body`, `muted`, `line`, `field`, `brand`, `moss`);
+components never use raw palette colors, so a theme change is one block of CSS. Lines that
+only separate areas (`line` 1.6:1, `line-strong` 2:1 on white) may be soft, but form inputs
+are outlined in `field` (3.3:1, WCAG 1.4.11): the outline shows where to type. A 1.3:1 line
+color vanished on some screens (Chrome on Windows draws thinner than Firefox). No terminal imitation
+(prompts, `./` prefixes, fake commands); monospace remains only for the owner dashboard's
+numbers. Status colors keep their meaning (green healthy, amber degraded, red down).
 
-**Live dashboard** (`/status`, `components/status-dashboard.tsx`, logic in `lib/status.ts`).
-A static page whose numbers the browser fetches from `GET /api/v1/system/status` every 5 s
-(the API's own cache period), validated with the shared schema. Polling pauses while the tab
-is hidden and resumes at once when it is shown. If the API stops answering, the last numbers
-stay on screen under a "lost contact" banner instead of disappearing. It shows a health banner
-(icon + words, never colour alone), stat tiles (uptime, requests, p50/p95, cache hit ratio,
-page views), two charts of the samples gathered since the page opened (p95 latency and
-request count: one measure per chart, 2 px line, crosshair and tooltip on hover or touch),
+**Photos and icons.** The hero shows a portrait beside the name, the header a round avatar,
+and the "Outside work" section a carousel (`components/photo-carousel.tsx`; photos listed in
+`content/photos.ts` with a screen-reader description, caption, optional sentence and focal
+point). The photos sit on a turning ring (`lib/carousel.ts`): the active one in front with
+its caption, its neighbours angled away on each side, the rest behind (hidden and inert).
+Arrow buttons, dots, a click on a side photo, ← → keys and a horizontal swipe all turn it,
+wrapping round at the ends; CSS animates each move, and a polite live region announces the
+new photo. No autoplay: the visitor decides. Photos are static imports, so `next/image` knows their size, serves resized WebP/AVIF copies and shows a blurred
+preview while loading; the committed files are resized and stripped of metadata (camera and
+GPS data would otherwise be published). Section titles carry an icon (lucide-react; the
+LinkedIn mark from Simple Icons). The browser tab shows `app/icon.svg` (a "YC" monogram);
+phones saving the site get `app/apple-icon.png`, the avatar.
+
+**Section links.** Next.js's `<Link>` does nothing when the address already ends in the
+clicked `#hash`, so a second click on "Projects" after scrolling up used to do nothing.
+`components/section-link.tsx` scrolls explicitly on every click (`lib/section-scroll.ts`;
+`behavior: 'auto'` under reduced motion) and keeps the `#hash` in the address. For the same
+reason the name in the header scrolls to the top itself when already on `/`
+(`scrollToPageTop`, which also drops the `#hash`). The header and a project page's contents
+list highlight the section being read with one scrollspy (`components/use-scroll-spy.ts`,
+`lib/scroll-spy.ts`): it tracks every section inside the band and highlights the first, or
+none, so nothing stays lit above the first section.
+
+**Effects.** Scroll-linked effects write one CSS variable (`--progress`,
+`components/use-scroll-progress.ts`) per animation frame instead of re-rendering React: the
+hero stays fully visible until 60 % of it has scrolled off the top, then fades as the rest
+leaves (and drifts up 2 rem), and the timeline line fills. Sections reveal once on entering the screen
+(IntersectionObserver), and the header highlights the section being read. Content is in the
+server-rendered HTML first; effects only enhance
+it, so without JavaScript or with `prefers-reduced-motion: reduce` everything is visible and
+still.
+
+**Projects.** Each card is one large link: the title link's `::after` covers the card, so the
+whole box opens the project while screen readers hear only the title. Hovering lifts the card
+and moves its "Read more →" arrow; keyboard focus outlines it (`has-[a:focus-visible]`). A
+technology filter narrows the grid. A project page shows the overview (`description`), then
+each section (heading, paragraphs, points) with an "On this page" list on wide screens that
+highlights the section being read (`components/project-contents.tsx`; ids from
+`lib/project-page.ts`). A "Back to projects" button (at least 44 px tall) sits at the top and
+bottom, beside a link to the next project. Source and live links appear on the project page
+only, never inside a card (a link inside a link is invalid HTML).
+
+**Live system dashboard** (on `/admin`, §8.7; `components/status-dashboard.tsx`, logic in
+`lib/status.ts`). The browser polls `/admin/system-status` every 5 s (the API's own cache
+period), a web-server route that asks the API with the admin token; the result is validated
+with the shared schema. Polling pauses while the tab is hidden and resumes at once when it is
+shown. If the API stops answering, the last numbers stay on screen under a "lost contact"
+banner instead of disappearing. It shows a health banner (icon + words, never colour alone),
+stat tiles (uptime, requests, p50/p95, cache hit ratio, page views), two charts and
 dependencies and queue lengths (a non-empty dead-letter queue is flagged "needs attention").
-Counts and timings only. The header links to it with a pulsing "status" dot, and a pill in
-the hero shows the current health and p95 (refreshed every 30 s).
+The charts (p95 latency and request count, one measure each) cover the last 30 minutes the
+page was open, placed by time: a labelled tick every 5 minutes on the viewer's clock, a 2 px
+line that breaks where polling paused (a hidden tab), crosshair and tooltip on hover or touch.
+Nothing on the public site links to it.
+
+### 8.7 The owner area (`/admin`, Phase 6)
+
+One private page for the site's owner: who visited and how they found the site (§7.8), then
+the live system dashboard (§8.6). The system's health, dependencies and queues are nobody
+else's business, so nothing about them is public any more.
+
+**Login: HTTP Basic.** `proxy.ts` (Next.js 16's name for middleware, run before every
+`/admin` request) checks `Authorization: Basic …`: the password must be `ADMIN_TOKEN` (the
+username is ignored; constant-time comparison of SHA-256 digests, `lib/admin-auth.ts`). Without
+it the answer is `401` with `WWW-Authenticate: Basic realm="Owner"`, so the browser shows its
+own login box and then resends the credentials with every `/admin` request, including the
+dashboard's polling. Without `ADMIN_TOKEN` configured, `/admin` is a `404`. The page and its
+route check again themselves (Next.js advises against relying on the proxy alone), and every
+response carries `Cache-Control: no-store` and `X-Robots-Tag: noindex`. Basic rather than a
+login form: one owner, read-only pages, HTTPS everywhere, and no session or CSRF code to get
+wrong. Brute force is hopeless against a 32-character random token.
+
+**Data path.** The page is a Server Component: it reads `/api/v1/admin/visitors` with the
+token as a bearer token (`lib/admin-api.ts`), so the token stays on the web server.
+`?days=` picks the period (Today, 7, 30 or 90 days, as links so a period can be bookmarked).
+
+**Layout.** Totals (visits, page views, link clicks); a column chart of unique visitors per
+UTC day (tooltip with page views, a screen-reader table with the same numbers); ranked lists
+(one hue, label and count, a thin bar scaled to the largest) for referring sites, tagged
+links, organisations (with when each was last seen), places, devices, browsers, pages and link
+clicks; a table of the 50 newest visits (when, came from, where and which network, device,
+pages in order); then the system dashboard.
+
+**Every number says what it means.** The page is read rarely, so its terms must not need
+remembering. Each total and status tile has a one-line plain-English description; each ranked
+list says what it measures, and section notes say the lists count visits. A closed
+`<details>` ("How visits, page views and clicks are counted", `components/admin/explainer.tsx`)
+holds the fine print: a visit is a tab's session id, reloads are page views but section jumps
+are not, only links leaving the site are clicks, unique visitors are per UTC day (why there is
+no period total), and what is never counted. Under the status tiles, a "content cache" card
+explains hit and miss (§8.1) and why a low ratio is normal at low traffic, and the queue card
+names each queue in plain words with its Redis key, what it holds, that 0 is normal, and the
+`dlq:replay` command for the two dead-letter lists. The queue texts are a `Record` over the
+contract's queue fields (`components/admin/queue-card.tsx`), so a queue added to §7.7 without
+an explanation fails the typecheck. Texts quote the default settings (cache copies kept about
+5 minutes).
+
+**The owner is not a visitor.** The page-view beacon never sends `/admin` pages, and opening
+`/admin` marks the browser as the owner's (`localStorage`, with a checkbox to undo it): the
+beacon then sends nothing from that browser (`lib/telemetry.ts` `shouldRecord`). The API also
+leaves `/admin` paths out of every summary.
 
 **Devices.** Mobile-first Tailwind: one column on phones, the header's links collapse into a
 menu below `md`, project cards go 1 → 2 → 3 columns (`sm`, `lg`), the timeline puts dates
-beside entries from `md`, and the lab's sliders stack. Tap targets are at least 24 px.
+beside entries from `md`, and a project page's contents list appears from `lg`. Tap targets
+are at least 24 px; the main buttons are 44 px tall.
 
 ---
 
@@ -1267,7 +1454,7 @@ compose, run serially):
   inserted) → no duplicate rows; poison events → DLQ (invalid JSON, CHECK violation `23514`);
   Postgres down → batch stays in flight; buffer cap → 503; IP lookup on MaxMind's test
   databases; `dlq:replay` CLI; **real worker process**: `SIGTERM` drains the buffer, exit `0`.
-- (P5) `/api/v1/system/status` with live datastores (traffic excluding monitors, page views,
+- (P5) the system status endpoint (`/api/v1/admin/system-status` since P6) with live datastores (traffic excluding monitors, page views,
   queues, 5 s cache) and with Redis down; `/metrics` (route templates, `unmatched`, queue
   gauges, histogram buckets); bearer token 401/200; Helmet headers; CORS preflight (not
   rate-limited), exposed rate-limit headers, other origins refused.
@@ -1291,31 +1478,44 @@ See [docs/CI.md](docs/CI.md).
 **What the analytics keep (decided in Phase 3).** The goal is to learn who visits, so every
 event stores what the visitor's link, browser and IP address reveal (§8.2): campaign parameters
 (`ref`, `utm_*`), browser, OS, device type, language, time zone, and the country, city and
-organisation of the IP address. Raw IP addresses and full user-agent strings are still neither
-stored nor logged, only what is derived from them, plus a daily-salted visitor hash (unlinkable
-across days) for counting unique visitors. Referrers keep their host, which is nearly all
+organisation of the IP address. Full user-agent strings are neither stored nor logged, only
+what is derived from them, plus a daily-salted visitor hash (unlinkable across days) for
+counting unique visitors. **IP addresses are stored since Phase 6** (`ip_address`, §5.3c): the
+owner chose to see them on `/admin`, reversing the Phase 3 choice not to. They are personal
+data under the GDPR. **Retention: kept indefinitely, with no notice to visitors** (the owner's
+decision, 2026-11-19; nothing deletes them). They are never written to logs, and they are in
+the database backups. Referrers keep their host, which is nearly all
 browsers send (§8.2). Contact-form emails are not linked to browsing sessions (on hold).
 
 Consequences:
 
 - Derived details such as organisation and city still count as personal data under the GDPR
-  (for EU/UK visitors) and similar laws. The site's privacy notice (`/privacy`, P5) says what is
-  collected and why, plus the DB-IP attribution wherever the data is shown publicly.
-- Visitor details are for the site owner, who reads them with SQL (`docs/sql/telemetry.sql`).
-  They never appear on the public status dashboard, which shows counts only (§7.7).
+  (for EU/UK visitors) and similar laws. A privacy notice (`/privacy`) existed from P5 until
+  the owner removed it in P6; GDPR expects visitors to be told what is collected, so bring one
+  back before targeting EU/UK audiences. The DB-IP attribution (CC BY 4.0) is shown wherever
+  the data is displayed: on `/admin` only, since nothing about visitors is public.
+- Visitor details are for the site owner only: on the password-protected `/admin` page (§8.7)
+  or with SQL (`docs/sql/telemetry.sql`). Nothing about visitors, and since Phase 6 nothing
+  about the system's health or queues, is shown publicly.
 
 Other measures:
 
 - Abuse controls (P4) use a keyed HMAC of the IP, never the IP itself.
+- (P6) The owner area: `ADMIN_TOKEN` (≥ 32 characters) is the `/admin` password and the bearer
+  token for `/api/v1/admin/*`; both compare in constant time, and Caddy refuses the API's owner
+  routes from outside the server (§7.8, §8.7, §14.5).
 - Docker ports bind to `127.0.0.1` only (Redis has no password in local dev).
 - Logs redact `authorization` and `cookie` headers.
 - Error responses never leak internal messages or stack traces.
 - (P5) `@fastify/helmet` security headers on every response, and an explicit CORS allow-list
   (`CORS_ORIGINS`) for the web app: methods `GET`/`POST`, request headers `content-type` and
-  `x-request-id`, and the web app may read `x-request-id`, `x-ratelimit-*`, `retry-after` and
+  `x-request-id`, and the web app may read `x-request-id`, `x-ratelimit-*` (limit, remaining,
+  window), `retry-after` and
   `x-cache` (browsers hide other response headers from scripts). Preflights are cached for
   10 minutes and never reach the rate limiter. CORS only governs what browsers let scripts
-  read; it is not access control (curl ignores it).
+  read; it is not access control (curl ignores it). In production the site and the API share
+  one origin (§14.5), so browsers make no cross-origin calls there; the allow-list matters in
+  local development, where the site (`:3000`) and the API (`:4000`) are different origins.
 
 ---
 
@@ -1353,42 +1553,92 @@ gate once releases are routine.
 | Graceful shutdown with a deadline                | Stopping the old version lets in-flight requests finish         |
 | Worker is a separate process                     | Restarted independently of the API                              |
 | CI on every PR and on `main`                     | Only tested commits become releases                             |
-| `/metrics` and `/api/v1/system/status` (P5)      | Monitoring and the public dashboard work from day one           |
+| `/metrics` and the system status (P5)            | Monitoring and the owner's dashboard work from day one          |
 | Web pages render per request, not at build (P5)  | `next build` never needs the API, so the web image builds in CI |
 
 ### 14.2 Artifacts
 
-- `apps/api/Dockerfile`, multi-stage: install (`npm ci` for the workspaces, which also builds
-  `packages/shared` through `postinstall`) → `tsc` build → small runtime image with production
+- `apps/api/Dockerfile`, multi-stage: install (`npm ci` for the API and shared workspaces) →
+  `tsc` build of `packages/shared` and the API → small runtime image with production
   dependencies and `packages/shared/dist` only, running as the non-root `node` user. One image, several
   commands: `node dist/main.js` (API), `node dist/worker.js`, `node dist/cli/migrate.js`,
   `node dist/cli/seed-content.js`, `node dist/cli/replay-dlq.js`. It contains `migrations/` and
-  `content/`. The GeoIP files (§8.2) are not in Git: the image build runs
-  `node dist/cli/download-geoip.js`, so each image carries that month's files (an image older
-  than a month should be rebuilt to refresh them).
-- `apps/web/Dockerfile`: Next.js `output: 'standalone'` server (to add to `next.config.ts`,
+  `content/`. The GeoIP files (§8.2) are not in Git: a `geoip` build stage runs the downloader
+  (with `tsx`, from only its own source files, so a code change elsewhere reuses the cached
+  ~140 MB download), and each image carries that month's files. The build argument
+  `GEOIP_MONTH` (CI passes the current `YYYY-MM`) is part of the cache key, so a month's first
+  build fetches fresh files; an image older than a month should be rebuilt to refresh them.
+  `GEOIP_*_DB_PATH` default to those files in the image, and `NODE_OPTIONS=--enable-source-maps`
+  maps stack traces to the TypeScript lines.
+- Both images: `node:24-trixie-slim` (Debian, glibc, which the lockfile's prebuilt native
+  packages target; Alpine's musl is avoided). Package files are copied and installed before
+  the source, so a code change reuses the installed packages; `npm ci --ignore-scripts`, then
+  `packages/shared` is built explicitly (the root `postinstall` would run before its source is
+  copied). Files belong to `root` and the process runs as `node`. No `HEALTHCHECK` in the API
+  image, because the worker and CLIs use it too: compose checks the API service. Node runs as
+  PID 1 and handles `SIGTERM` itself (§10).
+- `apps/web/Dockerfile`: Next.js `output: 'standalone'` server (set in `next.config.ts`,
   with `outputFileTracingRoot` at the repo root so the workspace packages are traced).
-  `NEXT_PUBLIC_API_BASE_URL` is copied into the browser bundle **at build time** (§4), so it is
-  a build argument set to the production API URL (`https://api.<domain>`); `API_BASE_URL` stays
-  a runtime variable.
+  `NEXT_PUBLIC_API_BASE_URL` is copied into the browser bundle **at build time** (§4); the image
+  is built with it empty, so browsers call `/api/v1/...` on the page's own origin (§14.5). The
+  image therefore contains no hostname and runs unchanged under any hostname. `API_BASE_URL`
+  stays a runtime variable. `@portfolio/shared` is bundled into the server code, so the
+  standalone folder needs no copy of it; only `.next/cache` (resized images) is writable.
+- **CPU architecture**: the production server is an Arm machine (§14.5), so CI builds the
+  images for `linux/arm64` on GitHub's Arm runners (free for public repositories), natively
+  rather than under emulation. Local builds use the laptop's own architecture.
 - Images go to GitHub Container Registry, tagged with the **git commit SHA**
   (`ghcr.io/<owner>/portfolio-api:<sha>`). Every release is traceable to a commit, and a
   rollback is "deploy the previous SHA".
-- CI builds both images on every PR, so a broken Dockerfile fails before merge.
+- CI builds both images on every PR, so a broken Dockerfile fails before merge (job `images`,
+  on `ubuntu-24.04-arm`, layers cached in the GitHub Actions cache with one scope per image).
+  Guide: [docs/DOCKER.md](docs/DOCKER.md).
 
-### 14.3 Pipeline (`.github/workflows/deploy.yml`)
+### 14.3 Pipeline (`.github/workflows/deploy.yml`, `deploy/deploy.sh`)
 
 ```
-merge to main ─► CI green ─► build + push images (tag = SHA)
-                              │
-                              ▼
-               deploy job  [environment: production → waits for your approval]
-                 1. migrate          node dist/cli/migrate.js   (backward compatible, §14.4)
-                 2. seed content     node dist/cli/seed-content.js (idempotent)
-                 3. roll out         worker → api-1 → api-2 → web, one at a time (§14.5)
-                 4. smoke test       GET /health = 200, GET /api/v1/projects = 200
-                 5. on failure       redeploy the previous SHA, mark the job failed
+merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
+                                  │
+                                  ▼
+   deploy job  [environment: production → waits for your approval]
+     copy deploy/ to ~/portfolio/deploy (rsync; deploy/.env excluded), then over SSH
+     deploy/deploy.sh <sha>:
+       0. pull + check    pull the images (the job's own token, not stored); `compose config`
+                          (a missing .env value) and `caddy validate`: nothing has changed yet
+       1. migrate         node dist/cli/migrate.js   (backward compatible, §14.4)
+       2. seed content    node dist/cli/seed-content.js (idempotent)
+       3. roll out        worker → api-1 → api-2 → web, one at a time (§14.5)
+       4. smoke test      GET /health = 200 on each replica, the worker running without
+                          restarts, GET /api/v1/projects and / through Caddy on the host
+       5. on failure      (3 or 4) roll out the previous release the same way, seed its
+                          content again, smoke test, fail the job
+     then from GitHub's machine: GET https://<host>/api/v1/projects and / (DNS, firewalls)
 ```
+
+- **CI runs once per commit on `main`**: `deploy.yml` calls `ci.yml` (`workflow_call`), and
+  only a passing commit is published. `publish` rebuilds from CI's cached layers and labels the
+  image with its source repository and commit.
+- **The server records the current release** in `deploy/.env` (`API_IMAGE`, `WEB_IMAGE`), so
+  `backup.sh`, `restore.sh` and `compose up` run the same images. "Previous release" is what
+  the file said before the deploy. Only the current and previous images stay on the server
+  (not "the newest N": a cached rebuild can carry an older creation time).
+- **Our own wait loop**, not `compose up --wait`: Compose v5.0 reports success when its timeout
+  passes while a container is still `starting`, which let a dead replica through in the
+  rollback test. `deploy.sh` polls Docker until `healthy` (the worker: 5 s without a restart);
+  `unhealthy`, `exited`, `restarting` or a new restart fail at once.
+- **A rollback restores** images and content, not the schema (migrations only go forward; the
+  old migrator even refuses: "applied but its file is missing") and not the deploy files.
+  Going fully back = running the workflow by hand with the older SHA (`workflow_dispatch`:
+  that commit's `deploy/`, no CI or publish, still approved).
+- **One deploy at a time**: job-level concurrency group `production` (a running deploy is never
+  cancelled; a newer waiting one replaces an older waiting one) and `flock` on the server. The
+  deploy job needs a successful `publish` (or a manual start): a commit whose CI failed or was
+  cancelled has no images.
+- **GitHub holds** (environment `production`: approved jobs from `main` only) the secret
+  `SSH_PRIVATE_KEY` and the variables `SSH_HOST`, `SSH_KNOWN_HOSTS` (pins the server's host key)
+  and `SITE_HOST`; no application secrets (§14.4). The deploy key is root-equivalent (the
+  `docker` group); its `authorized_keys` line starts with `restrict`. Guide:
+  [docs/CD.md](docs/CD.md).
 
 ### 14.4 Rules this imposes on every phase
 
@@ -1397,62 +1647,152 @@ merge to main ─► CI green ─► build + push images (tag = SHA)
   must not drop or rename anything the running version reads. A rename becomes: add the new
   column → backfill → release code using it → drop the old column in a later release.
 - **No secrets in images or Git.** Production values (`IP_HASH_SECRET`, `METRICS_TOKEN`,
-  `DISCORD_WEBHOOK_URL`, database passwords) live in GitHub Environment secrets and an env
-  file on the host.
+  `ADMIN_TOKEN`, `DISCORD_WEBHOOK_URL`, database passwords) live only in an env file on the
+  host (`deploy/.env`, owner-only), with a copy of that file in a password manager. GitHub
+  holds just what the deploy job needs to reach the server (§14.3), so a leaked workflow log
+  or a compromised action cannot reveal them. The hostname is not in Git either (§14.5).
 - **One worker at a time** (§8.4): the rollout stops the old worker before starting the new one.
 - **Redis is a datastore, not only a cache**: production Redis must keep AOF persistence and
   the `volatile-lru` policy. This rules out hosted plans that disable persistence or force
   `allkeys-lru` (which would evict queued events).
 - Production settings: `NODE_ENV=production`, `TRUST_PROXY=true` (without it every visitor
-  would have Caddy's IP, and the IP lookup would find nothing), `CORS_ORIGINS=https://<domain>`,
+  would have Caddy's IP, and the IP lookup would find nothing), `CORS_ORIGINS=https://<host>`,
   `METRICS_TOKEN` set, `GEOIP_ASN_DB_PATH` / `GEOIP_LOCATION_DB_PATH` pointing into the image,
-  `NOTIFIER_DRIVER=discord` with `DISCORD_WEBHOOK_URL`, and for the web container
-  `API_BASE_URL` (the API through Caddy) plus the `NEXT_PUBLIC_API_BASE_URL` build argument.
-- **Memory**: each API replica holds ~140 MB of GeoIP data (§8.2); size the VPS for two
-  replicas, or switch to the country-only file.
+  `NOTIFIER_DRIVER=discord` with `DISCORD_WEBHOOK_URL`, `ADMIN_TOKEN` (the same value in the
+  API and web containers, §8.7), and for the web container
+  `API_BASE_URL=http://caddy:8080` (Caddy's internal listener, §14.5), built with an empty
+  `NEXT_PUBLIC_API_BASE_URL` (§14.2).
+- **Memory**: each API replica holds ~140 MB of GeoIP data (§8.2); the VM is sized for two
+  replicas (§14.5), or the country-only file would halve that.
 
-### 14.5 Hosting (decided at the start of Phase 6)
+### 14.5 Hosting: Oracle Cloud free tier, one hostname
 
-**Default: one small Linux VPS** running `deploy/compose.prod.yml` (Postgres, Redis, **two API
-replicas**, worker, web, and Caddy for automatic HTTPS and load balancing). It mirrors local
-development, keeps Redis configuration under our control, and costs a few dollars a month. The
-deploy job connects over SSH (key stored as an Environment secret), pulls the new tag and runs
-the rolling update below.
+**Server: one Oracle Cloud Always Free Arm VM** (`VM.Standard.A1.Flex`, Ubuntu 24.04 LTS, in the
+account's home region) running `deploy/compose.prod.yml`: Postgres, Redis, **two API
+replicas**, worker, web, and Caddy for automatic HTTPS and load balancing. It is an ordinary
+Linux server, so it mirrors local development, keeps Redis configuration under our control (§14.4),
+and costs nothing. The deploy job connects over SSH (key stored as an Environment secret),
+copies `deploy/` and runs `deploy/deploy.sh`, which pulls the new tag and does the rolling
+update below (§14.3). Setup steps: [docs/HOSTING.md](docs/HOSTING.md).
 
-Alternative: a container platform plus managed Postgres/Redis. Less server upkeep, higher cost,
-and the Redis constraints in §14.4 must be checked. The images and pipeline are the same either
-way; only step 3 changes.
+What the free tier implies:
+
+- **Arm CPU**: the images are built for `linux/arm64` (§14.2).
+- **Size**: 1 OCPU and 6 GB (the free allowance is 2 OCPUs and 12 GB). Raising it to 2 OCPUs
+  failed with "out of host capacity" (2026-11-20), and one core is enough: images are built by
+  GitHub, not on the server, and a quiet portfolio needs little CPU. The stack needs roughly
+  2 GB (estimate, to be measured with `docker stats`).
+- **Idle reclamation**: Oracle may reclaim an Always Free VM whose CPU (95th percentile),
+  network and memory use all stay below 20 % for 7 days. A quiet portfolio has low CPU and
+  network use, so the VM is sized to what the stack uses rather than taking the full 12 GB.
+- **The VM is replaceable.** Images live in GHCR, configuration in Git, secrets in a password
+  manager (the deploy key in GitHub), and Caddy re-issues certificates by itself; the database
+  is the only data that exists solely on the VM, and it is backed up off the host weekly
+  (§14.6). Losing the VM costs a rebuild from docs/HOSTING.md plus pointing the hostname at the
+  new IP.
+
+**Hostname: one free hostname, no purchased domain.** `<name>.duckdns.org` (DuckDNS, ready in
+minutes) serves the first releases. `<name>.is-a.dev` replaces it once the site is live,
+because is-a.dev only approves finished sites; its terms also forbid AI-written requests, so
+the owner writes that pull request. Both are plain A records pointing at the VM's public IP,
+so Caddy gets Let's Encrypt certificates the usual way (HTTP-01 challenge on port 80). The
+hostname is not in Git: it is `SITE_HOST` in the host's env file and a GitHub Environment
+variable, so switching hostnames is a configuration change, not a rebuild.
+
+**One origin, split by path.** The site and the API share the hostname, and Caddy routes by path:
+
+```
+https://<host>/api/*   →  api-1 / api-2   (round robin)
+https://<host>/*       →  web
+```
+
+- Browser calls are same-origin: no CORS preflight before each `POST`, and the web image
+  needs no hostname (§14.2).
+- Only `/api/*` reaches the API from outside. `/health`, `/health/live` and `/metrics` are not
+  routed publicly: Caddy calls `/health/live` on each replica directly, the deploy job checks
+  `/health` from the host, and Prometheus scrapes each replica directly.
+- One certificate and one DNS record to manage.
 
 #### Load balancing: two API replicas behind Caddy
 
 ```
-                 browser / web server
-                         │ HTTPS
-                         ▼
-                 ┌───────────────┐
-                 │     Caddy     │  TLS, round robin, health checks (GET /health/live every 5 s)
-                 └───┬───────┬───┘
-                     ▼       ▼
-                  api-1     api-2      same image, same env, separate containers
+         browser (HTTPS :443)        web server (HTTP :8080, internal only)
+                         │              │
+                         ▼              ▼
+                 ┌──────────────────────────┐
+                 │          Caddy           │  TLS, path routing, round robin,
+                 └───┬──────────────┬───────┘  health checks (GET /health/live every 5 s)
+           /api/*    ▼       ▼      │ everything else
+                  api-1     api-2   └──────► web
                      │       │
                      └───┬───┘
                 Postgres + Redis       all shared state lives here
 ```
 
 ```
-# deploy/Caddyfile (API part)
-api.<domain> {
+# deploy/caddy/Caddyfile (comments shortened)
+(api_replicas) {
 	reverse_proxy api-1:4000 api-2:4000 {
 		lb_policy       round_robin
-		lb_try_duration 5s           # a replica refuses the connection → retry on the other
+		lb_try_duration 5s           # a request that cannot connect → retry on the other
 		health_uri      /health/live
 		health_interval 5s
+		health_timeout  2s
+		transport http {
+			dial_timeout 1s          # connecting, name lookup included, gives up after 1 s
+		}
 	}
+}
+
+{$SITE_HOST} {
+	# The owner's API routes are for the web server only, which uses :8080 below.
+	handle /api/v1/admin/* {
+		respond 404
+	}
+	handle /api/* {
+		import api_replicas
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}
+
+# Not published on the host: the web server's own API calls, balanced the same way.
+:8080 {
+	import api_replicas
 }
 ```
 
-`API_BASE_URL` (the web server's calls) also points at Caddy, so those calls are balanced too.
-The worker and web stay single instances.
+`API_BASE_URL` (the web server's calls) is `http://caddy:8080`, so those calls are balanced too
+without leaving the server or paying for TLS. The worker and web stay single instances.
+
+Two settings come from the failover test (`deploy/failover-test.sh`, which fails if a single
+request fails while one replica is stopped and while both are replaced in turn):
+
+- **`dial_timeout 1s`**: a replaced container is gone before Caddy's next check notices, and
+  a lookup of a name Docker no longer knows is passed to the host's DNS, where it can hang for
+  seconds (6 s measured): longer than the 5 s of retries. Failing the connection after 1 s
+  leaves time to retry on the other replica; that request takes ~1.3 s instead of failing.
+- **No passive health checks** (`fail_duration`): they kept a recovered replica excluded for
+  their whole duration after Caddy's active check had passed again, so during a rolling update
+  both replicas could be excluded at once (`503`). Retries already cover requests that reach a
+  dead replica before the next active check.
+
+Caddy's config is mounted as the folder `deploy/caddy/`, not as a single file: a bind-mounted
+file keeps the version from when the container started (editors and `git pull` replace files),
+so `caddy reload` would silently reload old rules. With the folder, a change is applied with
+`caddy reload`, without a restart.
+
+**The compose file** (`deploy/compose.prod.yml`, project `portfolio-prod`): only Caddy publishes
+ports (80, 443, 443/udp); Postgres and Redis are reachable only on the Compose network.
+Variables come from `deploy/.env` on the host (gitignored, template `deploy/.env.example`) and
+are passed per container (least privilege: the web server gets `API_BASE_URL` and
+`ADMIN_TOKEN` only); a missing required one stops Compose with its name (`${VAR:?…}`). The
+replicas' Docker health check is `GET /health` (readiness), so `up --wait` means "ready to
+serve"; the web's is a static file. `migrate`, `seed` and `replay-dlq` are services in the
+`tools` profile (`docker compose run --rm migrate`), so `up` never starts them. Every
+long-running service restarts `unless-stopped` and keeps at most 3 × 10 MB of logs;
+`stop_grace_period: 15s` exceeds the API's 10 s shutdown deadline.
 
 **Why replicas need no code changes.** A replica keeps nothing important in its own memory:
 
@@ -1466,7 +1806,7 @@ The worker and web stay single instances.
 | Metrics, rolling percentiles, status (P5) | Per process                  | Each replica reports its own numbers (see below)                  |
 
 Per-process numbers: Prometheus scrapes each replica directly (`api-1:4000`, `api-2:4000`),
-never through Caddy, which would hand it a random replica each time. `GET /api/v1/system/status`
+never through Caddy, which would hand it a random replica each time. The system status
 includes `instance` (§7.7), so the dashboard shows which replica answered.
 
 **The load balancer must not use `/health`.** `/health` returns `503` when Redis is down, on
@@ -1485,14 +1825,65 @@ one at a time:
 1. stop old worker → start new worker                     (one worker at a time, §8.4)
 2. replace api-1    SIGTERM → graceful shutdown finishes in-flight requests;
                     Caddy sends new requests to api-2 meanwhile
-3. wait until the new api-1 answers GET /health = 200     (directly, not through Caddy)
+3. wait until Docker calls the new api-1 healthy (GET /health = 200; deploy.sh polls,
+   §14.3), then 6 s more: Caddy re-admits a replica only at its next 5 s check
 4. replace api-2, wait the same way
-5. replace web                                            (a few seconds of downtime for pages)
+5. replace web                                            (under a second of 502s for pages)
 ```
 
-Between steps 2 and 4, old and new code serve requests side by side. That is exactly why cache
-keys carry a shape version (§6.2) and migrations are expand → contract (§14.4). If a wait in
-step 3 or 4 times out, the job redeploys the previous SHA the same way and fails.
+Without the extra 6 s, step 4 can take api-2 down while Caddy still treats the new api-1 as
+down, leaving it no replica (measured: an occasional `503`). Between steps 2 and 4, old and
+new code serve requests side by side. That is exactly why cache keys carry a shape version
+(§6.2) and migrations are expand → contract (§14.4). If a wait fails (unhealthy, crashed, or
+not healthy within 120 s), the job rolls back to the previous release the same way and fails.
+Measured on the laptop stack (6c): a request every 50 ms saw 0 failed API requests during a
+deploy (503 of 503) and during a rollback from a release whose API never answered (1,302 of
+1,302), and 5 failed page requests (`502`) while `web` was replaced.
 
-Operations included in Phase 6: nightly `pg_dump` backups copied off the host, with a restore
-that has actually been tested.
+Operations included in Phase 6: weekly `pg_dump` backups copied off the host, with a restore
+that has actually been tested (§14.6).
+
+### 14.6 Backups: weekly, copied to the owner's desktop
+
+Postgres is the only data that exists nowhere else (§14.5). Redis holds seconds of in-flight
+work and is not backed up; certificates, images and configuration are recreated. Guide:
+[docs/BACKUPS.md](docs/BACKUPS.md).
+
+**Weekly** (the owner's choice; a week of visits is the most that can be lost). Size measured
+in 6d: ~20 KB plus ~44 bytes per page view (compressed test data), so a year at 100 page views
+a day makes a 2–4 MB backup.
+
+**On the server**, `deploy/backup.sh` from the `ubuntu` user's crontab, Sundays 18:00 UTC
+(the deploy files live in `~/portfolio/deploy`, set up by 6c):
+
+1. `pg_dump --format=custom` (compressed) through `docker compose exec`, written to
+   `~/backups/portfolio/.<name>.partial` and renamed only when complete and verified;
+2. **restore test** every time: `pg_restore --exit-on-error` into a scratch database
+   (`portfolio_restore_check`), row counts read, scratch database dropped;
+3. a `.sha256` checksum next to it; files `umask 077` (personal data);
+4. the newest 4 kept (`KEEP`), older ones deleted;
+5. Discord message on success (with the counts) and on failure (which step), using the
+   API's webhook from `deploy/.env`. The weekly success message doubles as a heartbeat: its
+   absence means the job did not run.
+
+**On the owner's desktop** (Windows + WSL), `deploy/pull-backups.sh` from Task Scheduler,
+Mondays 12:00 with `-StartWhenAvailable` (catches up after the computer was off):
+`rsync --ignore-existing` (never overwrites, never deletes; the desktop keeps every copy),
+then every checksum is verified, and it fails (exit 3) if the newest copy is older than 8 days.
+Output goes to `pull.log` in the backups folder, kept in a Windows folder through a symlink.
+
+**Pull, with a read-only key.** The desktop pulls; the server holds no credential for the
+desktop, so a compromised server cannot reach or delete the copies. The desktop's key has no
+passphrase (it runs unattended) and the server's `authorized_keys` limits it with
+`command="rrsync -ro /home/ubuntu/backups/portfolio",restrict`: it can read that folder and
+nothing else (no shell, no writes, no forwarding; tested on Ubuntu 24.04).
+
+**Restore** (`deploy/restore.sh <file>`): checksum check → `pg_restore` into a new database
+`portfolio_restoring` while the site runs → stop api-1, api-2, worker → in **one transaction**
+terminate leftover connections and rename `portfolio` → `portfolio_before_restore_<time>` and
+`portfolio_restoring` → `portfolio` → `migrate` (an older backup has an older schema) →
+delete `cache:*` keys → start the services (`up --wait`). Nothing is deleted: the replaced
+database is the way back. It asks for the word `restore` unless given `--yes`. A damaged file,
+a refused confirmation or a failed load change nothing; a failure after the services stopped
+starts them again. Both scripts give `docker compose exec` an empty input except for
+`pg_restore` (exec otherwise consumes the script's input, e.g. the confirmation).

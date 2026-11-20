@@ -1,163 +1,86 @@
 # Continuous Integration (GitHub Actions)
 
-CI was added at the start of Phase 2. This guide explains what it does and how to use it.
+On every pull request, GitHub starts a fresh Linux machine and runs what `npm run check` runs
+locally, plus the website's production build and both Docker images. Red ❌ means fix before
+merging; green ✅ means safe to merge. Minutes are free because the repository is public.
 
 ---
 
-## 1. What CI is, in one paragraph
+## 1. What runs
 
-Every time you push a commit or open a pull request, GitHub starts a fresh Linux machine,
-checks out your code, installs dependencies, starts Postgres and Redis, and runs exactly what
-`npm run check` runs locally: format check, lint, typecheck, unit tests and integration
-tests, then (since Phase 5) a production build of the website. If any step fails, the commit/PR gets a red ❌; if all pass, a green ✅. This catches
-"works on my machine" problems and stops broken code from reaching `main`.
+The workflow is [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
-Because the repository is public, GitHub Actions minutes are free.
+| Job           | Runs on                         | Does                                                                         |
+| ------------- | ------------------------------- | ---------------------------------------------------------------------------- |
+| `check`       | `ubuntu-latest`                 | `npm ci`, format check, lint, typecheck, all tests, `next build` of the site |
+| `image (api)` | `ubuntu-24.04-arm` (GitHub Arm) | builds the API image for the server's Arm CPU (pushes nothing)               |
+| `image (web)` | `ubuntu-24.04-arm`              | builds the web image                                                         |
 
----
+| Locally            | In CI                                                               |
+| ------------------ | ------------------------------------------------------------------- |
+| `nvm use`          | `actions/setup-node` reading `.nvmrc`                               |
+| `npm install`      | `npm ci` (stricter: fails if `package-lock.json` is out of date)    |
+| `npm run infra:up` | `services:` Postgres and Redis containers, started before the steps |
+| `npm run check`    | the `run:` steps after `npm ci`                                     |
 
-## 2. The workflow file
-
-GitHub looks for YAML files in `.github/workflows/`. Ours is
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
-
-```yaml
-name: CI
-
-on:
-  push:
-    branches: [main] # every commit that lands on main
-  pull_request: # every PR, whatever the target branch
-
-# A new push to the same branch cancels the previous, now outdated, run.
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
-# Least privilege: the job only needs to read the repository.
-permissions:
-  contents: read
-
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    # Disposable Postgres + Redis containers, the CI equivalent of docker-compose.yml.
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: portfolio
-          POSTGRES_PASSWORD: portfolio
-          POSTGRES_DB: portfolio
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U portfolio -d portfolio"
-          --health-interval 5s --health-timeout 3s --health-retries 10
-      redis:
-        image: redis:7-alpine
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 3s --health-retries 10
-
-    steps:
-      - uses: actions/checkout@v7 # download the repository
-      - uses: actions/setup-node@v7 # install Node (version from .nvmrc)
-        with:
-          node-version-file: .nvmrc
-          cache: npm # reuse downloaded packages between runs
-      - run: npm ci # clean install from package-lock.json
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test # unit + integration (uses the service containers)
-      - run: npm run build -w @portfolio/web # the website's production build (Phase 5)
-        env:
-          NEXT_TELEMETRY_DISABLED: '1'
-```
-
-How the pieces map to what you already know:
-
-| Locally            | In CI                                                                           |
-| ------------------ | ------------------------------------------------------------------------------- |
-| `nvm use`          | `actions/setup-node` with `node-version-file: .nvmrc`                           |
-| `npm install`      | `npm ci` (stricter: fails if `package-lock.json` is out of date)                |
-| `npm run infra:up` | `services:` block (containers start before the steps and wait for healthchecks) |
-| `npm run check`    | the four `run:` steps after `npm ci`                                            |
-| `next build`       | the last step: the site must build without the API running                      |
-
-`npm ci` also builds `packages/shared` (the root `postinstall` script), so every later step
-finds its compiled `dist/`.
-
-The integration tests need no extra configuration: their default connection strings
-(`localhost:5432`, user `portfolio`, Redis DB 1) match the service containers, and the test
-setup creates the `portfolio_test` database itself.
+- The integration tests need no setup: their defaults (`localhost:5432`, Redis DB 1) match the
+  service containers, and they create the `portfolio_test` database themselves.
+- A newer push to the same branch cancels the older run.
+- **On `main`**, CI runs inside the **Deploy** workflow (`deploy.yml` calls `ci.yml`), so a
+  commit is tested once and only a passing one is published ([CD.md](CD.md)).
 
 ---
 
-## 3. Day-to-day workflow with CI
+## 2. Day to day
 
 ```bash
-# 1. Start a phase on its own branch
-git switch -c feat/portfolio-cache-api
-
-# 2. Work, then verify locally first (fast feedback, saves a CI round trip)
-npm run check
-
-# 3. Commit and push the branch
-git add -A
-git commit -m "feat: add content cache service"
-git push -u origin feat/portfolio-cache-api
-
-# 4. Open a pull request (or use the link git prints after pushing)
-gh pr create --fill
-
-# 5. Watch CI from the terminal...
-gh pr checks --watch
-# ...or in the browser: the PR's "Checks" tab, or the repository's "Actions" tab.
-
-# 6. When CI is green, merge and clean up
-gh pr merge --squash --delete-branch
+git switch -c feat/my-change          # one branch per change
+npm run check                         # verify locally first: faster than waiting for CI
+git add -A && git commit -m "feat: …" && git push -u origin feat/my-change
+gh pr create --fill                   # open the pull request
+gh pr checks --watch                  # watch CI (or the PR's "Checks" tab)
+gh pr merge --squash --delete-branch  # when green
 git switch main && git pull
 ```
 
 ---
 
-## 4. When CI fails
+## 3. When CI fails
 
-1. Open the failed run: **Actions** tab → click the run → click the `check` job.
-2. Expand the red step (e.g. `npm run lint`). The log shows the same error you would see
-   locally.
-3. Reproduce locally with the same command, fix it, commit, push. CI re-runs automatically.
-
-Useful terminal commands:
+Open the run (**Actions** → the run → the red job → the red step): the log shows the same
+error you would get locally. Reproduce, fix, push; CI runs again.
 
 ```bash
-gh run list --limit 5          # recent runs and their status
-gh run view --log-failed       # print only the logs of failed steps
-gh run rerun --failed          # retry failed jobs (e.g. after a flaky network error)
+gh run list --limit 5          # recent runs
+gh run view --log-failed       # only the failed steps' logs
+gh run rerun --failed          # retry (e.g. a flaky network error)
 ```
 
-Common causes:
+| Failure                           | Typical reason                                         | Local fix                                 |
+| --------------------------------- | ------------------------------------------------------ | ----------------------------------------- |
+| `format:check`                    | Not run through Prettier                               | `npm run format`                          |
+| `lint`                            | Rule violation                                         | `npm run lint:fix`, then the rest by hand |
+| `npm ci`                          | `package.json` changed without the lockfile            | `npm install`, commit `package-lock.json` |
+| `build -w @portfolio/web`         | A page that needs the API while building               | `npm run build -w @portfolio/web`         |
+| Integration tests only fail in CI | The test depends on local data or timing               | Make the test create its own data         |
+| Lint or types only fail in CI     | A gitignored generated file exists only on your laptop | Check a fresh clone (below)               |
+| `image (api)` / `image (web)`     | A Dockerfile step fails                                | `npm run image:api` / `npm run image:web` |
 
-| Failure                           | Typical reason                                             | Local fix                                      |
-| --------------------------------- | ---------------------------------------------------------- | ---------------------------------------------- |
-| `format:check`                    | Code not run through Prettier                              | `npm run format`                               |
-| `lint`                            | Rule violation                                             | `npm run lint:fix`, then fix the rest by hand  |
-| `npm ci`                          | `package.json` changed without updating the lockfile       | `npm install`, commit `package-lock.json`      |
-| `build -w @portfolio/web`         | A page that needs the API while building, or a build error | `npm run build -w @portfolio/web`              |
-| Integration tests only fail in CI | Test depends on local state (data left in your DB, timing) | Make the test create its own data and clean up |
+**"It passes on my laptop"**: your folder has files CI never sees (`node_modules`, `.next/`,
+generated files like `apps/web/next-env.d.ts`). Once, photo imports got their types only from
+that generated file, so lint failed in CI alone (fixed by `apps/web/src/image-imports.d.ts`).
+Check what CI sees:
+
+```bash
+git clone . /tmp/ci-check && cd /tmp/ci-check   # committed files only
+npm ci && npm run format:check && npm run lint && npm run typecheck
+cd - && rm -rf /tmp/ci-check
+```
 
 ---
 
-## 5. Protecting `main` (recommended once CI exists)
+## 4. Protecting `main` (recommended)
 
-On GitHub: **Settings → Branches → Add branch ruleset** for `main`:
-
-- ✅ Require a pull request before merging
-- ✅ Require status checks to pass → select `check`
-- ✅ Block force pushes
-
-After this, nothing can reach `main` without a green CI run, including your own pushes.
+**Settings → Rules → Rulesets → New branch ruleset** for `main`: require a pull request,
+require the status checks `check`, `image (api)` and `image (web)`, and block force pushes.
+Then nothing reaches `main` without green CI, your own pushes included.

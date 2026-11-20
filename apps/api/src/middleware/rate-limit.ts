@@ -19,6 +19,7 @@ export function rateLimit(limiter: RateLimiterManager): onRequestAsyncHookHandle
 
     void reply.header('x-ratelimit-limit', outcome.limit);
     void reply.header('x-ratelimit-remaining', outcome.remaining);
+    void reply.header('x-ratelimit-window', outcome.windowSeconds);
 
     if (!outcome.allowed) {
       void reply.header('retry-after', outcome.retryAfterSeconds);

@@ -30,6 +30,8 @@ export interface AppConfig {
   cors: { origins: string[] };
   /** `token`: if set, GET /metrics requires `Authorization: Bearer <token>`. */
   metrics: { token: string | null };
+  /** `token`: required by /api/v1/admin/*; `null` = the owner's endpoints are not registered. */
+  admin: { token: string | null };
   shutdown: { timeoutMs: number };
 }
 
@@ -87,6 +89,12 @@ const envSchema = z.object({
       message: 'must be comma-separated origins such as https://example.com (no path, no "/")',
     }),
   METRICS_TOKEN: z.string().min(16, 'must be at least 16 characters').optional(),
+  // A secret: the owner's password for the web app's /admin page, and the bearer token the
+  // web server sends to /api/v1/admin/*. Unset = those endpoints do not exist.
+  ADMIN_TOKEN: z
+    .string()
+    .min(32, 'must be at least 32 characters (try: openssl rand -hex 32)')
+    .optional(),
 });
 
 export class ConfigError extends Error {
@@ -154,6 +162,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     cors: { origins: vars.CORS_ORIGINS },
     metrics: { token: vars.METRICS_TOKEN ?? null },
+    admin: { token: vars.ADMIN_TOKEN ?? null },
     shutdown: { timeoutMs: vars.SHUTDOWN_TIMEOUT_MS },
   };
 }

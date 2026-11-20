@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 import type { EventBufferDal } from '../dal/event-buffer.dal.js';
 import type { TelemetrySaltDal } from '../dal/telemetry-salt.dal.js';
 import { AppError, ErrorCode } from '../errors/app-error.js';
@@ -81,6 +82,7 @@ export function createTelemetryManager(deps: TelemetryManagerDependencies): Tele
           visitorHash: hashVisitor(salt, visitor),
           receivedAt: receivedAt.toISOString(),
           ...visitorDetails.describe(request, visitor), // campaign, device, network
+          ipAddress: storableIp(visitor.ip),
         };
         accepted = await bufferDal.enqueue(JSON.stringify(event), bufferMaxLength);
       } catch (error) {
@@ -123,6 +125,14 @@ export function hostOf(referrer: string | null | undefined): string | null {
  * days), and the hash cannot be reversed to the IP. The newline separators keep the parts
  * unambiguous ("1.2.3.4" + "5x" must not equal "1.2.3.45" + "x"); headers cannot contain one.
  */
+/**
+ * The address as Postgres INET will accept it, or null. `request.ip` is normally a valid
+ * IPv4 or IPv6 address; anything else would fail the whole batch insert in the worker.
+ */
+export function storableIp(ip: string): string | null {
+  return isIP(ip) === 0 ? null : ip;
+}
+
 export function hashVisitor(salt: string, visitor: Pick<Visitor, 'ip' | 'userAgent'>): string {
   return createHash('sha256').update(`${salt}\n${visitor.ip}\n${visitor.userAgent}`).digest('hex');
 }

@@ -9,8 +9,8 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | 2     | `feat/portfolio-cache-api`   | A      | ✅ Done        |
 | 3     | `feat/telemetry-pipeline`    | B      | ✅ Done        |
 | 4     | `feat/contact-rate-limiter`  | C      | ✅ Done        |
-| 5     | `feat/metrics-and-dashboard` | D      | 🔍 In review   |
-| 6     | `feat/continuous-delivery`   | —      | ⬜ Not started |
+| 5     | `feat/metrics-and-dashboard` | D      | ✅ Done        |
+| 6     | `feat/continuous-delivery`   | —      | 🚧 In progress |
 
 ---
 
@@ -109,7 +109,7 @@ Built in two steps, one commit each: **4a** the API side (limiter, endpoint, job
 - [x] DATA-TOOLS.md §7.2: watching the worker drain the job queues, retries and the DLQ (4b)
 - [x] PR #5 merged (CI green)
 
-## Phase 5: Metrics & dashboard (`feat/metrics-and-dashboard`)
+## Phase 5: Metrics & dashboard (`feat/metrics-and-dashboard`) ✅
 
 Built in three steps, one commit each: **5a** the API side (metrics, status, security
 headers), **5b** the website (shared schemas, pages, contact form, beacon, privacy notice),
@@ -143,30 +143,102 @@ headers), **5b** the website (shared schemas, pages, contact form, beacon, priva
       (286 API + 37 web total)
 - [x] Guided tour station 11 and DATA-TOOLS.md §7.5: the website and the dashboard
 - [x] CI also runs the website's production build (`next build`, no API needed)
-- [ ] PR merged (CI green)
+- [x] PR #6 merged (CI green)
 
 ## Phase 6: Continuous delivery (`feat/continuous-delivery`)
 
-Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6).
+Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). Guides:
+[HOSTING](docs/HOSTING.md), [DOCKER](docs/DOCKER.md), [PRODUCTION-STACK](docs/PRODUCTION-STACK.md),
+[CD](docs/CD.md), [BACKUPS](docs/BACKUPS.md).
 
-- [ ] Decide hosting + domain (default: one VPS running Docker Compose, Caddy for HTTPS and
-      load balancing)
-- [ ] `apps/api/Dockerfile` (multi-stage, non-root; one image for api/worker/migrate/seed;
-      builds `packages/shared`; downloads the GeoIP files during the build),
-      `apps/web/Dockerfile` (Next.js `output: 'standalone'`; `NEXT_PUBLIC_API_BASE_URL` as a
-      build argument, DESIGN.md §14.2), `.dockerignore`
-- [ ] CI: build both images on every PR (a broken Dockerfile fails before merge)
-- [ ] On merge to `main`: push images to GHCR tagged with the git SHA
-- [ ] `deploy/compose.prod.yml` + `Caddyfile`; production env file kept on the host only
-- [ ] `.github/workflows/deploy.yml`: migrate → seed → rolling update → smoke test → auto-rollback,
-      behind a `production` GitHub Environment with a required reviewer (continuous **delivery**)
-- [ ] Load balancing ([DESIGN.md §14.5](DESIGN.md#145-hosting-decided-at-the-start-of-phase-6)):
-  - [ ] Two API replicas (`api-1`, `api-2`) behind Caddy: round robin, active health checks
-  - [ ] `GET /health/live` liveness endpoint for the load balancer (no dependency checks) + tests
-  - [ ] Rolling update: worker → api-1 (wait for `/health` = 200) → api-2 → web
-  - [ ] Per-replica numbers: Prometheus scrapes each replica directly (`instance` in the system
-        status already exists since Phase 5; set each container's hostname to `api-1`/`api-2`)
-  - [ ] Prove it: a request loop sees no failures while one replica is stopped, or during a deploy
-- [ ] Nightly `pg_dump` backups off the host + a tested restore
-- [ ] `docs/CD.md`: how to release, approve, roll back, read deploy logs
+- [x] Hosting decided: Oracle Cloud Always Free Arm VM (1 OCPU, 6 GB) with Docker Compose and
+      Caddy; one free hostname (DuckDNS now, is-a.dev later): `/api/*` → API, the rest → website
+- [x] Server ready (checked over SSH, 2026-11-20): Ubuntu 24.04 on Arm, automatic security
+      updates, both firewalls, Docker 29.10 + Compose v5.8, key-only SSH, ports 80/443 reach a
+      container from the internet. 1 OCPU because 2 was refused (out of host capacity).
+      Learned: Docker's published ports bypass the VM's `INPUT` rules
+- [x] 6a Docker images: one API image (API, worker, CLIs; GeoIP files inside, non-root) and a
+      standalone web image with no hostname inside; CI builds both for `linux/arm64` on every PR
+- [x] 6b Production stack (`deploy/compose.prod.yml`, Caddyfile): two API replicas behind Caddy
+      (round robin, `/health/live` every 5 s, retries, `dial_timeout 1s`); secrets only in the
+      host's `deploy/.env`. Failover test: 0 failed of 2,779 requests while replicas were
+      stopped and replaced (`npm run stack:failover`)
+- [x] 6c Continuous delivery: merge → CI → images to GHCR (tag = commit SHA) → your approval →
+      `deploy/deploy.sh` over SSH: migrate, seed, rolling update (worker → api-1 → api-2 → web),
+      smoke test, automatic rollback. Tested on the laptop stack (API 503/503 OK during a deploy,
+      1,302/1,302 during a rollback) and checked against the server's versions. Found and fixed:
+      Compose's `up --wait` lets through a container that is still starting
+- [x] 6d Weekly backups: dump + test restore on the server, copied to the desktop with a
+      read-only key; restore swaps databases in one transaction. Drill passed on the laptop
+- [ ] One-time deploy setup by the owner ([CD.md §2](docs/CD.md#2-one-time-setup-about-20-minutes)):
+      deploy key, `~/portfolio/deploy/.env`, GitHub `production` environment
+- [ ] First deploy to the server; then the backup cron and the desktop's scheduled copy
+- [ ] Per-replica metrics in a Prometheus server (each replica already reports its `instance`)
+- [ ] Switch to `<name>.is-a.dev` once the site is live (you write the request by hand: their
+      terms forbid AI-written pull requests)
 - [ ] Later: remove the approval gate (continuous **deployment**) once releases are routine
+
+### Website polish before going live (feedback, 2026-11-18)
+
+- [x] Plainer look: no terminal imitation (`~/yicheng $ whoami`, `./` prefixes, `$ command`
+      lines, faux window bars), sans-serif text; the hero's JSON card and the rate-limiter lab
+      removed; no GitHub links (profile and this site's repository)
+- [x] Project cards: the whole card opens the project, hover lift instead of the pointer glow,
+      "Read more →", keyboard focus outline
+- [x] Project pages: structured `sections` (migration `0006_project_sections.sql`, response
+      field, `cache:v2:project:<slug>`), "On this page" list, large "Back to projects" button
+      at the top and bottom, link to the next project
+- [x] Project details written for Orbital (from the MS3 README), Brainhack (from the
+      object-detection notebook) and this site
+- [x] Tests: content-file rules for sections, project detail with and without sections,
+      section anchors, next project, paragraphs
+- [x] Footer line "Built with …" and the public Status link removed
+
+### Owner area (`/admin`, 2026-11-18)
+
+- [x] System status is owner-only: `GET /api/v1/admin/system-status` (bearer `ADMIN_TOKEN`);
+      the public `/status` page, header link and hero pill are gone
+- [x] Visitor summary `GET /api/v1/admin/visitors?days=` (DESIGN.md §7.8): visits grouped by
+      session, referrers, tagged links, places, organisations, devices, browsers, pages,
+      clicks, recent visits; bots and `/admin` excluded
+- [x] `/admin` page behind HTTP Basic (`proxy.ts` + a second check in the page and its route),
+      `no-store` + `noindex`; period picker; the owner's browser is not counted
+- [x] Status charts: 30-minute time axis with a labelled tick every 5 minutes
+- [x] Tests: owner endpoints (401/200/404, contract), summary aggregation (bots, `/admin`,
+      older events left out), manager ranking and day filling, login check, `shouldRecord`,
+      time ticks and gaps (300 API + 57 web total)
+- [x] Production: Caddy refuses `/api/v1/admin/*` from outside (`deploy/caddy/Caddyfile`, 6b;
+      checked with the token, also as `/api/v1/%61dmin/…`, `/api/v1//admin/…`, `/API/…`)
+
+### Warmer design and photos (2026-11-18)
+
+- [x] Light, warm theme from named tokens (`globals.css`), Fraunces headings, terracotta
+      accent; no graph-paper grid or pointer glow
+- [x] Photos: portrait in the hero, avatar in the header, "Outside work" gallery
+      (`content/photos.ts`); web copies resized and stripped of metadata
+- [x] Icons: section titles, timeline (work / study), cards, buttons; `app/icon.svg` tab icon
+      and `app/apple-icon.png`
+- [x] Bug: a second click on a header section link did nothing (Next.js `<Link>` and an
+      unchanged `#hash`); `SectionLink` scrolls on every click + regression test
+- [x] Contact form explains the spam limit ("3 messages per person every 10 minutes, so you
+      can send 2 more"): new `X-RateLimit-Window` header
+- [x] Flaky test fixed: the notification retry test now moves a fake clock instead of racing
+      a 10 ms backoff (300 API + 63 web tests)
+- [x] Hero fades only once 60 % of it has scrolled away; "Outside work" became a turning
+      photo carousel (buttons, dots, side-photo clicks, ← →, swipe) (300 API + 68 web tests)
+- [x] Hero photo collage (seven tilted prints, `HERO_PHOTOS`); graduation photo in the carousel
+- [x] Privacy page removed (owner's decision); projects moved from `/projects/<slug>` to
+      `/<slug>` with permanent redirects; no separate projects list; reserved slugs refused
+- [x] IP addresses stored (owner's choice): migration `0007_analytics_ip_address.sql` (`INET`),
+      buffered event `ipAddress`, shown per visit on `/admin` (302 API + 68 web tests)
+- [x] Retention of IP addresses decided (2026-11-19): kept indefinitely, no notice to visitors
+      (owner's decision; DESIGN.md §12)
+- [x] Bugs: the name in the header did nothing on the home page (now scrolls to the top);
+      "About" stayed highlighted after scrolling back to the hero (scrollspy now clears);
+      regression tests for both (302 API + 74 web tests)
+- [x] `/admin` explains its numbers: what visits, page views and link clicks are (plus a
+      "How they are counted" note), what each list and status tile measures, a content-cache
+      card (hit, miss, why a low ratio is fine) and a plain-words queue card with Redis keys
+      and replay commands; stale "IP never stored" footnote fixed
+- [x] Faint lines (1.3:1, nearly invisible in Chrome on Windows): `line` and `line-strong`
+      darkened, form inputs outlined in a new `field` token at 3.3:1 (WCAG 1.4.11)

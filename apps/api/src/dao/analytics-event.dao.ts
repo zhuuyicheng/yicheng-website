@@ -1,5 +1,5 @@
 /**
- * Row type for `analytics_events` (migrations 0003 + 0004), column for column. The worker's
+ * Row type for `analytics_events` (migrations 0003, 0004 and 0007), column for column. The worker's
  * flusher writes these rows in batches (dal/analytics-event.dal.ts).
  */
 export interface AnalyticsEventRow {
@@ -31,4 +31,6 @@ export interface AnalyticsEventRow {
   country_code: string | null;
   city: string | null;
   organization: string | null;
+  // 0007: the address itself (pg returns INET as text, e.g. '203.0.113.7' or '2001:db8::1')
+  ip_address: string | null;
 }

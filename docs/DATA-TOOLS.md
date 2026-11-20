@@ -71,7 +71,7 @@ Redis has numbered "logical databases" inside one server. We use **DB 0** for de
 | Phase | PostgreSQL (database `portfolio`)                  | Redis (DB 0)                                                         |
 | ----- | -------------------------------------------------- | -------------------------------------------------------------------- |
 | 1     | `schema_migrations`                                | —                                                                    |
-| 2     | `profile`, `experiences`, `education`, `projects`  | `cache:v2:profile`, `cache:v1:projects`, `cache:v1:project:<slug>`   |
+| 2     | `profile`, `experiences`, `education`, `projects`  | `cache:v2:profile`, `cache:v1:projects`, `cache:v2:project:<slug>`   |
 | 3     | `analytics_events`                                 | `telemetry:events:buffer` / `:inflight` / `:dlq`, `telemetry:salt:*` |
 | 4     | `contact_messages`                                 | `ratelimit:contact:<hash>`, `jobs:notifications:*`                   |
 | 5     | — (the website fills the tables above via the API) | — (the status endpoint reads queue lengths)                          |
@@ -145,7 +145,7 @@ terminal for `curl`. Run `npm run dev:api` in a fourth terminal.
    `npm run content:seed`.
    - Postgres: re-run "Select Top 1000" on `projects`: the new title. (`updated_at` changes
      on every seed, even when nothing changed, so the title is the real evidence.)
-   - `MONITOR`: a `scan` for `cache:v1:project:*`, one `del` of every content key, then a
+   - `MONITOR`: a `scan` for `cache:v2:project:*`, one `del` of every content key, then a
      `get` (miss) + `set` pair per key as the seed warms the cache.
    - Redis view: click ↻ on the database row to reload the key list, then click the key
      again (the value panel shows what it loaded last time). Fresh TTLs and the new title.
@@ -368,7 +368,8 @@ Two ways to ask the API how it is doing (DESIGN.md §7.7):
 
 - `GET /metrics`: the Prometheus text format, for a monitoring server that collects it every
   few seconds. Counters add up from the moment the process started.
-- `GET /api/v1/system/status`: JSON, for people. The dashboard (Phase 5c) shows it.
+- `GET /api/v1/admin/system-status`: JSON, for people, owner-only since Phase 6 (it needs the
+  `ADMIN_TOKEN` bearer token). The `/admin` page shows it.
 
 Restart `npm run dev:api` to load the new code, then:
 
@@ -412,7 +413,8 @@ Restart `npm run dev:api` to load the new code, then:
 5. **The status endpoint.**
 
    ```bash
-   curl -s localhost:4000/api/v1/system/status | python3 -m json.tool
+   export ADMIN_TOKEN=local-dev-only-admin-token-change-me-in-production   # from your .env
+   curl -s -H "Authorization: Bearer $ADMIN_TOKEN" localhost:4000/api/v1/admin/system-status | python3 -m json.tool
    ```
 
    Uptime, Postgres and Redis latency, p50/p95 of the last 5 minutes, cache hits and misses,
@@ -478,14 +480,17 @@ http://localhost:3000 in Chrome or Firefox with the developer tools open (F12).
    "Emulate CSS prefers-reduced-motion" to `reduce` and reload: no animation, all content
    visible.
 
-### 7.5 Phase 5c: the live dashboard
+### 7.5 The live dashboard (Phase 5c; owner-only since Phase 6)
 
-Open http://localhost:3000/status (API, worker and web running) next to the terminal.
+Open http://localhost:3000/admin (API, worker and web running) next to the terminal. The
+browser asks for a login: any username, and `ADMIN_TOKEN` from your `.env` as the password.
+The system dashboard is at the bottom of the page, under the visitor summary.
 
-1. **It polls.** The Network tab shows `GET /api/v1/system/status` every 5 s: a plain GET,
-   so no preflight. "updated N s ago" counts up between polls. The two charts start with
-   "collecting samples…" and draw a line from the second sample on; hover (or touch) a chart
-   for the exact value at that moment.
+1. **It polls.** The Network tab shows `GET /admin/system-status` every 5 s: a route on the
+   web server, which asks the API with the token (the browser never sees it). "updated N s
+   ago" counts up between polls. The charts cover the last 30 minutes, with a time label
+   every 5 minutes; the line starts after the second sample; hover (or touch) a chart for the
+   exact value at that moment.
 2. **Make traffic.** Reload the home page a few times in another tab: "requests · 5 min" and
    the requests chart rise, the cache hit ratio climbs (the first load was a miss), and
    "page views · 24 h" goes up once the worker has flushed your page views.
@@ -493,7 +498,7 @@ Open http://localhost:3000/status (API, worker and web running) next to the term
    Come back: one poll at once, then every 5 s again.
 4. **An outage.** `docker compose stop redis`: within 5 s the banner turns amber
    ("! Degraded: redis is down"), Redis shows "✕ down", and the queues read "unknown". The
-   page itself keeps working: that is when people look at a status page. Start Redis again.
+   page itself keeps working: that is when you need it most. Start Redis again.
    Then stop `dev:api`: the banner turns red ("Lost contact… from N s ago") and the last
    numbers stay on screen. Start it again and the page recovers by itself.
 5. **A dead letter.** `RPUSH telemetry:events:dlq '{"x":1}'` in the Redis CLI panel: the
@@ -501,10 +506,54 @@ Open http://localhost:3000/status (API, worker and web running) next to the term
 6. **The hero pill.** The home page's hero shows "live · api p95 … → status", refreshed every
    30 s; it says "api offline" while the API is stopped.
 
-### 7.6 Later phases
+### 7.6 Phase 6b: the production stack on your laptop
 
-- **Phase 6 (continuous delivery):** the same pages, served from Docker containers behind
-  Caddy; the dashboard's `instance` then says which of the two API replicas answered.
+The production stack ([PRODUCTION-STACK.md](PRODUCTION-STACK.md)) has its **own** Postgres and
+Redis (project `portfolio-prod`, separate volumes). They publish no ports, on purpose, so the
+VS Code connections above keep showing your **dev** data. Look inside the stack's datastores
+through Docker instead (from the repository root):
+
+```bash
+C="docker compose -f deploy/compose.prod.yml"
+$C exec postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'   # then: \dt, SELECT …
+$C exec redis redis-cli MONITOR                                      # every command, live
+$C exec redis redis-cli LLEN telemetry:events:buffer
+```
+
+What to watch:
+
+1. **Two replicas, one Redis.** Run `MONITOR`, then load https://localhost twice. The content
+   reads (`GET cache:v2:profile`…) arrive from two different client addresses: api-1 and
+   api-2 share one cache, so a hit on one is a hit on both (DESIGN.md §14.5).
+2. **The round robin.** On https://localhost/admin, "answered by" at the bottom of the system
+   status alternates between `api-1` and `api-2`.
+3. **A replica stops.** `$C stop api-1`, keep reloading the site: nothing fails, and "answered
+   by" stays `api-2`. `$C up -d --wait api-1` brings it back.
+4. **Caddy's view.** `$C exec caddy wget -qO- http://127.0.0.1:2019/reverse_proxy/upstreams`
+   lists each replica with the requests it is handling right now.
+
+### 7.7 Phase 6c: a deploy, seen from the datastores
+
+Same commands as §7.6; on the server, `C="docker compose -f ~/portfolio/deploy/compose.prod.yml"`.
+Try it on the laptop with `docker tag portfolio-api:dev portfolio-api:v2` (and the same for
+`portfolio-web`), then `npm run stack:deploy -- v2` ([CD.md](CD.md)).
+
+1. **Which release runs.** `$C ps --format '{{.Service}} {{.Image}}'`: every API container
+   (api-1, api-2, worker) shows the same tag, and `grep _IMAGE deploy/.env` names it too.
+   During a deploy, watch the tags change one service at a time.
+2. **Migrations only go forward.** In psql:
+   `SELECT version, name, applied_at FROM schema_migrations ORDER BY version;` The first deploy
+   on the server adds all 7 rows; a release with a new migration adds one row; a rollback
+   removes none (CD.md §4).
+3. **The content step clears the cache, then warms it.** Run `$C exec redis redis-cli MONITOR`,
+   then deploy: at "publishing the content" the `cache:*` keys are deleted and written again
+   (the seed's log line counts them: `cacheKeysCleared`). Afterwards
+   `$C exec redis redis-cli --scan --pattern 'cache:*'` lists them again.
+4. **No API request is lost.** Keep https://localhost/admin open during a deploy: "answered
+   by" shows `api-2` while api-1 is replaced, then `api-1` while api-2 is. Only the `web` step
+   interrupts it, for under a second, and the dashboard keeps its last numbers meanwhile.
+   The worker's queue (`LLEN telemetry:events:buffer`) may grow while the worker is
+   replaced, then drains.
 
 ## 8. Troubleshooting
 

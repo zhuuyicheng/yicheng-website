@@ -31,11 +31,12 @@ export function registerSecurityPlugins(
     // first with an OPTIONS "preflight" request.
     allowedHeaders: ['content-type', REQUEST_ID_HEADER],
     // Headers its scripts may read. Browsers hide all but a few basic ones unless listed: the
-    // contact form needs the rate-limit headers to say "try again in 5 minutes".
+    // contact form needs the rate-limit headers to say "3 messages every 10 minutes: 2 left".
     exposedHeaders: [
       REQUEST_ID_HEADER,
       'x-ratelimit-limit',
       'x-ratelimit-remaining',
+      'x-ratelimit-window',
       'retry-after',
       'x-cache',
     ],

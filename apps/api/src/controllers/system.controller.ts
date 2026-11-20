@@ -1,16 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import { requireBearerToken } from '../middleware/bearer-token.js';
 import type { SystemStatusManager } from '../services/system-status.manager.js';
-import { renderSystemStatus } from '../views/system-status.view.js';
-import { API_V1 } from './api-v1.js';
 
 export const METRICS_PATH = '/metrics';
-export const SYSTEM_STATUS_PATH = `${API_V1}/system/status`;
 
-/** Observability endpoints. See DESIGN.md §7.7. */
+/**
+ * The metrics endpoint for a monitoring server. See DESIGN.md §7.7. The JSON status report
+ * for people is owner-only: controllers/admin.controller.ts.
+ */
 export function registerSystemController(
   app: FastifyInstance,
-  systemStatusManager: SystemStatusManager,
+  systemStatusManager: Pick<SystemStatusManager, 'getMetricsText'>,
   options: { metricsToken: string | null },
 ): void {
   /**
@@ -27,10 +27,4 @@ export function registerSystemController(
       return reply.type(contentType).send(body);
     },
   );
-
-  /** For the public dashboard: counts and timings only. Always 200, even with a datastore down. */
-  app.get(SYSTEM_STATUS_PATH, async (request, reply) => {
-    const status = await systemStatusManager.getStatus(request.log);
-    return reply.send(renderSystemStatus(status));
-  });
 }

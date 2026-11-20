@@ -98,6 +98,7 @@ describe('telemetry flusher with live Redis and Postgres', () => {
       ref: 'acme',
       browser: 'Chrome',
       os: 'macOS',
+      ip_address: '127.0.0.1', // light-my-request's default client address
       device_type: 'desktop',
       language: 'en-SG',
       timezone: 'Asia/Singapore',
@@ -189,7 +190,12 @@ describe('telemetry flusher with live Redis and Postgres', () => {
     await createFlushManager().flushOnce(deps.logger);
 
     expect(await storedRows()).toEqual([
-      expect.objectContaining({ referrer_host: 'www.linkedin.com', ref: null, browser: null }),
+      expect.objectContaining({
+        referrer_host: 'www.linkedin.com',
+        ref: null,
+        browser: null,
+        ip_address: null,
+      }),
     ]);
   });
 

@@ -8,7 +8,7 @@ import type { Redis } from '../infra/redis.js';
 export const CONTENT_CACHE_KEYS = {
   profile: 'cache:v2:profile', // v2: added `education`
   projects: 'cache:v1:projects',
-  project: (slug: string) => `cache:v1:project:${slug}`,
+  project: (slug: string) => `cache:v2:project:${slug}`, // v2: added `sections`
 } as const;
 
 const PROJECT_KEY_PATTERN = CONTENT_CACHE_KEYS.project('*');

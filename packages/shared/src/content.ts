@@ -54,11 +54,23 @@ export const projectSummarySchema = z.object({
 
 export const projectListSchema = z.array(projectSummarySchema);
 
-export const projectSchema = projectSummarySchema.extend({ description: z.string() });
+/** One part of a project page: a heading, an optional explanation, and bullet points. */
+export const projectSectionSchema = z.object({
+  heading: z.string(),
+  /** Paragraphs separated by a blank line, or `null`. */
+  body: z.string().nullable(),
+  points: z.array(z.string()),
+});
+
+export const projectSchema = projectSummarySchema.extend({
+  description: z.string(),
+  sections: z.array(projectSectionSchema),
+});
 
 export type ProfileLink = z.infer<typeof linkSchema>;
 export type Experience = z.infer<typeof experienceSchema>;
 export type Education = z.infer<typeof educationSchema>;
 export type Profile = z.infer<typeof profileSchema>;
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
+export type ProjectSection = z.infer<typeof projectSectionSchema>;
 export type Project = z.infer<typeof projectSchema>;

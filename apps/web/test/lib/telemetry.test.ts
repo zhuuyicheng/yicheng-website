@@ -6,8 +6,10 @@ import {
   externalReferrer,
   getSessionId,
   newSessionId,
+  OWNER_BROWSER_KEY,
   SESSION_STORAGE_KEY,
   sendEvent,
+  shouldRecord,
   trackName,
 } from '@/lib/telemetry';
 
@@ -67,6 +69,30 @@ describe('externalReferrer', () => {
     expect(externalReferrer('https://example.dev/projects', site)).toBeNull();
     expect(externalReferrer('', site)).toBeNull();
     expect(externalReferrer('android-app://com.google.android.gm/', site)).toBeNull();
+  });
+});
+
+describe('shouldRecord', () => {
+  it('records visitors, but never the owner area', () => {
+    expect(shouldRecord('/', memoryStorage())).toBe(true);
+    expect(shouldRecord('/projects/x?ref=acme', null)).toBe(true);
+    expect(shouldRecord('/admin', memoryStorage())).toBe(false);
+    expect(shouldRecord('/admin?days=30', memoryStorage())).toBe(false);
+    expect(shouldRecord('/administrator', memoryStorage())).toBe(true);
+  });
+
+  it("skips every page in a browser marked as the owner's, unless the mark was removed", () => {
+    expect(shouldRecord('/', memoryStorage({ [OWNER_BROWSER_KEY]: '1' }))).toBe(false);
+    expect(shouldRecord('/', memoryStorage({ [OWNER_BROWSER_KEY]: '0' }))).toBe(true);
+  });
+
+  it('records when storage cannot be read', () => {
+    const blocked = {
+      getItem: () => {
+        throw new Error('SecurityError');
+      },
+    };
+    expect(shouldRecord('/', blocked)).toBe(true);
   });
 });
 

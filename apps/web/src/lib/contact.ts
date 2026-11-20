@@ -13,10 +13,16 @@ import {
 export type ContactField = keyof ContactRequest;
 export type FieldErrors = Partial<Record<ContactField, string>>;
 
+/** The form's spam limit, from the API's `X-RateLimit-*` headers: `limit` per `windowSeconds`. */
+export interface RateLimitPolicy {
+  limit: number;
+  windowSeconds: number;
+}
+
 export type ContactOutcome =
-  | { kind: 'sent'; remaining: number | null }
+  | { kind: 'sent'; remaining: number | null; policy: RateLimitPolicy | null }
   | { kind: 'invalid'; fieldErrors: FieldErrors }
-  | { kind: 'rate_limited'; retryAfterSeconds: number }
+  | { kind: 'rate_limited'; retryAfterSeconds: number; policy: RateLimitPolicy | null }
   | { kind: 'failed'; message: string };
 
 /** The same schema the API uses, so the form and the API always agree on what is valid. */
@@ -58,10 +64,18 @@ export function interpretContactResponse(
   body: unknown,
 ): ContactOutcome {
   if (status === 202 && contactAcceptedSchema.safeParse(dataOf(body)).success) {
-    return { kind: 'sent', remaining: numberHeader(headers, 'x-ratelimit-remaining') };
+    return {
+      kind: 'sent',
+      remaining: numberHeader(headers, 'x-ratelimit-remaining'),
+      policy: rateLimitPolicy(headers),
+    };
   }
   if (status === 429) {
-    return { kind: 'rate_limited', retryAfterSeconds: numberHeader(headers, 'retry-after') ?? 60 };
+    return {
+      kind: 'rate_limited',
+      retryAfterSeconds: numberHeader(headers, 'retry-after') ?? 60,
+      policy: rateLimitPolicy(headers),
+    };
   }
   const error = errorResponseSchema.safeParse(body);
   if (status === 400 && error.success && error.data.error.details) {
@@ -71,6 +85,42 @@ export function interpretContactResponse(
     return { kind: 'failed', message: 'The server is busy right now. Please try again shortly.' };
   }
   return { kind: 'failed', message: 'Something went wrong. Please try again later.' };
+}
+
+const THANKS = 'Message sent. Thank you, I will get back to you soon.';
+
+/**
+ * What the form says after a message went through. With the spam limit known, it explains it:
+ * "… the form accepts 3 messages per person every 10 minutes, so you can send 2 more in that
+ * time." The limit slides (the oldest message stops counting after the window), so "in that
+ * time" is the honest promise.
+ */
+export function sentMessage(remaining: number | null, policy: RateLimitPolicy | null): string {
+  if (remaining === null || policy === null) {
+    return THANKS;
+  }
+  const rule = spamRule(policy);
+  if (remaining <= 0) {
+    return `${THANKS} ${rule}, and that was your last one for now.`;
+  }
+  return `${THANKS} ${rule}, so you can send ${String(remaining)} more in that time.`;
+}
+
+/** What the form says when the spam limit was reached. */
+export function rateLimitedMessage(
+  retryAfterSeconds: number,
+  policy: RateLimitPolicy | null,
+): string {
+  const retry = `Please try again in ${formatWait(retryAfterSeconds)}.`;
+  return policy === null ? `Too many messages for now. ${retry}` : `${spamRule(policy)}. ${retry}`;
+}
+
+function spamRule(policy: RateLimitPolicy): string {
+  return `To keep spam out, the form accepts ${messages(policy.limit)} per person every ${formatWait(policy.windowSeconds)}`;
+}
+
+function messages(count: number): string {
+  return `${String(count)} message${count === 1 ? '' : 's'}`;
 }
 
 /** `570` → `"10 minutes"`, `45` → `"45 seconds"`: always rounded up, never too early. */
@@ -100,6 +150,12 @@ function isContactField(field: string): field is ContactField {
 
 function dataOf(body: unknown): unknown {
   return typeof body === 'object' && body !== null && 'data' in body ? body.data : undefined;
+}
+
+function rateLimitPolicy(headers: Pick<Headers, 'get'>): RateLimitPolicy | null {
+  const limit = numberHeader(headers, 'x-ratelimit-limit');
+  const windowSeconds = numberHeader(headers, 'x-ratelimit-window');
+  return limit === null || windowSeconds === null ? null : { limit, windowSeconds };
 }
 
 function numberHeader(headers: Pick<Headers, 'get'>, name: string): number | null {

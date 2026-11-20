@@ -37,7 +37,7 @@ const EDUCATION_COLUMNS = `id, institution, qualification,
   highlights, sort_order, created_at, updated_at`;
 
 const PROJECT_COLUMNS = `id, slug, title, summary, description, tech_stack, repo_url, live_url,
-  featured, sort_order, created_at, updated_at`;
+  featured, sections, sort_order, created_at, updated_at`;
 
 const PROJECT_DISPLAY_ORDER = 'ORDER BY featured DESC, sort_order, slug';
 
@@ -157,7 +157,7 @@ function toProjectSummary(row: ProjectRow): ProjectSummary {
 }
 
 function toProject(row: ProjectRow): Project {
-  return { ...toProjectSummary(row), description: row.description };
+  return { ...toProjectSummary(row), description: row.description, sections: row.sections };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -235,8 +235,9 @@ async function replaceProjects(client: PoolClient, projects: PortfolioContent['p
   for (const [sortOrder, project] of projects.entries()) {
     await client.query(
       `INSERT INTO projects
-         (slug, title, summary, description, tech_stack, repo_url, live_url, featured, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         (slug, title, summary, description, tech_stack, repo_url, live_url, featured, sections,
+          sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
        ON CONFLICT (slug) DO UPDATE
          SET title       = EXCLUDED.title,
              summary     = EXCLUDED.summary,
@@ -245,6 +246,7 @@ async function replaceProjects(client: PoolClient, projects: PortfolioContent['p
              repo_url    = EXCLUDED.repo_url,
              live_url    = EXCLUDED.live_url,
              featured    = EXCLUDED.featured,
+             sections    = EXCLUDED.sections,
              sort_order  = EXCLUDED.sort_order,
              updated_at  = now()`,
       [
@@ -256,6 +258,7 @@ async function replaceProjects(client: PoolClient, projects: PortfolioContent['p
         project.repoUrl,
         project.liveUrl,
         project.featured,
+        JSON.stringify(project.sections),
         sortOrder,
       ],
     );

@@ -1,0 +1,193 @@
+# The production stack (DESIGN.md §14.5): what runs on the server, and on your laptop to try
+# it first. Guide: docs/PRODUCTION-STACK.md
+#
+#   Caddy (HTTPS, routing) → api-1 + api-2 (load balanced) and web; worker; Postgres; Redis
+#
+# Every value comes from deploy/.env (template: deploy/.env.example), which Compose reads by
+# itself because it sits next to this file. Images default to the ones `npm run image:api` and
+# `npm run image:web` build on your laptop; deploy/deploy.sh writes the running release into
+# deploy/.env as API_IMAGE and WEB_IMAGE (docs/CD.md). Commands, from the repository root:
+#
+#   docker compose -f deploy/compose.prod.yml run --rm migrate     apply migrations
+#   docker compose -f deploy/compose.prod.yml run --rm seed        publish the content
+#   docker compose -f deploy/compose.prod.yml up -d --wait         start (waits for healthy)
+#   docker compose -f deploy/compose.prod.yml run --rm replay-dlq telemetry
+#
+# A separate project name and volumes, so it never touches your dev datastores (`portfolio`).
+name: portfolio-prod
+
+# Shared pieces ("x-" blocks are ignored by Compose; `<<: *name` copies one into a service).
+
+# Docker keeps container logs forever by default; on a small server that fills the disk.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+# Everything that runs the API image: the two replicas, the worker and the command-line tools.
+# Each container gets only the variables it needs: the web server never sees the database
+# password. `:?` makes Compose stop with that message when a required value is missing.
+x-api-image: &api-image
+  image: ${API_IMAGE:-portfolio-api:dev}
+  environment:
+    DATABASE_URL: postgres://${POSTGRES_USER:-portfolio}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@postgres:5432/${POSTGRES_DB:-portfolio}
+    REDIS_URL: redis://redis:6379/0
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    # Behind Caddy, every request comes from Caddy's address; the visitor's is in
+    # X-Forwarded-For, which Caddy sets (and does not take from the visitor).
+    TRUST_PROXY: 'true'
+    CORS_ORIGINS: https://${SITE_HOST:?set SITE_HOST in deploy/.env}
+    IP_HASH_SECRET: ${IP_HASH_SECRET:?set IP_HASH_SECRET in deploy/.env}
+    METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN in deploy/.env}
+    ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN in deploy/.env}
+    NOTIFIER_DRIVER: ${NOTIFIER_DRIVER:-discord}
+    DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  logging: *logging
+
+# The replicas' check, used by `up --wait` and the deploy: /health (readiness: Postgres and
+# Redis answer), not /health/live, so "healthy" means "ready to serve". The image has no curl,
+# so Node itself makes the request.
+x-api-replica: &api-replica
+  <<: *api-image
+  restart: unless-stopped
+  # docker stop sends SIGTERM, then kills after this long. Longer than the API's own
+  # 10 s shutdown deadline, so a graceful shutdown is never cut short.
+  stop_grace_period: 15s
+  healthcheck:
+    test:
+      - CMD
+      - node
+      - -e
+      - 'fetch("http://127.0.0.1:4000/health").then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))'
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 60s
+    start_interval: 2s
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-portfolio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-portfolio}
+    # No `ports`: only the containers on this network can reach the database.
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+      start_interval: 1s
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Same settings as development (DESIGN.md §6.3): AOF persistence, because the event buffer
+    # and job queues are data; volatile-lru, so memory pressure never evicts queued work.
+    command:
+      [redis-server, --appendonly, 'yes', --maxmemory, 256mb, --maxmemory-policy, volatile-lru]
+    # No `ports` and no password: reachable only from this network.
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+      start_interval: 1s
+    logging: *logging
+
+  # Two replicas as two services, so a deploy can replace one while the other serves
+  # (DESIGN.md §14.5). `hostname` is what the owner dashboard shows as "answered by".
+  api-1:
+    <<: *api-replica
+    hostname: api-1
+
+  api-2:
+    <<: *api-replica
+    hostname: api-2
+
+  # One worker only (DESIGN.md §8.4): the deploy stops the old one before starting the new one.
+  worker:
+    <<: *api-image
+    command: [node, dist/worker.js]
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+  web:
+    image: ${WEB_IMAGE:-portfolio-web:dev}
+    restart: unless-stopped
+    environment:
+      # Caddy's internal listener: the server's API calls are load balanced too.
+      API_BASE_URL: http://caddy:8080
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN in deploy/.env}
+    healthcheck:
+      # A static file: answers without the API, so it checks the web server alone.
+      test:
+        - CMD
+        - node
+        - -e
+        - 'fetch("http://127.0.0.1:3000/icon.svg").then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
+    logging: *logging
+
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    environment:
+      SITE_HOST: ${SITE_HOST:?set SITE_HOST in deploy/.env}
+    # The only published ports: 80 (Let's Encrypt's check, then a redirect to HTTPS),
+    # 443 (HTTPS) and 443/udp (HTTP/3).
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      # The folder, not the single file: a mounted file stays the version from when the
+      # container started (editors and git replace files), a mounted folder shows the current
+      # one, so `caddy reload` picks up changes. Only this folder: deploy/.env stays out.
+      - ./caddy:/etc/caddy:ro
+      # Certificates live here: keep this volume, or Let's Encrypt's weekly limit is hit.
+      - caddy-data:/data
+      - caddy-config:/config
+    logging: *logging
+
+  # Command-line tools (DESIGN.md §14.3). The `tools` profile keeps `up` from starting them;
+  # `docker compose run --rm <name>` runs one and removes it afterwards.
+  migrate:
+    <<: *api-image
+    entrypoint: [node, dist/cli/migrate.js]
+    profiles: [tools]
+
+  seed:
+    <<: *api-image
+    entrypoint: [node, dist/cli/seed-content.js]
+    profiles: [tools]
+
+  replay-dlq:
+    <<: *api-image
+    entrypoint: [node, dist/cli/replay-dlq.js]
+    profiles: [tools]
+
+volumes:
+  postgres-data:
+  redis-data:
+  caddy-data:
+  caddy-config:
