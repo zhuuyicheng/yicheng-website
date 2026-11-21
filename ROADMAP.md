@@ -268,3 +268,5 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
 - [x] The seed writes only what changed (`IS DISTINCT FROM`; a project's new position counts),
       so a deploy no longer moves every date; it logs `"changed": true | false`
       (313 API + 75 web tests)
+- [x] The last project page no longer leads back to the first: only "Back to projects"
+      (owner's feedback; regression test in `project-page.test.ts`)

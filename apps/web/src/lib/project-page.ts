@@ -18,14 +18,17 @@ export function sectionAnchors(headings: readonly string[]): string[] {
   });
 }
 
-/** The project after `slug` in display order, wrapping round to the first; `null` if alone. */
+/**
+ * The project after `slug` in display order. `null` after the last one (the list ends there:
+ * only "Back to projects" is offered, not a jump back to the first) or for an unknown slug.
+ */
 export function nextProject(
   projects: readonly ProjectSummary[],
   slug: string,
 ): ProjectSummary | null {
   const index = projects.findIndex((project) => project.slug === slug);
-  if (index === -1 || projects.length < 2) {
+  if (index === -1) {
     return null;
   }
-  return projects[(index + 1) % projects.length] ?? null;
+  return projects[index + 1] ?? null;
 }
