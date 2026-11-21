@@ -40,6 +40,12 @@ export const profileSchema = z.object({
   links: z.array(linkSchema),
   experiences: z.array(experienceSchema),
   education: z.array(educationSchema),
+  /**
+   * When any published content last changed (this profile, an experience, an education entry
+   * or a project, including removing one), e.g. `2026-11-21T09:30:00.000Z`. The home page's
+   * "Last updated" date. A seed that changes nothing leaves it alone.
+   */
+  contentUpdatedAt: z.iso.datetime(),
 });
 
 export const projectSummarySchema = z.object({
@@ -65,6 +71,8 @@ export const projectSectionSchema = z.object({
 export const projectSchema = projectSummarySchema.extend({
   description: z.string(),
   sections: z.array(projectSectionSchema),
+  /** When this project last changed (a new position in the list counts): its page's date. */
+  updatedAt: z.iso.datetime(),
 });
 
 export type ProfileLink = z.infer<typeof linkSchema>;

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { PoolClient } from 'pg';
 import type { EducationRow, ExperienceRow, ProfileRow, ProjectRow } from '../dao/content.dao.js';
 import type { PostgresPool } from '../infra/postgres.js';
@@ -19,12 +20,12 @@ export interface ContentDal {
   findProfile: () => Promise<Profile | null>;
   listProjects: () => Promise<ProjectSummary[]>;
   findProjectBySlug: (slug: string) => Promise<Project | null>;
-  /** Makes the database match `content` exactly, in one transaction. */
-  replaceAll: (content: PortfolioContent) => Promise<void>;
+  replaceAll: (content: PortfolioContent) => Promise<boolean>;
 }
 
 // Column lists match the row types in dao/content.dao.ts. Dates go through to_char (see there).
-const PROFILE_COLUMNS = 'id, full_name, headline, summary, location, links, updated_at';
+const PROFILE_COLUMNS =
+  'id, full_name, headline, summary, location, links, updated_at, content_updated_at';
 
 const EXPERIENCE_COLUMNS = `id, company, role,
   to_char(start_date, 'YYYY-MM-DD') AS start_date,
@@ -85,11 +86,19 @@ export function createContentDal(pool: PostgresPool): ContentDal {
       try {
         await client.query('BEGIN');
         try {
-          await upsertProfile(client, content.profile);
-          await replaceExperiences(client, content.experiences);
-          await replaceEducation(client, content.education);
-          await replaceProjects(client, content.projects);
+          const profileChanged = await upsertProfile(client, content.profile);
+          const experiencesChanged = await replaceExperiences(client, content.experiences);
+          const educationChanged = await replaceEducation(client, content.education);
+          const projectsChanged = await replaceProjects(client, content.projects);
+          const changed =
+            profileChanged || experiencesChanged || educationChanged || projectsChanged;
+
+          // now() is the transaction's start time, so this equals the changed rows' updated_at.
+          if (changed) {
+            await client.query('UPDATE profile SET content_updated_at = now()');
+          }
           await client.query('COMMIT');
+          return changed;
         } catch (error) {
           await client.query('ROLLBACK');
           throw error;
@@ -119,6 +128,7 @@ function toProfile(
     links: row.links,
     experiences: experiences.map(toExperience),
     education: education.map(toEducation),
+    contentUpdatedAt: row.content_updated_at.toISOString(),
   };
 }
 
@@ -157,15 +167,25 @@ function toProjectSummary(row: ProjectRow): ProjectSummary {
 }
 
 function toProject(row: ProjectRow): Project {
-  return { ...toProjectSummary(row), description: row.description, sections: row.sections };
+  return {
+    ...toProjectSummary(row),
+    description: row.description,
+    sections: row.sections,
+    updatedAt: row.updated_at.toISOString(),
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
-// Writes (content:seed)
+// Writes (content:seed). Each returns whether it changed anything: a row that already matches
+// the file is not written, so its updated_at keeps meaning "last changed".
 // ---------------------------------------------------------------------------------------------
 
-async function upsertProfile(client: PoolClient, profile: PortfolioContent['profile']) {
-  await client.query(
+async function upsertProfile(
+  client: PoolClient,
+  profile: PortfolioContent['profile'],
+): Promise<boolean> {
+  // With a WHERE, DO UPDATE skips a row that already matches: 0 rows written instead of 1.
+  const result = await client.query(
     `INSERT INTO profile (id, full_name, headline, summary, location, links)
      VALUES (1, $1, $2, $3, $4, $5::jsonb)
      ON CONFLICT (id) DO UPDATE
@@ -174,7 +194,12 @@ async function upsertProfile(client: PoolClient, profile: PortfolioContent['prof
            summary   = EXCLUDED.summary,
            location  = EXCLUDED.location,
            links     = EXCLUDED.links,
-           updated_at = now()`,
+           updated_at = now()
+       WHERE (profile.full_name, profile.headline, profile.summary, profile.location,
+              profile.links)
+             IS DISTINCT FROM
+             (EXCLUDED.full_name, EXCLUDED.headline, EXCLUDED.summary, EXCLUDED.location,
+              EXCLUDED.links)`,
     [
       profile.fullName,
       profile.headline,
@@ -183,16 +208,32 @@ async function upsertProfile(client: PoolClient, profile: PortfolioContent['prof
       JSON.stringify(profile.links),
     ],
   );
+  return result.rowCount === 1;
 }
 
 /**
- * Experiences have no natural key, so they are replaced wholesale (their ids change on every
- * seed; they are only used as stable list keys within one response).
+ * Experiences have no natural key, so a changed list is replaced wholesale (new ids, which
+ * are only used as stable list keys within one response). An unchanged list, in the same
+ * order, is left alone.
  */
 async function replaceExperiences(
   client: PoolClient,
   experiences: PortfolioContent['experiences'],
-) {
+): Promise<boolean> {
+  const stored = await client.query<ExperienceRow>(
+    `SELECT ${EXPERIENCE_COLUMNS} FROM experiences ORDER BY sort_order`,
+  );
+  const storedEntries = stored.rows.map((row) => ({
+    company: row.company,
+    role: row.role,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    highlights: row.highlights,
+  }));
+  if (isDeepStrictEqual(storedEntries, experiences)) {
+    return false;
+  }
+
   await client.query('DELETE FROM experiences');
   for (const [sortOrder, experience] of experiences.entries()) {
     await client.query(
@@ -208,10 +249,28 @@ async function replaceExperiences(
       ],
     );
   }
+  return true;
 }
 
-/** Education, like experiences, has no natural key and is replaced wholesale. */
-async function replaceEducation(client: PoolClient, education: PortfolioContent['education']) {
+/** Education, like experiences, has no natural key: replaced wholesale, only if it changed. */
+async function replaceEducation(
+  client: PoolClient,
+  education: PortfolioContent['education'],
+): Promise<boolean> {
+  const stored = await client.query<EducationRow>(
+    `SELECT ${EDUCATION_COLUMNS} FROM education ORDER BY sort_order`,
+  );
+  const storedEntries = stored.rows.map((row) => ({
+    institution: row.institution,
+    qualification: row.qualification,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    highlights: row.highlights,
+  }));
+  if (isDeepStrictEqual(storedEntries, education)) {
+    return false;
+  }
+
   await client.query('DELETE FROM education');
   for (const [sortOrder, entry] of education.entries()) {
     await client.query(
@@ -228,12 +287,21 @@ async function replaceEducation(client: PoolClient, education: PortfolioContent[
       ],
     );
   }
+  return true;
 }
 
-/** Projects are upserted by slug (keeping their id and created_at); missing slugs are deleted. */
-async function replaceProjects(client: PoolClient, projects: PortfolioContent['projects']) {
+/**
+ * Projects are upserted by slug (keeping their id and created_at); missing slugs are deleted.
+ * A project is only written when a column differs, `sort_order` included: moving it in the
+ * file moves it on the home page, so that counts as a change.
+ */
+async function replaceProjects(
+  client: PoolClient,
+  projects: PortfolioContent['projects'],
+): Promise<boolean> {
+  let changed = false;
   for (const [sortOrder, project] of projects.entries()) {
-    await client.query(
+    const result = await client.query(
       `INSERT INTO projects
          (slug, title, summary, description, tech_stack, repo_url, live_url, featured, sections,
           sort_order)
@@ -248,7 +316,14 @@ async function replaceProjects(client: PoolClient, projects: PortfolioContent['p
              featured    = EXCLUDED.featured,
              sections    = EXCLUDED.sections,
              sort_order  = EXCLUDED.sort_order,
-             updated_at  = now()`,
+             updated_at  = now()
+         WHERE (projects.title, projects.summary, projects.description, projects.tech_stack,
+                projects.repo_url, projects.live_url, projects.featured, projects.sections,
+                projects.sort_order)
+               IS DISTINCT FROM
+               (EXCLUDED.title, EXCLUDED.summary, EXCLUDED.description, EXCLUDED.tech_stack,
+                EXCLUDED.repo_url, EXCLUDED.live_url, EXCLUDED.featured, EXCLUDED.sections,
+                EXCLUDED.sort_order)`,
       [
         project.slug,
         project.title,
@@ -262,8 +337,11 @@ async function replaceProjects(client: PoolClient, projects: PortfolioContent['p
         sortOrder,
       ],
     );
+    changed ||= result.rowCount === 1; // 1: inserted or updated, 0: already matched
   }
 
+  // "Not in the file": the slug differs from every slug in the list.
   const slugs = projects.map((project) => project.slug);
-  await client.query('DELETE FROM projects WHERE slug <> ALL($1::text[])', [slugs]);
+  const removed = await client.query('DELETE FROM projects WHERE slug <> ALL($1::text[])', [slugs]);
+  return changed || (removed.rowCount ?? 0) > 0;
 }

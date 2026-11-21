@@ -37,6 +37,23 @@ export function formatDuration(months: number): string {
   return parts.join(' ');
 }
 
+/**
+ * "Last updated" values are moments (ISO timestamps), not dates. They are shown as the day in
+ * Singapore, where the owner edits: a change at 07:00 there on 21 November reads "21 November
+ * 2026", although it is still the 20th in UTC.
+ */
+const DAY_MONTH_YEAR = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'Asia/Singapore',
+});
+
+/** `2026-11-20T23:00:00.000Z` → `21 November 2026` (the day in Singapore). */
+export function formatDay(isoTimestamp: string): string {
+  return DAY_MONTH_YEAR.format(new Date(isoTimestamp));
+}
+
 /** Text with paragraphs separated by blank lines → one string per paragraph, blanks dropped. */
 export function paragraphs(text: string): string[] {
   return text

@@ -71,7 +71,7 @@ Redis has numbered "logical databases" inside one server. We use **DB 0** for de
 | Phase | PostgreSQL (database `portfolio`)                              | Redis (DB 0)                                                         |
 | ----- | -------------------------------------------------------------- | -------------------------------------------------------------------- |
 | 1     | `schema_migrations`                                            | —                                                                    |
-| 2     | `profile`, `experiences`, `education`, `projects`              | `cache:v2:profile`, `cache:v1:projects`, `cache:v2:project:<slug>`   |
+| 2     | `profile`, `experiences`, `education`, `projects`              | `cache:v3:profile`, `cache:v1:projects`, `cache:v3:project:<slug>`   |
 | 3     | `analytics_events`                                             | `telemetry:events:buffer` / `:inflight` / `:dlq`, `telemetry:salt:*` |
 | 4     | `contact_messages`                                             | `ratelimit:contact:<hash>`, `jobs:notifications:*`                   |
 | 5     | — (the website fills the tables above via the API)             | — (the status endpoint reads queue lengths)                          |
@@ -144,9 +144,11 @@ terminal for `curl`. Run `npm run dev:api` in a fourth terminal.
 5. **Publish an edit.** Change a project title in `apps/api/content/portfolio.json`, **save
    it** (`Ctrl+S`; the seed reads the file from disk, not your editor), then run
    `npm run content:seed`.
-   - Postgres: re-run "Select Top 1000" on `projects`: the new title. (`updated_at` changes
-     on every seed, even when nothing changed, so the title is the real evidence.)
-   - `MONITOR`: a `scan` for `cache:v2:project:*`, one `del` of every content key, then a
+   - Postgres: re-run "Select Top 1000" on `projects`: the new title, and a new `updated_at`
+     on that row only. The other rows keep theirs, and so does every row if you seed again
+     without changing the file (the seed logs `"changed":false`). That `updated_at` is the
+     project page's "Last updated" date.
+   - `MONITOR`: a `scan` for `cache:v3:project:*`, one `del` of every content key, then a
      `get` (miss) + `set` pair per key as the seed warms the cache.
    - Redis view: click ↻ on the database row to reload the key list, then click the key
      again (the value panel shows what it loaded last time). Fresh TTLs and the new title.
@@ -524,7 +526,7 @@ $C exec redis redis-cli LLEN telemetry:events:buffer
 What to watch:
 
 1. **Two replicas, one Redis.** Run `MONITOR`, then load https://localhost twice. The content
-   reads (`GET cache:v2:profile`…) arrive from two different client addresses: api-1 and
+   reads (`GET cache:v3:profile`…) arrive from two different client addresses: api-1 and
    api-2 share one cache, so a hit on one is a hit on both (DESIGN.md §14.5).
 2. **The round robin.** On https://localhost/admin, "answered by" at the bottom of the system
    status alternates between `api-1` and `api-2`.

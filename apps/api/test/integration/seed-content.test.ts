@@ -48,4 +48,22 @@ describe('content:seed CLI', () => {
     expect(cachedProjects).toHaveLength(projectCount.rowCount ?? -1);
     expect(await deps.redis.exists(CONTENT_CACHE_KEYS.profile)).toBe(1);
   });
+
+  // Every deploy runs the seed: with an unchanged file, the site's dates must stay put.
+  it('moves no "Last updated" date when portfolio.json has not changed', async () => {
+    const readDates = async () => {
+      const profile = await deps.postgres.query('SELECT content_updated_at FROM profile');
+      const projects = await deps.postgres.query(
+        'SELECT slug, updated_at FROM projects ORDER BY slug',
+      );
+      const experiences = await deps.postgres.query('SELECT id FROM experiences ORDER BY id');
+      return [profile.rows, projects.rows, experiences.rows];
+    };
+
+    expect(await runSeedCli()).toBe(0);
+    const before = await readDates();
+    expect(await runSeedCli()).toBe(0);
+
+    expect(await readDates()).toEqual(before);
+  });
 });

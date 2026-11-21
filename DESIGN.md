@@ -155,7 +155,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   ├── 0004_analytics_visitor_details.sql (P3)
 │   │   │   ├── 0005_contact_messages.sql         (P4)
 │   │   │   ├── 0006_project_sections.sql         (P6)
-│   │   │   └── 0007_analytics_ip_address.sql     (P6)
+│   │   │   ├── 0007_analytics_ip_address.sql     (P6)
+│   │   │   └── 0008_content_updated_at.sql       "Last updated" dates (§5.2d)
 │   │   ├── src/
 │   │   │   ├── main.ts                   API composition root + process lifecycle
 │   │   │   ├── worker.ts                 (P3) worker composition root + process lifecycle
@@ -366,7 +367,8 @@ Docker Compose additionally reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRE
   deploy applies them before the new version starts (expand → contract, see §14.4).
 - `CREATE INDEX CONCURRENTLY` is not supported (it cannot run inside a transaction).
 - `gen_random_uuid()` is built into Postgres 13+, so no extension is needed.
-- `updated_at` is set explicitly by the DAL's `UPDATE` statements (no triggers).
+- `updated_at` is set explicitly by the DAL's `UPDATE` statements (no triggers). Content rows
+  get it only when the seed really changes them (§8.1), so it means "last changed".
 - Status columns use `TEXT` + `CHECK` rather than Postgres `ENUM`, which cannot drop or
   rename values without a type rebuild.
 
@@ -450,6 +452,25 @@ than a child table: sections are always read and written together with their pro
 queried on their own. Only `content:seed` writes them, after the content file's schema has
 checked every section (heading ≤ 120 characters, body ≤ 2,000, points ≤ 500 each, at most 20
 sections, and a body or at least one point under every heading).
+
+### 5.2d `0008_content_updated_at.sql` (after launch)
+
+The "Last updated" dates on the site (§8.6). Expand-only, like 0006.
+
+```sql
+ALTER TABLE profile ADD COLUMN content_updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+UPDATE profile SET content_updated_at = updated_at;   -- the last seed: the best known answer
+```
+
+- **A project page** shows `projects.updated_at`.
+- **The home page** shows `profile.content_updated_at`: when the seed last changed _any_ content
+  (the profile, an experience, an education entry or a project, removals included). It sits on
+  the profile row because that is the content's only singleton. A column on its own, rather
+  than the newest `updated_at` of all rows, because a removed project leaves no row behind to
+  carry the date.
+
+Both move only when something really changed (§8.1, step 7). Before 0008 every seed rewrote
+every row, so on the live site all dates start from the last seed before it.
 
 ### 5.3 `0003_analytics_events.sql` (Phase 3)
 
@@ -556,9 +577,9 @@ CREATE INDEX contact_messages_created_at_idx ON contact_messages (created_at DES
 
 | Key                             | Type                     | TTL                       | Phase | Purpose                                                   |
 | ------------------------------- | ------------------------ | ------------------------- | ----- | --------------------------------------------------------- |
-| `cache:v2:profile`              | STRING (JSON)            | `CACHE_TTL_SECONDS` ±10 % | 2     | Profile + experiences + education response                |
+| `cache:v3:profile`              | STRING (JSON)            | `CACHE_TTL_SECONDS` ±10 % | 2     | Profile + experiences + education response                |
 | `cache:v1:projects`             | STRING (JSON)            | same                      | 2     | Project list response                                     |
-| `cache:v2:project:{slug}`       | STRING (JSON)            | same                      | 2     | Single project (v2: added `sections`)                     |
+| `cache:v3:project:{slug}`       | STRING (JSON)            | same                      | 2     | Single project (v2: `sections`, v3: `updatedAt`)          |
 | `telemetry:salt:{YYYY-MM-DD}`   | STRING (hex)             | 48 h                      | 3     | Daily visitor-hash salt (UTC date); created with `SET NX` |
 | `telemetry:events:buffer`       | LIST (JSON)              | none                      | 3     | Ingested events awaiting flush                            |
 | `telemetry:events:inflight`     | LIST (JSON)              | none                      | 3     | Batch claimed by the flusher, not yet committed           |
@@ -572,7 +593,8 @@ CREATE INDEX contact_messages_created_at_idx ON contact_messages (created_at DES
 The `v1`/`v2` in cache keys is a **shape version**: changing a cached response shape bumps it,
 so old entries are never read again and simply expire. It also keeps a deploy safe: while old
 and new code run side by side, each reads and writes its own key instead of overwriting the
-other's entries. The profile is at `v2` since `education` was added.
+other's entries. The profile is at `v3` (`education`, then `contentUpdatedAt`), a single
+project at `v3` (`sections`, then `updatedAt`); the list's shape never changed.
 
 ### 6.3 Server configuration (docker-compose)
 
@@ -815,10 +837,14 @@ Failure reasons are **logged** (with `requestId`), never returned; they can cont
         "endDate": "2026-05-31",
         "highlights": ["…"]
       }
-    ]
+    ],
+    "contentUpdatedAt": "2026-11-21T09:30:00.000Z"
   }
 }
 ```
+
+`contentUpdatedAt` (since migration 0008): when the seed last changed any content, projects
+included (§5.2d). The home page's "Last updated" date.
 
 `404 NOT_FOUND` if content has not been seeded.
 
@@ -827,8 +853,9 @@ Failure reasons are **logged** (with `requestId`), never returned; they can cont
 
 `GET /api/v1/projects/:slug` → `200 { "data": Project }`, `404` if no such project, or
 `400 VALIDATION_ERROR` if the slug is malformed (`^[a-z0-9]+(-[a-z0-9]+)*$`, ≤ 100).
-`Project = ProjectSummary + { description, sections: [{ heading, body|null, points[] }] }`
-(`sections` since migration 0006; `[]` for a project without any).
+`Project = ProjectSummary + { description, sections: [{ heading, body|null, points[] }], updatedAt }`
+(`sections` since migration 0006; `[]` for a project without any). `updatedAt`: when the seed
+last changed this project, a new position in the list included (§5.2d); its page's date.
 
 All three set `X-Cache: hit | miss`.
 
@@ -994,12 +1021,19 @@ which key, schema and DAL query to use.
    freshly loaded value overwrites it.
 6. "Not found" (`null`) is **not cached**, so newly published content appears immediately.
 7. `npm run content:seed` validates `content/portfolio.json` (all problems listed, nothing
-   written on error) and, in one transaction, upserts the profile, replaces all experiences
-   and education entries (their ids change per seed), upserts projects by slug and deletes
-   projects no longer in the file. It then deletes every content cache key (`SCAN` for
-   `cache:v2:project:*`) and warms the cache through the normal read path. If clearing the
-   cache fails, the command exits `1` (Postgres is already updated; cached copies may be stale
-   until their TTL). There is no HTTP endpoint for editing content.
+   written on error) and, in one transaction, upserts the profile, replaces the experiences
+   and the education entries (their ids change when they do), upserts projects by slug and
+   deletes projects no longer in the file. **Only what changed is written**, because every
+   deploy runs the seed and `updated_at` is the site's "Last updated" date (§5.2d): the
+   upserts end in `WHERE (columns) IS DISTINCT FROM (EXCLUDED columns)`, so a matching row is
+   skipped (a project's `sort_order` is one of those columns: moving it is a change), and a
+   list of experiences or education entries is only replaced if it differs from the stored
+   one, order included. If anything changed, removals included, `profile.content_updated_at`
+   becomes `now()`, the same instant as the changed rows. The command logs `changed: true` or
+   `false`. It then deletes every content cache key (`SCAN` for `cache:v3:project:*`) and warms
+   the cache through the normal read path. If clearing the cache fails, the command exits `1`
+   (Postgres is already updated; cached copies may be stale until their TTL). There is no HTTP
+   endpoint for editing content.
 
 ### 8.2 Module B: Telemetry pipeline
 
@@ -1290,6 +1324,12 @@ highlights the section being read (`components/project-contents.tsx`; ids from
 `lib/project-page.ts`). A "Back to projects" button (at least 44 px tall) sits at the top and
 bottom, beside a link to the next project. Source and live links appear on the project page
 only, never inside a card (a link inside a link is invalid HTML).
+
+**Last updated.** The last line of each visitor page's content says when it last changed
+(`components/last-updated.tsx`): on the home page `contentUpdatedAt` (any content, projects
+included), on a project page that project's `updatedAt` (§5.2d). It shows the day in
+Singapore, where the owner edits (`formatDay` in `lib/format.ts`), inside a `<time>` element
+with the exact moment. The not-found and error pages have no content of their own, so no date.
 
 **Live system dashboard** (on `/admin`, §8.7; `components/status-dashboard.tsx`, logic in
 `lib/status.ts`). The browser polls `/admin/system-status` every 5 s (the API's own cache

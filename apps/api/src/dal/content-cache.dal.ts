@@ -6,9 +6,9 @@ import type { Redis } from '../infra/redis.js';
  * deploy, old and new code then use different keys instead of overwriting each other's entries.
  */
 export const CONTENT_CACHE_KEYS = {
-  profile: 'cache:v2:profile', // v2: added `education`
+  profile: 'cache:v3:profile', // v2: added `education`, v3: `contentUpdatedAt`
   projects: 'cache:v1:projects',
-  project: (slug: string) => `cache:v2:project:${slug}`, // v2: added `sections`
+  project: (slug: string) => `cache:v3:project:${slug}`, // v2: added `sections`, v3: `updatedAt`
 } as const;
 
 const PROJECT_KEY_PATTERN = CONTENT_CACHE_KEYS.project('*');

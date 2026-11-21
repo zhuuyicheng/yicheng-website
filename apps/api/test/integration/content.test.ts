@@ -82,7 +82,9 @@ describe('content API with live Postgres and Redis', () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/projects/note-g' });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json<DataResponseBody<Project>>().data).toEqual({
+    const { updatedAt, ...project } = response.json<DataResponseBody<Project>>().data;
+    expect(updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(project).toEqual({
       slug: 'note-g',
       title: 'Note G',
       summary: 'Annotated translation.',

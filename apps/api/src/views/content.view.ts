@@ -20,6 +20,7 @@ export function renderProfile(profile: Profile): DataResponseBody<Profile> {
       links: profile.links.map((link) => ({ label: link.label, url: link.url })),
       experiences: profile.experiences.map(toExperience),
       education: profile.education.map(toEducation),
+      contentUpdatedAt: profile.contentUpdatedAt,
     },
   };
 }
@@ -38,6 +39,7 @@ export function renderProject(project: Project): DataResponseBody<Project> {
         body: section.body,
         points: section.points,
       })),
+      updatedAt: project.updatedAt,
     },
   };
 }

@@ -137,7 +137,7 @@ sequenceDiagram
   C->>W: forward
   W->>C: GET /api/v1/profile and /projects (internal port 8080)
   C->>A: round robin
-  A->>R: GET cache:v2:profile
+  A->>R: GET cache:v3:profile
   alt cache hit
     R-->>A: cached JSON
   else miss
@@ -178,8 +178,9 @@ flowchart TD
 
 Code: [cache-aside.manager.ts](../apps/api/src/services/cache-aside.manager.ts) (the whole
 algorithm), [content-cache.dal.ts](../apps/api/src/dal/content-cache.dal.ts). Publishing
-content: [seed-content.ts](../apps/api/src/cli/seed-content.ts) validates the JSON, writes it
-in one transaction, then clears and re-warms the cache.
+content: [seed-content.ts](../apps/api/src/cli/seed-content.ts) validates the JSON, writes
+only what changed in one transaction (so the pages' "Last updated" dates mean something), then
+clears and re-warms the cache.
 
 ### 4.3 Page views: the analytics pipeline
 
