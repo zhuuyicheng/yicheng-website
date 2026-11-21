@@ -38,8 +38,9 @@ describe('nextProject', () => {
     expect(nextProject(projects, 'a')?.slug).toBe('b');
   });
 
-  it('wraps round from the last project to the first', () => {
-    expect(nextProject(projects, 'c')?.slug).toBe('a');
+  // Regression: the last project used to lead back to the first.
+  it('offers no next project after the last one', () => {
+    expect(nextProject(projects, 'c')).toBeNull();
   });
 
   it('returns null for an unknown slug or a single project', () => {

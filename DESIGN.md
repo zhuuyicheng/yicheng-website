@@ -1322,8 +1322,9 @@ technology filter narrows the grid. A project page shows the overview (`descript
 each section (heading, paragraphs, points) with an "On this page" list on wide screens that
 highlights the section being read (`components/project-contents.tsx`; ids from
 `lib/project-page.ts`). A "Back to projects" button (at least 44 px tall) sits at the top and
-bottom, beside a link to the next project. Source and live links appear on the project page
-only, never inside a card (a link inside a link is invalid HTML).
+bottom, beside a link to the next project (none on the last: the list ends there rather than
+leading back to the first). Source and live links appear on the project page only, never
+inside a card (a link inside a link is invalid HTML).
 
 **Last updated.** The last line of each visitor page's content says when it last changed
 (`components/last-updated.tsx`): on the home page `contentUpdatedAt` (any content, projects
