@@ -69,7 +69,17 @@
       "title": "Portfolio & Live Telemetry Platform",
       "summary": "This website: a TypeScript backend with Redis caching, async event ingestion, rate limiting and live observability.",
       "description": "A Fastify API in a layered MVC structure backed by PostgreSQL and Redis. Content is served cache-aside with single-flight loading and TTL jitter; telemetry events are buffered in Redis and flushed in batches by a worker; the contact form is protected by an atomic Lua sliding-window rate limiter. Every retry and fallback is logged and counted in Prometheus metrics.",
-      "techStack": ["TypeScript", "Node.js", "Fastify", "PostgreSQL", "Redis", "Next.js"],
+      "techStack": [
+        "TypeScript",
+        "Node.js",
+        "Fastify",
+        "PostgreSQL",
+        "Redis",
+        "Next.js",
+        "Docker",
+        "Caddy",
+        "GitHub Actions"
+      ],
       "repoUrl": null,
       "liveUrl": null,
       "featured": true,
@@ -109,6 +119,18 @@
             "Prometheus metrics cover request latency, cache hit ratio, queue sizes, retries and fallbacks.",
             "A password-protected dashboard shows live health, response times (p50 and p95), the cache hit ratio and queue sizes, refreshed every five seconds.",
             "Structured logs carry a request ID, so one request can be followed through every layer."
+          ]
+        },
+        {
+          "heading": "Deployment",
+          "body": "The site runs on a small Oracle Cloud Arm server with Docker Compose. Every change reaches it through the same automated path, and goes live only after a manual approval.",
+          "points": [
+            "Every pull request also builds the two Docker images (API and website) for the server's Arm processor, so a broken image fails the pull request rather than the deploy. The main branch only accepts pull requests that passed.",
+            "After a merge, the images are pushed to GitHub's container registry, tagged with the commit they were built from, so every release traces back to its code.",
+            "Once approved, a script on the server migrates the database (backward-compatible changes only), publishes the content, then replaces the containers one at a time, each healthy before the next. A deploy takes under 90 seconds.",
+            "Two API instances run behind Caddy, which provides HTTPS and load balancing: while one restarts, requests go to the other. In tests, not one API request failed during a deploy or a rollback.",
+            "A smoke test checks each new release; if any step fails, the previous release is restored automatically.",
+            "A maintenance switch replaces the site with a \"back soon\" page (HTTP 503) without stopping anything, and secrets live only on the server, never in the images or the repository."
           ]
         },
         {
