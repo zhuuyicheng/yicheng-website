@@ -2,7 +2,7 @@ import type { Redis } from '../infra/redis.js';
 import { BOUNDED_ENQUEUE_SCRIPT } from './lua/bounded-enqueue.lua.js';
 import { CLAIM_BATCH_SCRIPT } from './lua/claim-batch.lua.js';
 
-/** Redis keys of the telemetry pipeline. All are data, not cache: none has a TTL. DESIGN.md §6.2. */
+/** Redis keys of the telemetry pipeline (DESIGN.md §6.2). Data, not cache: none has a TTL. */
 export const TELEMETRY_BUFFER_KEYS = {
   /** LIST of event JSON: the API appends on the right, the flusher claims from the left. */
   buffer: 'telemetry:events:buffer',

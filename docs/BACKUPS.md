@@ -163,7 +163,7 @@ bash ~/portfolio/deploy/restore.sh ~/backups/portfolio/portfolio-2026-11-22-1800
 
 1. checks the file against its checksum;
 2. loads it into a new database while the site keeps running;
-3. stops the API replicas and the worker (a few seconds of "API unreachable");
+3. stops the API replicas and the worker (for a few seconds, pages say "This page couldn't load");
 4. **swaps** names in one transaction: the current database becomes
    `portfolio_before_restore_<time>`, the restored one becomes `portfolio`;
 5. applies newer migrations, clears the cached content, starts the services again.

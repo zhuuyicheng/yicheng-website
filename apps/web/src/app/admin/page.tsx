@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-/** Written out instead of Next's generated `PageProps` (see projects/[slug]/page.tsx). */
+/** Written out instead of Next's generated `PageProps` (see app/[slug]/page.tsx). */
 interface AdminPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
@@ -240,9 +240,8 @@ function VisitorCountingExplainer() {
         <strong className="font-medium text-ink">Unique visitors per day</strong> (the chart) treats
         the same network address and browser on the same day as one person, so two colleagues in one
         office with the same browser may count as one, and one person on a phone and a laptop as
-        two. The way people are recognised changes every day on purpose, so nobody can be followed
-        from one day to the next. That is also why there is no &ldquo;unique visitors&rdquo; total
-        for the whole period.
+        two. The chart recognises people afresh every day, on purpose, so its days cannot be added
+        up: that is why there is no &ldquo;unique visitors&rdquo; total for the whole period.
       </p>
       <p>
         <strong className="font-medium text-ink">Not counted:</strong> your own browsing from this

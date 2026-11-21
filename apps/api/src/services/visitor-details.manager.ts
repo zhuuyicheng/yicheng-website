@@ -8,8 +8,9 @@ import type {
 } from '../schema/analytics-event.schema.js';
 
 /**
- * What the request itself reveals about the visitor. Used to derive details and the visitor
- * hash, then discarded: the raw IP and user agent are never stored or logged.
+ * What the request itself reveals about the visitor, used to derive the details and the
+ * visitor hash. The user agent is then discarded (never stored or logged). The IP address is
+ * also stored with the event, by the owner's choice (DESIGN.md §12), but never logged.
  */
 export interface Visitor {
   ip: string;

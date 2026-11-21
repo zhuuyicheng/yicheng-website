@@ -1017,8 +1017,8 @@ which key, schema and DAL query to use.
 4. Get today's salt: in-process memo keyed by UTC date → else `GET` → else `SET NX EX 172800`
    with 32 random bytes, then `GET` (whoever won the race defines the salt).
 5. `visitorHash = sha256(salt, ip, userAgent joined by newlines)`; the separator keeps the parts
-   unambiguous. It counts unique visitors per day; a new salt each day means the same person
-   cannot be linked across days.
+   unambiguous. It counts unique visitors per day; a new salt each day means the hash cannot
+   link the same person across days (the stored IP address can, §12).
 6. Build the buffered event: `id` (a new UUID), `type`, `name`, `path`, `referrerHost`,
    `sessionId`, `visitorHash`, `receivedAt`, the `campaign`, `device` and `network` groups,
    and `ipAddress` (since migration 0007).
@@ -1586,7 +1586,7 @@ gate once releases are routine.
   `node dist/cli/migrate.js`, `node dist/cli/seed-content.js`, `node dist/cli/replay-dlq.js`.
   It contains `migrations/` and `content/`. The GeoIP files (§8.2) are not in Git: a `geoip`
   build stage runs the downloader (with `tsx`, from only its own source files, so a code change
-  elsewhere reuses the cached ~140 MB download), and each image carries that month's files.
+  elsewhere reuses the cached ~140 MB of files), and each image carries that month's files.
   The build argument `GEOIP_MONTH` (CI passes the current `YYYY-MM`) is part of the cache key,
   so a month's first build fetches fresh files; an image older than a month should be rebuilt
   to refresh them. `GEOIP_*_DB_PATH` default to those files in the image, and

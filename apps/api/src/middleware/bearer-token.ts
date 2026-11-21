@@ -4,7 +4,8 @@ import { AppError, ErrorCode } from '../errors/app-error.js';
 
 /**
  * A route hook that only lets requests with `Authorization: Bearer <token>` through; the rest
- * get 401 (DESIGN.md §7.2). Used for GET /metrics when METRICS_TOKEN is set.
+ * get 401 (DESIGN.md §7.2). Used for GET /metrics (when METRICS_TOKEN is set) and for the
+ * owner's /api/v1/admin/* routes (ADMIN_TOKEN).
  *
  * Why the hashing and `timingSafeEqual` instead of `given === token`: `===` stops at the first
  * different character, so a wrong guess that starts right takes a few nanoseconds longer. With

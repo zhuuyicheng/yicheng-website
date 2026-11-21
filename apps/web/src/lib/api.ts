@@ -28,7 +28,7 @@ export class ApiUnavailableError extends Error {
 
 /**
  * `null` for 404 (e.g. an unknown project slug). Anything else that is not a valid 200 throws,
- * and the nearest error.tsx shows "API unreachable" with a retry button.
+ * and the nearest error.tsx shows "This page couldn't load" with a "Try again" button.
  */
 async function getData<T extends z.ZodType>(path: string, schema: T): Promise<z.infer<T> | null> {
   // Render at request time, not during `next build`: the content lives in the API (which

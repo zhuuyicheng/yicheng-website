@@ -271,6 +271,9 @@ on that file lists each key's fingerprint).
   "back soon" page; `/admin` asks for its password and works with it; pausing and resuming
   take effect at once; a deploy while paused passes and leaves the site paused. Its checks
   fail when they should: API replicas stopped, the site not actually paused, the page missing.
+- **Second deploy and the pause on the server** (2026-11-21): the release with the pause
+  switch deployed in 39 s; pausing showed the "back soon" page, and resuming brought the site
+  back.
 
 The first version trusted `docker compose up --wait`, which reports success when its timeout
 passes while a container is still _starting_: a dead replica got through and the script took

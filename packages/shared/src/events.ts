@@ -18,7 +18,7 @@ const TIME_ZONE = /^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+){0,2}$/;
 /** Limits the API enforces; the beacon trims to them rather than having an event refused. */
 export const EVENT_LIMITS = { path: 512, referrer: 1024 } as const;
 
-/** Interaction names: lowercase, e.g. `click:github-link`. */
+/** Interaction names: lowercase, e.g. `click:linkedin-link`. */
 export const INTERACTION_NAME = /^[a-z0-9:_-]{1,64}$/;
 
 export const eventRequestSchema = z

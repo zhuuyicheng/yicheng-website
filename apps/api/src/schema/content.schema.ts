@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { projectSlugSchema } from '@portfolio/shared';
 
 /**
- * Portfolio content: the profile (with work experience) and projects. See DESIGN.md §7.4.
+ * Portfolio content: the profile (with experience and education) and projects. DESIGN.md §7.4.
  *
  * Two families of schemas:
  *   1. API shapes: what the endpoints return. They are the public contract, so they live in
@@ -91,7 +91,7 @@ const contentProjectSectionSchema = z
 
 /**
  * Projects live at `/<slug>` on the website, beside its own pages, so a slug must not take one
- * of their addresses (`/projects` redirects old links, `/admin` is the owner's page).
+ * of their addresses (`/projects` and `/privacy` redirect old links, `/admin` is the owner's).
  */
 export const RESERVED_PROJECT_SLUGS = ['admin', 'projects', 'privacy'] as const;
 

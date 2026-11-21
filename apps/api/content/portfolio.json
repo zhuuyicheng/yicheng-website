@@ -2,7 +2,7 @@
   "profile": {
     "fullName": "Zhu Yicheng",
     "headline": "Software Engineer · Backend Systems, APIs & Test Automation",
-    "summary": "I'm a singaporean software engineer based in Singapore and NUS Computer Science graduate. I build backend services and APIs in TypeScript/Node.js and Java/Spring Boot, and I care about what keeps them reliable in production: meaningful metrics and alerting, thorough automated tests, and documented root-cause analysis. This website is itself one of my projects: a TypeScript backend with Redis caching, asynchronous event ingestion and live observability.",
+    "summary": "I'm a Singaporean software engineer based in Singapore and an NUS Computer Science graduate. I build backend services and APIs in TypeScript/Node.js and Java/Spring Boot, and I care about what keeps them reliable in production: meaningful metrics and alerting, thorough automated tests, and documented root-cause analysis. This website is itself one of my projects: a TypeScript backend with Redis caching, asynchronous event ingestion and live observability.",
     "location": "Singapore",
     "links": [
       {
@@ -88,8 +88,8 @@
           "heading": "Visitor analytics",
           "body": "Page views are recorded without slowing the page down: the API accepts each event almost instantly and a background worker does the rest.",
           "points": [
-            "The browser sends a small event; the API validates it and adds the visitor's country, organisation and browser from local lookups. The raw IP address is never stored.",
-            "Unique visitors are counted with a hash that changes every day, so no one can be followed from one day to the next.",
+            "The browser sends a small event; the API validates it and adds the visitor's country, organisation and browser from local lookups.",
+            "Unique visitors per day are counted with a salted hash that changes daily.",
             "Events wait in a Redis queue, and a worker writes them to PostgreSQL in batches.",
             "Failed writes are retried with increasing delays; an event that can never be stored is set aside in a dead-letter queue and can be replayed later."
           ]
@@ -107,7 +107,7 @@
           "heading": "Monitoring",
           "points": [
             "Prometheus metrics cover request latency, cache hit ratio, queue sizes, retries and fallbacks.",
-            "The public status page shows live health, response times (p50 and p95), the cache hit ratio and queue sizes, refreshed every five seconds.",
+            "A password-protected dashboard shows live health, response times (p50 and p95), the cache hit ratio and queue sizes, refreshed every five seconds.",
             "Structured logs carry a request ID, so one request can be followed through every layer."
           ]
         },
