@@ -78,11 +78,11 @@ Things worth noticing, top to bottom:
    but its source is not in the image yet at that point; the build stage builds it instead.
    No runtime package needs an install script.
 4. **The `geoip` stage** copies only the downloader and the two modules it imports, and runs
-   them with `tsx`. So the ~140 MB download depends on those three files and the month, not
-   on the rest of the code: rebuilding after a code change reuses it. `GEOIP_MONTH` is the
-   cache key: `npm run image:api` and CI pass the current month, so a new month fetches fresh
-   files. If you add an import to `download-geoip.ts`, add that file to this stage too (the
-   build fails with "Cannot find module" if you forget).
+   them with `tsx`. So the download (~140 MB of files) depends on those three files and the
+   month, not on the rest of the code: rebuilding after a code change reuses it. `GEOIP_MONTH`
+   is the cache key: `npm run image:api` and CI pass the current month, so a new month fetches
+   fresh files. If you add an import to `download-geoip.ts`, add that file to this stage too
+   (the build fails with "Cannot find module" if you forget).
 5. **`runtime`**: files belong to `root` and the process runs as the unprivileged `node`
    user (`USER node`), so even a compromised process cannot change its own code.
    `NODE_OPTIONS=--enable-source-maps` makes stack traces point at the `.ts` lines.
@@ -208,7 +208,7 @@ Both jobs are required checks for `main` ([CI.md §4](CI.md#4-protecting-main)).
 | GeoIP download fails                         | DB-IP unreachable or not yet published: retry later (it tries last month's file too) |
 | API exits with a config error                | A required variable is missing: the message names it (`.env.example` lists them all) |
 | `Cannot find module 'pino-pretty'`           | `NODE_ENV` is `development` (from your `.env`): add `-e NODE_ENV=production`         |
-| Site shows "API unreachable"                 | `API_BASE_URL` must name the API container: `http://portfolio-api-dev:4000`          |
+| Site shows "This page couldn't load"         | `API_BASE_URL` must name the API container: `http://portfolio-api-dev:4000`          |
 | `--network host` works on Linux but not here | Docker Desktop's "host" is its own VM, not WSL: use the compose network as above     |
 
 ---

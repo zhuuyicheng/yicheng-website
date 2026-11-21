@@ -3,7 +3,7 @@ import type { SystemStatus } from '../schema/system-status.schema.js';
 import type { DataResponseBody } from './data.view.js';
 
 // Fields are copied one by one on purpose: anything added to the status object only reaches
-// the public dashboard once it is added here.
+// the owner's dashboard once it is added here.
 
 export function renderSystemStatus(status: SystemStatus): DataResponseBody<SystemStatus> {
   return {

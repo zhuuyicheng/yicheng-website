@@ -230,7 +230,7 @@ $C exec caddy caddy reload --config /etc/caddy/Caddyfile   # apply a Caddyfile c
 | `pull access denied for portfolio-api`      | The image is not built yet: `npm run image:api && npm run image:web`                 |
 | `port is already allocated` / `bind: … 443` | Another program uses port 80 or 443: stop it (or the other container), then retry    |
 | "Your connection is not private"            | Expected for `localhost`: Caddy's own certificate (section 3)                        |
-| Site says "API unreachable"                 | Both replicas down: `$C ps`, then `$C logs api-1`                                    |
+| Site says "This page couldn't load"         | Both replicas down: `$C ps`, then `$C logs api-1`                                    |
 | A Caddyfile change has no effect            | `reload` (section 7); check `$C exec caddy cat /etc/caddy/Caddyfile` shows your edit |
 | `stack:failover` reports failures           | Read Caddy's reasons: `$C logs caddy \| grep '"level":"error"'`                      |
 | Changed code does not show                  | Rebuild the image (`npm run image:api`), then `npm run stack:up` again               |

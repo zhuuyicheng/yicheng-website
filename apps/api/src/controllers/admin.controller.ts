@@ -14,7 +14,7 @@ export const ADMIN_VISITORS_PATH = `${API_V1}/admin/visitors`;
 /**
  * The owner's endpoints (DESIGN.md §7.7, §7.8), read by the web app's password-protected
  * /admin page. Every route needs `Authorization: Bearer <ADMIN_TOKEN>`; without the token
- * set, main wiring does not register them at all. Responses are never stored by caches.
+ * set, app.ts does not register them at all. Responses are never stored by caches.
  */
 export function registerAdminController(
   app: FastifyInstance,

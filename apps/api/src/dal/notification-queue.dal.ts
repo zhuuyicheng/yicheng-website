@@ -2,7 +2,7 @@ import type { Redis } from '../infra/redis.js';
 import { PROMOTE_DUE_JOBS_SCRIPT } from './lua/promote-due-jobs.lua.js';
 import { execOrThrow } from './redis-exec.js';
 
-/** Redis keys of the notification job queue. All are data, not cache: none has a TTL. DESIGN.md §6.2. */
+/** Redis keys of the notification job queue (DESIGN.md §6.2). Data, not cache: none has a TTL. */
 export const NOTIFICATION_QUEUE_KEYS = {
   /** LIST of job JSON, ready to run: `LPUSH` in, taken from the right (oldest first). */
   ready: 'jobs:notifications:ready',

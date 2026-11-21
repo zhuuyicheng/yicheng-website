@@ -2,7 +2,7 @@ import type { AnchorHTMLAttributes, ReactNode } from 'react';
 
 interface TrackedLinkProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> {
   href: string;
-  /** Interaction name sent to the API on click, e.g. `click:github-link` (DESIGN.md §7.5). */
+  /** Interaction name sent to the API on click, e.g. `click:linkedin-link` (DESIGN.md §7.5). */
   track: string;
   children: ReactNode;
 }

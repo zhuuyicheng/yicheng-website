@@ -97,7 +97,7 @@ export function buildPageView(input: PageViewInput): EventRequest | null {
   return validOrWithoutTimezone(event);
 }
 
-/** `GitHub` → `click:github-link`: an interaction name the API accepts (lowercase, ≤ 64). */
+/** `LinkedIn` → `click:linkedin-link`: an interaction name the API accepts (lowercase, ≤ 64). */
 export function trackName(label: string, kind = 'link'): string {
   const slug = label
     .toLowerCase()
@@ -107,7 +107,7 @@ export function trackName(label: string, kind = 'link'): string {
   return `click:${slug || 'external'}-${kind}`;
 }
 
-/** A click worth knowing about, e.g. `click:github-link`. `null` if the name is not allowed. */
+/** A click worth knowing about, e.g. `click:linkedin-link`. `null` if the name is not allowed. */
 export function buildInteraction(
   name: string,
   input: Omit<PageViewInput, 'referrer'>,

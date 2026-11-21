@@ -108,7 +108,7 @@ export function createTelemetryManager(deps: TelemetryManagerDependencies): Tele
   };
 }
 
-/** `/projects/x?utm_source=y#top` → `/projects/x`. Query strings can carry personal data. */
+/** `/bowling-buddy?utm_source=y#top` → `/bowling-buddy`. Query strings can carry personal data. */
 export function stripQueryAndFragment(path: string): string {
   const end = path.search(/[?#]/);
   return end === -1 ? path : path.slice(0, end);
@@ -120,12 +120,6 @@ export function hostOf(referrer: string | null | undefined): string | null {
 }
 
 /**
- * sha256 of salt, IP and user agent. The same visitor gives the same hash all day (so unique
- * visitors can be counted) but a different one tomorrow (so nobody can be tracked across
- * days), and the hash cannot be reversed to the IP. The newline separators keep the parts
- * unambiguous ("1.2.3.4" + "5x" must not equal "1.2.3.45" + "x"); headers cannot contain one.
- */
-/**
  * The address as Postgres INET will accept it, or null. `request.ip` is normally a valid
  * IPv4 or IPv6 address; anything else would fail the whole batch insert in the worker.
  */
@@ -133,6 +127,13 @@ export function storableIp(ip: string): string | null {
   return isIP(ip) === 0 ? null : ip;
 }
 
+/**
+ * sha256 of salt, IP and user agent. The same visitor gives the same hash all day (so unique
+ * visitors can be counted) but a different one tomorrow (so the hash alone cannot link one
+ * day's visits to the next), and it cannot be reversed to the IP. The newline separators keep
+ * the parts unambiguous ("1.2.3.4" + "5x" must not equal "1.2.3.45" + "x"); headers cannot
+ * contain one.
+ */
 export function hashVisitor(salt: string, visitor: Pick<Visitor, 'ip' | 'userAgent'>): string {
   return createHash('sha256').update(`${salt}\n${visitor.ip}\n${visitor.userAgent}`).digest('hex');
 }

@@ -17,12 +17,12 @@ export interface MetricsText {
 
 /**
  * What the system reports about itself, in two formats (DESIGN.md §7.7, §8.5):
- *   - `getStatus`: JSON for people, behind the public dashboard;
+ *   - `getStatus`: JSON for people, behind the owner's dashboard on /admin;
  *   - `getMetricsText`: the Prometheus format, for a monitoring server that scrapes it.
  *
  * Both read the same sources. Each source that fails is left out (`null`, or no sample) and
- * counted in `observability_read_errors_total`, so a status page still loads during an outage:
- * that is exactly when people look at it.
+ * counted in `observability_read_errors_total`, so the dashboard still loads during an outage:
+ * that is exactly when you look at it.
  */
 export interface SystemStatusManager {
   /** Served from a 5 s in-process cache, so any number of viewers cost one refresh per 5 s. */

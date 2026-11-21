@@ -179,7 +179,9 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
       the internet passed. Memory: about 600 MB for the whole stack (`docker stats`)
 - [x] Pause switch: `deploy/caddy/paused` on the server → a "back soon" page (503 +
       `Retry-After`), `/admin` stays open, deploys still work and leave it paused
-      ([CD.md §5](docs/CD.md#5-pausing-the-site)). Tested on the laptop stack, failures included
+      ([CD.md §5](docs/CD.md#5-pausing-the-site)). Tested on the laptop stack, failures included,
+      then on the server (2026-11-21)
+- [x] PR #7 merged (Phase 6, 2026-11-20) and PR #8 (pause switch, deployed in 39 s, 2026-11-21)
 - [ ] Switch on the backups, on the server and the desktop
       ([BACKUPS.md §2–3](docs/BACKUPS.md)): to do from the desktop
 - [ ] Oracle idle rule: Oracle's Memory utilization reads about 22 % (2026-11-20, first hour),

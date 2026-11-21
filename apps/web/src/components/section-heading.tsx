@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 
-/** A section's title with its icon, on the home page and the projects page. */
+/** A home-page section's title with its icon. */
 export function SectionHeading({ title, icon: Icon }: { title: string; icon: LucideIcon }) {
   return (
     <div className="mb-10 flex items-center gap-4 sm:mb-14">
