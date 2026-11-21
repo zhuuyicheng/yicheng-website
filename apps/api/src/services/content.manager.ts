@@ -14,6 +14,8 @@ import type { ContentDal } from '../dal/content.dal.js';
 import type { CacheAsideManager, Cached } from './cache-aside.manager.js';
 
 export interface PublishSummary {
+  /** `false` when the database already matched the file: no "Last updated" date moved. */
+  changed: boolean;
   experiences: number;
   education: number;
   projects: number;
@@ -79,7 +81,7 @@ export function createContentManager(dependencies: ContentManagerDependencies): 
     },
 
     async publish(content, log) {
-      await dal.replaceAll(content);
+      const changed = await dal.replaceAll(content);
 
       // Postgres is updated, so every cached copy is now stale. A failure here is not
       // swallowed: the seed exits non-zero and says the cache may be stale until its TTL.
@@ -93,6 +95,7 @@ export function createContentManager(dependencies: ContentManagerDependencies): 
       }
 
       return {
+        changed,
         experiences: content.experiences.length,
         education: content.education.length,
         projects: content.projects.length,

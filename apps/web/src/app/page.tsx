@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { ContactForm } from '@/components/contact-form';
 import { ExperienceTimeline, type TimelineEntryData } from '@/components/experience-timeline';
 import { Hero } from '@/components/hero';
+import { LastUpdated } from '@/components/last-updated';
 import { PhotoCarousel } from '@/components/photo-carousel';
 import { ProfileLinkIcon } from '@/components/profile-link-icon';
 import { ProjectExplorer } from '@/components/project-explorer';
@@ -28,6 +29,7 @@ export async function generateMetadata(): Promise<Metadata> {
  * The home page, rendered on the server for each request from the API's data (which the API
  * serves from its Redis cache). Sections in scroll order: hero, about, experience, projects,
  * outside work (photos), contact. Every other section sits on a white band, for rhythm.
+ * The last line says when any of the content (projects included) last changed.
  */
 export default async function HomePage() {
   const [profile, projects] = await Promise.all([getProfile(), getProjects()]);
@@ -105,6 +107,7 @@ export default async function HomePage() {
         <Reveal className="max-w-3xl">
           <ContactForm />
         </Reveal>
+        <LastUpdated at={profile.contentUpdatedAt} className="mt-16" />
       </Section>
     </>
   );

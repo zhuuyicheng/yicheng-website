@@ -65,6 +65,10 @@ seed, and it's gone from the site. Renaming a project's `slug` changes its addre
 links to `/<old-slug>` stop working. A few slugs are taken by the site's own pages (`admin`,
 `projects`, `privacy`); the seed refuses them.
 
+**"Last updated" follows your edits.** A project page's date moves when you change that
+project, moving it up or down the list included. The home page's date moves when you change
+anything, a project included. Seeding (or deploying) an unchanged file moves nothing.
+
 **JSON pitfalls** (VS Code underlines them in red):
 
 - Text goes inside double quotes; a `"` inside the text is written `\"`.

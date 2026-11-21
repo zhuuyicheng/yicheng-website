@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { LastUpdated } from '@/components/last-updated';
 import { ProjectContents } from '@/components/project-contents';
 import { Reveal } from '@/components/reveal';
 import { TrackedLink } from '@/components/tracked-link';
@@ -37,8 +38,8 @@ export async function generateMetadata(props: ProjectPageProps): Promise<Metadat
 
 /**
  * One project: overview, then its sections (heading, explanation, points) with an "On this
- * page" list beside them on wide screens, and a way back or on at the end. Unknown slugs (the
- * API answers 404) show the not-found page.
+ * page" list beside them on wide screens, when the project last changed, and a way back or on
+ * at the end. Unknown slugs (the API answers 404) show the not-found page.
  */
 export default async function ProjectPage(props: ProjectPageProps) {
   const [project, projects] = await Promise.all([findProject(props), getProjects()]);
@@ -87,6 +88,8 @@ export default async function ProjectPage(props: ProjectPageProps) {
               section={section}
             />
           ))}
+
+          <LastUpdated at={project.updatedAt} className="mt-16" />
         </div>
 
         {contents.length > 1 && (

@@ -1,7 +1,8 @@
 import type { ProfileLink, ProjectSection } from '../schema/content.schema.js';
 
 /**
- * Row types: one per table, column for column, as defined in migrations 0001, 0002 and 0006.
+ * Row types: one per table, column for column, as defined in migrations 0001, 0002, 0006 and
+ * 0008.
  * The DAL reads rows in exactly this shape and maps them to the API types in `schema/`, so
  * database naming (`snake_case`) never leaks into responses.
  *
@@ -20,6 +21,8 @@ export interface ProfileRow {
   /** JSONB, parsed by pg. */
   links: ProfileLink[];
   updated_at: Date;
+  /** When any content last changed (migration 0008): the home page's "Last updated" date. */
+  content_updated_at: Date;
 }
 
 /** `experiences`: one row per job, shown in `sort_order`. */
@@ -65,5 +68,6 @@ export interface ProjectRow {
   sections: ProjectSection[];
   sort_order: number;
   created_at: Date;
+  /** Moves only when the seed changes this row (a new position counts): the page's date. */
   updated_at: Date;
 }

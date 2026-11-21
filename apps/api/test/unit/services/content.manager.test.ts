@@ -10,6 +10,7 @@ import { createContentManager } from '../../../src/services/content.manager.js';
 import { SAMPLE_CONTENT } from '../../helpers/sample-content.js';
 
 const log = pino({ level: 'silent' });
+const UPDATED_AT = '2026-11-21T09:30:00.000Z';
 
 /** An in-memory DAL that behaves like the SQL one for the given content. */
 function createFakeDal(): ContentDal & { content: PortfolioContent | null } {
@@ -22,8 +23,9 @@ function createFakeDal(): ContentDal & { content: PortfolioContent | null } {
       return Promise.resolve(project ? toProject(project) : null);
     },
     replaceAll: (content: PortfolioContent) => {
+      const changed = fake.content !== content;
       fake.content = content;
-      return Promise.resolve();
+      return Promise.resolve(changed);
     },
   };
   return fake;
@@ -40,11 +42,12 @@ function toProfile(content: PortfolioContent): Profile {
       ...entry,
       id: `education-${String(index)}`,
     })),
+    contentUpdatedAt: UPDATED_AT,
   };
 }
 
 function toProject(project: PortfolioContent['projects'][number]): Project {
-  return project;
+  return { ...project, updatedAt: UPDATED_AT };
 }
 
 function createFakeCacheDal(): ContentCacheDal & { entries: Map<string, string> } {
@@ -108,7 +111,13 @@ describe('ContentManager', () => {
     const summary = await manager.publish(SAMPLE_CONTENT, log);
 
     expect(dal.content).toBe(SAMPLE_CONTENT);
-    expect(summary).toEqual({ experiences: 2, education: 2, projects: 2, cacheKeysCleared: 2 });
+    expect(summary).toEqual({
+      changed: true,
+      experiences: 2,
+      education: 2,
+      projects: 2,
+      cacheKeysCleared: 2,
+    });
     expect([...cacheDal.entries.keys()].sort()).toEqual(
       [
         CONTENT_CACHE_KEYS.profile,

@@ -124,7 +124,7 @@ curl -s localhost:4000/api/v1/projects > /dev/null                       # make 
 docker compose stop postgres
 curl -s -o /dev/null -w '%{http_code}\n' localhost:4000/health          # 503
 curl -si localhost:4000/api/v1/projects | grep -i x-cache                # hit: still served!
-docker compose exec redis redis-cli DEL cache:v2:project:bowling-buddy
+docker compose exec redis redis-cli DEL cache:v3:project:bowling-buddy
 curl -s localhost:4000/api/v1/projects/bowling-buddy                     # see below
 docker compose start postgres
 ```
@@ -405,11 +405,12 @@ Postgres. `/health` deliberately reports _every_ dependency so operators notice 
 
 </details>
 
-<details><summary>3. Why is the profile cached under <code>cache:v2:profile</code> but the project list under <code>cache:v1:projects</code>?</summary>
+<details><summary>3. Why is the profile cached under <code>cache:v3:profile</code> but the project list under <code>cache:v1:projects</code>?</summary>
 
-Adding `education` changed the profile's JSON shape, so its key version was bumped; old
-entries are never read again and simply expire. The list's shape never changed. A single
-project is at `cache:v2:project:<slug>`: Phase 6 added `sections` to it.
+Adding `education`, and later the "Last updated" date `contentUpdatedAt`, changed the
+profile's JSON shape, so its key version was bumped each time; old entries are never read
+again and simply expire. The list's shape never changed. A single project is at
+`cache:v3:project:<slug>`: Phase 6 added `sections` to it, then `updatedAt`.
 
 </details>
 

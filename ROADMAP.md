@@ -259,3 +259,12 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
       and replay commands; stale "IP never stored" footnote fixed
 - [x] Faint lines (1.3:1, nearly invisible in Chrome on Windows): `line` and `line-strong`
       darkened, form inputs outlined in a new `field` token at 3.3:1 (WCAG 1.4.11)
+
+### "Last updated" dates (2026-11-21)
+
+- [x] Every visitor page ends with "Last updated 21 November 2026": the home page says when
+      any content last changed, a project page when that project did (migration
+      `0008_content_updated_at.sql`; cache keys `cache:v3:profile`, `cache:v3:project:<slug>`)
+- [x] The seed writes only what changed (`IS DISTINCT FROM`; a project's new position counts),
+      so a deploy no longer moves every date; it logs `"changed": true | false`
+      (313 API + 75 web tests)
