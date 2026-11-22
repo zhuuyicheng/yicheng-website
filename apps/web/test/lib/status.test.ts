@@ -2,6 +2,7 @@ import type { SystemStatus } from '@portfolio/shared';
 import { describe, expect, it, vi } from 'vitest';
 import {
   appendSample,
+  combineReplicas,
   fetchStatus,
   formatClock,
   formatMs,
@@ -10,6 +11,7 @@ import {
   nearestPoint,
   niceCeiling,
   overallHealth,
+  recordReplica,
   secondsAgo,
   timeLinePath,
   timeTicks,
@@ -80,6 +82,106 @@ describe('formatting', () => {
 
   it('counts seconds since the last update', () => {
     expect(secondsAgo(1_000, 4_400)).toBe(3);
+  });
+});
+
+describe('combining the API replicas', () => {
+  /** api-1's status above, or another replica's with some numbers changed. */
+  function statusOf(
+    instance: string,
+    numbers: {
+      uptime?: number;
+      requests?: number;
+      p50?: number | null;
+      p95?: number | null;
+      hits?: number;
+      misses?: number;
+    } = {},
+  ): SystemStatus {
+    return {
+      ...STATUS,
+      instance,
+      uptimeSeconds: numbers.uptime ?? STATUS.uptimeSeconds,
+      http: {
+        ...STATUS.http,
+        requestCount: numbers.requests ?? STATUS.http.requestCount,
+        latencyMs: {
+          p50: numbers.p50 === undefined ? STATUS.http.latencyMs.p50 : numbers.p50,
+          p95: numbers.p95 === undefined ? STATUS.http.latencyMs.p95 : numbers.p95,
+        },
+      },
+      cache: {
+        hits: numbers.hits ?? STATUS.cache.hits,
+        misses: numbers.misses ?? STATUS.cache.misses,
+        hitRatio: null, // recomputed from the counts, never read
+      },
+    };
+  }
+
+  it('adds up requests and cache counts, and takes the slower latency', () => {
+    // Regression: each poll showed one replica's numbers, so a quiet site's request chart
+    // alternated between api-1's 1 and api-2's 0.
+    let replicas = recordReplica({}, statusOf('api-1', { requests: 1, p50: 4, p95: 20 }), 0);
+    replicas = recordReplica(
+      replicas,
+      statusOf('api-2', { requests: 0, p50: null, p95: null, hits: 3, misses: 3 }),
+      5_000,
+    );
+
+    expect(combineReplicas(replicas)).toEqual({
+      replicas: ['api-1', 'api-2'],
+      uptimeSeconds: STATUS.uptimeSeconds,
+      requestCount: 1,
+      p50: 4, // api-2 answered nothing: its unknown latency is left out
+      p95: 20,
+      cacheHits: 12,
+      cacheMisses: 4,
+      hitRatio: 0.75,
+    });
+
+    // The next poll reaches api-1 again: the total stays steady instead of dropping to 0.
+    replicas = recordReplica(replicas, statusOf('api-1', { requests: 1, p50: 6, p95: 9 }), 10_000);
+    expect(combineReplicas(replicas)).toMatchObject({ requestCount: 1, p50: 6, p95: 9 });
+  });
+
+  it('keeps one reading per replica, the latest', () => {
+    let replicas = recordReplica({}, statusOf('api-1', { requests: 5 }), 0);
+    replicas = recordReplica(replicas, statusOf('api-1', { requests: 2 }), 5_000);
+
+    expect(Object.keys(replicas)).toEqual(['api-1']);
+    expect(combineReplicas(replicas)?.requestCount).toBe(2);
+  });
+
+  it('shows the most recent start as the uptime', () => {
+    let replicas = recordReplica({}, statusOf('api-1', { uptime: 7_200 }), 0);
+    replicas = recordReplica(replicas, statusOf('api-2', { uptime: 30 }), 5_000);
+
+    expect(combineReplicas(replicas)?.uptimeSeconds).toBe(30);
+  });
+
+  it('forgets a replica that stopped answering', () => {
+    let replicas = recordReplica({}, statusOf('api-1', { requests: 4 }), 0);
+    replicas = recordReplica(replicas, statusOf('api-2', { requests: 3 }), 5_000);
+    // api-1 is stopped: only api-2 answers from now on.
+    replicas = recordReplica(replicas, statusOf('api-2', { requests: 3 }), 25_000);
+    expect(combineReplicas(replicas)?.replicas).toEqual(['api-1', 'api-2']);
+
+    replicas = recordReplica(replicas, statusOf('api-2', { requests: 3 }), 30_000);
+    expect(combineReplicas(replicas)).toMatchObject({ replicas: ['api-2'], requestCount: 3 });
+  });
+
+  it('has nothing to show before the first reading', () => {
+    expect(combineReplicas({})).toBeNull();
+  });
+
+  it('has no latency and no hit ratio while nothing was counted', () => {
+    const replicas = recordReplica(
+      {},
+      statusOf('api-1', { requests: 0, p50: null, p95: null, hits: 0, misses: 0 }),
+      0,
+    );
+
+    expect(combineReplicas(replicas)).toMatchObject({ p50: null, p95: null, hitRatio: null });
   });
 });
 

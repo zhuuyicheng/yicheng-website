@@ -46,6 +46,105 @@ export function overallHealth(status: SystemStatus): Health {
   return { level: down.length === 0 ? 'operational' : 'degraded', down };
 }
 
+/**
+ * One API replica's own numbers, from its latest status. The API runs as two replicas behind
+ * Caddy (DESIGN.md §14.5), each counting only what it answered, and polls reach them in turn:
+ * shown answer by answer, every number flipped between the two (the request chart jumped
+ * 0, 1, 0, 1). So the page keeps each replica's latest reading and shows them combined.
+ */
+export interface ReplicaReading {
+  /** When this page received it (ms since epoch). */
+  at: number;
+  uptimeSeconds: number;
+  requestCount: number;
+  p50: number | null;
+  p95: number | null;
+  cacheHits: number;
+  cacheMisses: number;
+}
+
+/** Each replica's latest reading, by its `instance` name (`api-1`, `api-2`). */
+export type Replicas = Readonly<Record<string, ReplicaReading>>;
+
+/**
+ * How long a replica's numbers still count after its last answer. Polls reach each one about
+ * every 10 s, so one silent this long has stopped. A deploy's replacement keeps the name and
+ * simply overwrites the old reading.
+ */
+export const REPLICA_STALE_MS = 30_000;
+
+/** Records `status` as its replica's latest reading, forgetting replicas silent for `staleMs`. */
+export function recordReplica(
+  replicas: Replicas,
+  status: SystemStatus,
+  at: number,
+  staleMs = REPLICA_STALE_MS,
+): Replicas {
+  const next: Record<string, ReplicaReading> = {};
+  for (const [name, reading] of Object.entries(replicas)) {
+    if (at - reading.at < staleMs) next[name] = reading;
+  }
+  next[status.instance] = {
+    at,
+    uptimeSeconds: status.uptimeSeconds,
+    requestCount: status.http.requestCount,
+    p50: status.http.latencyMs.p50,
+    p95: status.http.latencyMs.p95,
+    cacheHits: status.cache.hits,
+    cacheMisses: status.cache.misses,
+  };
+  return next;
+}
+
+/** The whole API's numbers, from each replica's latest reading. */
+export interface CombinedNumbers {
+  /** Replica names, sorted. */
+  replicas: string[];
+  /** The most recently started replica's: a deploy restarts them one after the other. */
+  uptimeSeconds: number;
+  /** Added up: every request reaches exactly one replica. */
+  requestCount: number;
+  /**
+   * The slower replica's value: not the exact percentile of all requests together (that would
+   * need every duration), but a safe upper bound. If each replica answered half its requests
+   * faster than its own p50, at least half of all of them were faster than the larger p50.
+   */
+  p50: number | null;
+  p95: number | null;
+  cacheHits: number;
+  cacheMisses: number;
+  /** hits ÷ (hits + misses); `null` before the first lookup. */
+  hitRatio: number | null;
+}
+
+/** Combines the replicas' latest readings; `null` before the first one. */
+export function combineReplicas(replicas: Replicas): CombinedNumbers | null {
+  const named = Object.entries(replicas).sort(([a], [b]) => a.localeCompare(b));
+  const readings = named.map(([, reading]) => reading);
+  if (readings.length === 0) {
+    return null;
+  }
+  const sum = (pick: (reading: ReplicaReading) => number) =>
+    readings.reduce((total, reading) => total + pick(reading), 0);
+  const slowest = (pick: (reading: ReplicaReading) => number | null) => {
+    const known = readings.map(pick).filter((value): value is number => value !== null);
+    return known.length === 0 ? null : Math.max(...known);
+  };
+  const cacheHits = sum((reading) => reading.cacheHits);
+  const cacheMisses = sum((reading) => reading.cacheMisses);
+  const lookups = cacheHits + cacheMisses;
+  return {
+    replicas: named.map(([name]) => name),
+    uptimeSeconds: Math.min(...readings.map((reading) => reading.uptimeSeconds)),
+    requestCount: sum((reading) => reading.requestCount),
+    p50: slowest((reading) => reading.p50),
+    p95: slowest((reading) => reading.p95),
+    cacheHits,
+    cacheMisses,
+    hitRatio: lookups === 0 ? null : cacheHits / lookups,
+  };
+}
+
 /** One point of the charts: what the status said at `at` (ms since epoch). */
 export interface Sample {
   at: number;

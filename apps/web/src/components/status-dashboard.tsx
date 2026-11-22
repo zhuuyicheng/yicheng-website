@@ -5,12 +5,15 @@ import { useEffect, useState, type ReactNode } from 'react';
 import {
   appendSample,
   CHART_WINDOW_MS,
+  combineReplicas,
   fetchStatus,
   formatMs,
   formatRatio,
   formatUptime,
   overallHealth,
+  recordReplica,
   secondsAgo,
+  type Replicas,
   type Sample,
 } from '@/lib/status';
 import { CacheCard } from './admin/cache-card';
@@ -19,6 +22,11 @@ import { LiveChart } from './live-chart';
 
 /** The API caches its status for 5 s, so polling faster would only repeat the same numbers. */
 const POLL_MS = 5_000;
+/**
+ * The second poll comes this soon after the first: Caddy hands it to the other API replica, so
+ * the combined numbers are complete from the start, and the charts begin with it.
+ */
+const WARM_UP_MS = 1_000;
 
 /** What each datastore holds, so "postgres: down" says what stops working. */
 const DEPENDENCY_ROLES: Partial<Record<string, string>> = {
@@ -31,10 +39,13 @@ const STATUS_URL = '/admin/system-status';
 /**
  * The owner's live system dashboard, on /admin (DESIGN.md §7.7, §8.7). Polls every 5 s,
  * pauses while the tab is hidden, and keeps showing the last good numbers (marked stale) if
- * the API stops answering. The charts cover the last 30 minutes this page was open.
+ * the API stops answering. Each API replica reports only its own requests, latency and cache
+ * counts, so the page keeps every replica's latest reading and shows them combined
+ * (`combineReplicas`). The charts cover the last 30 minutes this page was open.
  */
 export function StatusDashboard() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
+  const [replicas, setReplicas] = useState<Replicas>({});
   const [history, setHistory] = useState<Sample[]>([]);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
@@ -44,9 +55,11 @@ export function StatusDashboard() {
     let timer: number | undefined;
     let stopped = false;
     let controller: AbortController | null = null;
+    let latest: Replicas = {};
+    let answered = 0;
 
-    const schedule = () => {
-      if (!stopped) timer = window.setTimeout(() => void poll(), POLL_MS);
+    const schedule = (delay = POLL_MS) => {
+      if (!stopped) timer = window.setTimeout(() => void poll(), delay);
     };
     async function poll() {
       if (document.visibilityState === 'hidden') {
@@ -54,6 +67,7 @@ export function StatusDashboard() {
         return;
       }
       controller = new AbortController();
+      let delay = POLL_MS;
       try {
         const next = await fetchStatus({
           url: STATUS_URL,
@@ -61,25 +75,35 @@ export function StatusDashboard() {
           signal: controller.signal,
         });
         const at = Date.now();
+        latest = recordReplica(latest, next, at);
+        const combined = combineReplicas(latest);
+        answered += 1;
+        if (answered === 1) delay = WARM_UP_MS;
         setStatus(next);
+        setReplicas(latest);
         setUpdatedAt(at);
         setFailed(false);
-        setHistory((h) =>
-          appendSample(
-            h,
-            { at, p95: next.http.latencyMs.p95, requests: next.http.requestCount },
-            CHART_WINDOW_MS,
-          ),
-        );
+        if (answered >= 2 && combined !== null) {
+          setHistory((h) =>
+            appendSample(
+              h,
+              { at, p95: combined.p95, requests: combined.requestCount },
+              CHART_WINDOW_MS,
+            ),
+          );
+        }
       } catch {
         if (!stopped) setFailed(true); // keep the last numbers on screen, marked stale
       }
-      schedule();
+      schedule(delay);
     }
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         window.clearTimeout(timer);
-        void poll(); // back on the tab: refresh at once
+        // Back on the tab: refresh at once, and start afresh as on page load (the replicas'
+        // readings may have gone stale meanwhile), so the charts resume with both.
+        answered = 0;
+        void poll();
       }
     };
 
@@ -97,7 +121,8 @@ export function StatusDashboard() {
     };
   }, []);
 
-  if (status === null) {
+  const numbers = combineReplicas(replicas);
+  if (status === null || numbers === null) {
     return (
       <p className="font-mono text-sm text-muted" role="status">
         {failed ? (
@@ -119,28 +144,28 @@ export function StatusDashboard() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Tile
           label="uptime"
-          value={formatUptime(status.uptimeSeconds)}
-          description="Time since the API last started. A restart or deploy resets it, along with the request and cache counts."
+          value={formatUptime(numbers.uptimeSeconds)}
+          description="Time since the API last started (its most recently started replica). A restart or deploy resets it, along with the request and cache counts."
         />
         <Tile
           label="requests · 5 min"
-          value={String(status.http.requestCount)}
-          description="Requests the API answered in the last 5 minutes: content for page loads, analytics from browsers, contact messages. This dashboard's own checks are left out."
+          value={String(numbers.requestCount)}
+          description="Requests the API answered in the last 5 minutes, all replicas together: content for page loads, analytics from browsers, contact messages. This dashboard's own checks are left out."
         />
         <Tile
           label="latency p50"
-          value={formatMs(status.http.latencyMs.p50)}
-          description="Typical response time: half of those requests were answered faster than this."
+          value={formatMs(numbers.p50)}
+          description="Typical response time: at least half of those requests were answered faster than this."
         />
         <Tile
           label="latency p95"
-          value={formatMs(status.http.latencyMs.p95)}
-          description="The slow end: 95 in 100 requests were faster than this. It is what the unluckiest visitors feel."
+          value={formatMs(numbers.p95)}
+          description="The slow end: at least 95 in 100 requests were faster than this. It is what the unluckiest visitors feel."
         />
         <Tile
           label="cache hit ratio"
-          value={formatRatio(status.cache.hitRatio)}
-          note={`${String(status.cache.hits)} hits · ${String(status.cache.misses)} misses`}
+          value={formatRatio(numbers.hitRatio)}
+          note={`${String(numbers.cacheHits)} hits · ${String(numbers.cacheMisses)} misses`}
           description="Share of content reads answered from Redis without asking the database. Explained below."
         />
         <Tile
@@ -187,15 +212,23 @@ export function StatusDashboard() {
           </ul>
         </Card>
 
-        <CacheCard cache={status.cache} />
+        <CacheCard
+          cache={{
+            hits: numbers.cacheHits,
+            misses: numbers.cacheMisses,
+            hitRatio: numbers.hitRatio,
+          }}
+        />
       </div>
 
       <QueueCard queues={status.queues} />
 
       <p className="font-mono text-xs leading-relaxed text-faint">
-        answered by <span className="text-muted">{status.instance}</span> · polled every 5 s while
-        this tab is open · numbers are per API process since it started, latency over the last 5
-        minutes
+        {numbers.replicas.length === 1 ? 'one API replica' : 'API replicas'}{' '}
+        <span className="text-muted">{numbers.replicas.join(', ')}</span>, combined: requests and
+        cache counts added up, latency from the slower one · polled every 5 s while this tab is open
+        · requests and latency cover the last 5 minutes, cache counts the time since each replica
+        started
       </p>
     </div>
   );
@@ -206,13 +239,13 @@ function LiveChartSection({ history, now }: { history: Sample[]; now: number }) 
   return (
     <>
       <LiveChart
-        title="Latency p95 (ms)"
+        title="Latency p95 (ms), slower replica"
         points={history.map((sample) => ({ at: sample.at, value: sample.p95 }))}
         format={formatMs}
         {...axis}
       />
       <LiveChart
-        title="Requests in the last 5 min"
+        title="Requests in the last 5 min, all replicas"
         points={history.map((sample) => ({ at: sample.at, value: sample.requests }))}
         format={(value) => (value === null ? '—' : String(Math.round(value)))}
         {...axis}
