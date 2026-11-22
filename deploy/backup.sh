@@ -93,4 +93,4 @@ find "$BACKUP_DIR" -maxdepth 1 -name 'portfolio-*.dump' | sort | head -n -"$KEEP
   done
 
 log "done: $name ($size)"
-notify "Portfolio backup OK: $name ($size), test restore found $events events and $messages contact messages. Your desktop copies it at its next weekly run."
+notify "Portfolio backup OK: $name ($size), test restore found $events events and $messages contact messages. Copy it home whenever you like: deploy/pull-backups.sh on your desktop."

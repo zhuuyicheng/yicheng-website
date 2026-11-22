@@ -182,8 +182,12 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
       ([CD.md §5](docs/CD.md#5-pausing-the-site)). Tested on the laptop stack, failures included,
       then on the server (2026-11-21)
 - [x] PR #7 merged (Phase 6, 2026-11-20) and PR #8 (pause switch, deployed in 39 s, 2026-11-21)
-- [ ] Switch on the backups, on the server and the desktop
-      ([BACKUPS.md §2–3](docs/BACKUPS.md)): to do from the desktop
+- [x] Backups switched on (2026-11-22, [BACKUPS.md §2–3](docs/BACKUPS.md)): the server's
+      weekly cron job (first backup by hand, test restore passed), the desktop's read-only key
+      and first copy. The copy home is by hand, whenever the owner likes, not scheduled (owner's
+      choice). Found and fixed: the copy's freshness check did not look inside the linked
+      backups folder and called a fresh backup missing (`find -H`, regression test
+      `pull-backups-script.test.ts`)
 - [ ] Oracle idle rule: Oracle's Memory utilization reads about 22 % (2026-11-20, first hour),
       just above the 20 % line; CPU about 5 %. Recheck the 7-day view in a week; resize to
       3 GB if memory falls under 20 % ([HOSTING.md](docs/HOSTING.md#check-yourself), question 3)

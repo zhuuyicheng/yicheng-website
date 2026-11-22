@@ -1948,8 +1948,8 @@ Postgres is the only data that exists nowhere else (§14.5). Redis holds seconds
 work and is not backed up; certificates, images and configuration are recreated. Guide:
 [docs/BACKUPS.md](docs/BACKUPS.md).
 
-**Status**: built and drilled on the laptop stack (6d); the server's cron job and the
-desktop's scheduled copy are not set up yet (ROADMAP.md).
+**Status**: on since 2026-11-22. The server's cron job runs weekly; the owner copies to the
+desktop by hand, with no schedule (the owner's choice, 2026-11-22).
 
 **Weekly** (the owner's choice; a week of visits is the most that can be lost). Size measured
 in 6d: ~20 KB plus ~44 bytes per page view (compressed test data), so a year at 100 page views
@@ -1968,15 +1968,18 @@ a day makes a 2–4 MB backup.
    API's webhook from `deploy/.env`. The weekly success message doubles as a heartbeat: its
    absence means the job did not run.
 
-**On the owner's desktop** (Windows + WSL), `deploy/pull-backups.sh` from Task Scheduler,
-Mondays 12:00 with `-StartWhenAvailable` (catches up after the computer was off):
-`rsync --ignore-existing` (never overwrites, never deletes; the desktop keeps every copy),
-then every checksum is verified, and it fails (exit 3) if the newest copy is older than 8 days.
-Output goes to `pull.log` in the backups folder, kept in a Windows folder through a symlink.
+**On the owner's desktop** (Windows + WSL), `deploy/pull-backups.sh`, run by hand whenever
+the owner likes (no schedule: the owner's choice). The desktop copy is what survives losing
+the VM, so its age is the most that a lost server costs; the server keeps 4 weeks, so copying
+at least monthly misses no backup. `rsync --ignore-existing` (never overwrites, never deletes;
+the desktop keeps every copy), then every checksum is verified, and it fails (exit 3) if the
+newest copy is older than 8 days (the server's weekly job has stopped). Output goes to
+`pull.log` in the backups folder, kept in a Windows folder through a symlink (`find -H` looks
+through it).
 
 **Pull, with a read-only key.** The desktop pulls; the server holds no credential for the
 desktop, so a compromised server cannot reach or delete the copies. The desktop's key has no
-passphrase (it runs unattended) and the server's `authorized_keys` limits it with
+passphrase (no prompt on each copy) and the server's `authorized_keys` limits it with
 `command="rrsync -ro /home/ubuntu/backups/portfolio",restrict`: it can read that folder and
 nothing else (no shell, no writes, no forwarding; tested on Ubuntu 24.04).
 

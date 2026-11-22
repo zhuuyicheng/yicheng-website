@@ -335,15 +335,16 @@ flowchart LR
   (expand → contract). That is also what makes a rollback safe.
 - **Secrets** live only in the server's `deploy/.env` (and your password manager). GitHub holds
   just the SSH key, usable only after your approval.
-- **Backups**: weekly `pg_dump` with a test restore, pulled to your desktop by a read-only key.
-  Built and drilled on the laptop; not switched on yet ([BACKUPS.md §2–3](BACKUPS.md)).
+- **Backups**: weekly `pg_dump` with a test restore on the server (on since 2026-11-22); you
+  copy them to your desktop with one command, by a read-only key, whenever you like
+  ([BACKUPS.md §3.4](BACKUPS.md#34-copying-the-backups-home-whenever-you-like)).
 - **Pausing**: one file on the server switches the site to a "back soon" page; `/admin` and
   deploys keep working ([CD.md §5](CD.md#5-pausing-the-site)).
 
 ```mermaid
 flowchart LR
   S["server, Sundays 18:00 UTC<br/>backup.sh: dump + test restore"] --> F[("newest 4 kept")]
-  F -->|"Mondays, read-only key"| DT["your desktop<br/>keeps every copy"]
+  F -->|"by hand, read-only key"| DT["your desktop<br/>keeps every copy"]
 ```
 
 Code: [deploy.yml](../.github/workflows/deploy.yml), [deploy.sh](../deploy/deploy.sh),

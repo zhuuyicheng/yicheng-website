@@ -113,8 +113,8 @@ update it in the same change when a flow, an endpoint or a file it links to chan
 5. `feat/metrics-and-dashboard`: `/metrics`, system status API, Next.js portfolio + dashboard
    (done)
 6. `feat/continuous-delivery`: Docker images, GHCR, deploy workflow with approval gate, rollback,
-   pause switch (done: live since 2026-11-20; backups are open and Oracle's memory metric is
-   watched, ROADMAP.md)
+   pause switch (done: live since 2026-11-20; weekly backups on since 2026-11-22, copied home
+   by hand; Oracle's memory metric is watched, ROADMAP.md)
 
 One phase per branch → pull request → CI green → merge. Stop for review between phases.
 Each phase adds a "what to watch" section to `docs/DATA-TOOLS.md` (Postgres/Redis VS Code views).

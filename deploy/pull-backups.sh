@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Copies new backups from the server to this computer (DESIGN.md §14.6). Runs on your desktop,
-# in WSL, once a week from Windows Task Scheduler. Guide: docs/BACKUPS.md
+# Copies new backups from the server to this computer (DESIGN.md §14.6). Run it on your
+# desktop, in WSL, whenever you want a fresh copy there. Guide: docs/BACKUPS.md §3.4
 #
 #   bash deploy/pull-backups.sh
 #
@@ -19,7 +19,7 @@ DEST="${DEST:-$HOME/portfolio-backups}"
 MAX_AGE_DAYS="${MAX_AGE_DAYS:-8}"
 
 mkdir -p "$DEST"
-# Everything below is shown and also appended to pull.log, to read after a scheduled run.
+# Everything below is shown and also appended to pull.log, to read later.
 exec > >(tee -a "$DEST/pull.log") 2>&1
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 trap 'log "FAILED: the copy did not finish (exit code $?)"' ERR
@@ -36,9 +36,11 @@ if ! (cd "$DEST" && sha256sum --check --quiet portfolio-*.dump.sha256); then
   exit 2
 fi
 
-newest="$(find "$DEST" -maxdepth 1 -name 'portfolio-*.dump' | sort | tail -n 1)"
+# -H: DEST is usually a link to a Windows folder (docs/BACKUPS.md §3.2), and find does not look
+# inside a link it is given unless told to: it would find no backups at all.
+newest="$(find -H "$DEST" -maxdepth 1 -name 'portfolio-*.dump' | sort | tail -n 1)"
 if [ -z "$newest" ] || [ -z "$(find "$newest" -mtime -"$MAX_AGE_DAYS")" ]; then
   log "PROBLEM: no backup newer than $MAX_AGE_DAYS days. Is the server's weekly job running?"
   exit 3
 fi
-log "OK: $(find "$DEST" -maxdepth 1 -name 'portfolio-*.dump' | wc -l) backups here, newest $(basename "$newest")"
+log "OK: $(find -H "$DEST" -maxdepth 1 -name 'portfolio-*.dump' | wc -l) backups here, newest $(basename "$newest")"

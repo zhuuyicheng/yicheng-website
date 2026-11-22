@@ -1,14 +1,15 @@
 # Backups (Phase 6d)
 
 Every week the server backs up the database, proves the backup restores, and tells you on
-Discord. Your desktop then copies it home. Design:
+Discord. Whenever you like, one command copies the backups home to your desktop
+([section 3.4](#34-copying-the-backups-home-whenever-you-like)). Design:
 [DESIGN.md §14.6](../DESIGN.md#146-backups-weekly-copied-to-the-owners-desktop).
 
-**Status**: built and drilled on the laptop (Phase 6d); not switched on yet. Sections 2 and 3
-switch it on, once, from the desktop.
+**Status**: on since 2026-11-22. The server's weekly job runs by itself; the copy to the
+desktop is by hand, with no schedule (your choice).
 
 ```
-server, Sundays 18:00 UTC                        your desktop (WSL), Mondays 12:00
+server, Sundays 18:00 UTC, by itself             your desktop (WSL), whenever you run it
 deploy/backup.sh                                 deploy/pull-backups.sh
   pg_dump → ~/backups/portfolio/*.dump             rsync (read-only key) → ~/portfolio-backups
   test-restore into a scratch database             check every checksum
@@ -30,6 +31,12 @@ deploy/backup.sh                                 deploy/pull-backups.sh
 **Size**: a backup is compressed. Today it is about 20 KB; each page view adds roughly 50–100
 bytes (measured: 44 bytes on test data). At 100 page views a day, a year of visits makes one
 backup of 2–4 MB. A year of weekly copies on your desktop stays well under 200 MB.
+
+**Why copy them home**: the server's backups sit on the same VM as the database. They undo a
+mistake (a bad migration, deleted rows), but whatever takes the VM takes them too: Oracle
+reclaiming or terminating it, the account being closed, a broken disk, someone breaking in.
+The copies on your desktop are the ones that survive losing the server; with them you rebuild
+it ([section 4](#4-restoring), "From your desktop to a new server").
 
 **The files hold personal data** (IP addresses, names and emails from the contact form). They
 are created readable by their owner only; keep the desktop folder private. If your Windows
@@ -57,7 +64,7 @@ zone, which is UTC on Oracle's images. Each run:
    `.sha256` checksum (a fingerprint of the file, to detect damage later);
 2. **test-restores** it into a scratch database and counts the rows: a backup that was never
    restored is only a hope;
-3. keeps the newest 4 (a month); your desktop keeps its own copies of all of them;
+3. keeps the newest 4 (a month); your desktop keeps its own copies of all it has copied;
 4. posts to Discord, for example
    `Portfolio backup OK: … (20K), test restore found 1234 events and 5 contact messages`, or
    `Portfolio backup FAILED while …`.
@@ -71,21 +78,18 @@ zone, which is UTC on Oracle's images. Each run:
 
 ### 3.1 A key that can only read the backups
 
-Your server key (`~/.ssh/portfolio_vm`) has a passphrase, so a scheduled job cannot use it
-unattended. The copy job gets its own key, **without** a passphrase, which the server limits
-to a single thing: reading the backups folder.
+Your server key (`~/.ssh/portfolio_vm`) can do anything on the server. The copy gets its own
+key, **without** a passphrase (no question each time), which the server limits to a single
+thing: reading the backups folder.
 
 ```bash
 ssh-keygen -t ed25519 -N '' -f ~/.ssh/portfolio_backups -C portfolio-backups
-cat ~/.ssh/portfolio_backups.pub            # one line starting with ssh-ed25519
+printf '\ncommand="rrsync -ro /home/ubuntu/backups/portfolio",restrict %s\n' "$(cat ~/.ssh/portfolio_backups.pub)" | ssh portfolio 'cat >> ~/.ssh/authorized_keys'
 ```
 
-On the server, add that line to `~/.ssh/authorized_keys`, **prefixed** like this (one line):
-
-```bash
-ssh portfolio
-nano ~/.ssh/authorized_keys     # add at the end:
-```
+The second command adds one line at the end of the server's `~/.ssh/authorized_keys` (the
+keys it accepts) without an editor, so nothing can be mangled by copy and paste. It asks for
+your server key's passphrase. The line is the new public key, **prefixed**:
 
 ```
 command="rrsync -ro /home/ubuntu/backups/portfolio",restrict ssh-ed25519 AAAA… portfolio-backups
@@ -94,6 +98,8 @@ command="rrsync -ro /home/ubuntu/backups/portfolio",restrict ssh-ed25519 AAAA…
 - `command="rrsync -ro …"`: whatever the key asks for, the server runs only `rrsync`, rsync's
   guard, which allows reading (`-ro`) inside that one folder;
 - `restrict`: no terminal, no port forwarding, nothing else.
+- The blank line the command writes first is harmless: it makes sure the new key starts on a
+  line of its own, even if the file did not end with one.
 
 So if your desktop were ever compromised, this key reveals the backups (which are on that
 desktop anyway) but cannot log in, change anything on the server, or delete a backup. And the
@@ -127,29 +133,41 @@ ln -s /mnt/c/Users/<you>/Documents/portfolio-backups ~/portfolio-backups
 bash ~/projects/yicheng-website/deploy/pull-backups.sh
 ```
 
-**See**: the files it copied, then `OK: 1 backups here, newest portfolio-….dump`. The first
-time, SSH asks whether to trust the server: type `yes`.
+**See**: the files it copied, then `OK: 1 backups here, newest portfolio-….dump`. If this
+computer has never connected to the server, SSH first asks whether to trust it: type `yes`.
 
-### 3.4 Every week, by itself: Windows Task Scheduler
+### 3.4 Copying the backups home, whenever you like
 
-In **Windows PowerShell** (not WSL), paste:
+Nothing runs on a schedule here: copy whenever you think of it. In your Ubuntu (WSL) terminal:
 
-```powershell
-$action   = New-ScheduledTaskAction -Execute "wsl.exe" -Argument '-d Ubuntu -- bash -lc "~/projects/yicheng-website/deploy/pull-backups.sh"'
-$trigger  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 12:00
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable
-Register-ScheduledTask -TaskName "Portfolio backups" -Action $action -Trigger $trigger -Settings $settings
+```bash
+# Optional: a fresh backup right now instead of last Sunday's (asks for your passphrase)
+ssh portfolio 'bash ~/portfolio/deploy/backup.sh'
+
+# Copy every backup this desktop doesn't have yet, then check all of them
+bash ~/projects/yicheng-website/deploy/pull-backups.sh
+
+# What you have (the same files are in Documents\portfolio-backups in Windows)
+ls -lh ~/portfolio-backups/
 ```
 
-- **Mondays 12:00**, after the server's Sunday backup in any time zone.
-- `-StartWhenAvailable`: if the computer was off or asleep at that time, the task runs as soon
-  as it is back. The server keeps 4 weeks, so even a month away loses nothing that matters.
-- A console window flashes briefly while it runs.
+**See**: the files it copied (none if there is nothing new), then
+`OK: 3 backups here, newest portfolio-….dump`. Anything else ends in one of these lines, also
+written to `pull.log` in the backups folder:
 
-Try it at once: Task Scheduler → Task Scheduler Library → **Portfolio backups** → Run. Then
-**Last Run Result** says `(0x0)` for success, and `pull.log` in the backups folder has the
-details. Other results: `0x1` the copy failed (server unreachable, key refused), `0x2` a file
-is damaged, `0x3` no backup newer than 8 days (the server's weekly job is not running).
+| Last line                                | Meaning                                                                           |
+| ---------------------------------------- | --------------------------------------------------------------------------------- |
+| `FAILED: the copy did not finish`        | Server unreachable or the key refused ([section 5](#5-when-something-goes-wrong)) |
+| `PROBLEM: … does not match its checksum` | A copy here is damaged ([section 5](#5-when-something-goes-wrong))                |
+| `PROBLEM: no backup newer than 8 days`   | The server's weekly job has not run ([section 5](#5-when-something-goes-wrong))   |
+
+**How often** is the trade-off of copying by hand:
+
+- The server keeps only its newest 4 backups, about a month. Copy at least once a month and
+  your desktop has every weekly backup; copy less often and it misses some weeks in between.
+- If the server is ever lost, your newest copy here is what you rebuild from: everything since
+  your last copy is gone. Copy again soon after something you would hate to lose, such as a
+  contact message.
 
 ---
 
@@ -200,15 +218,15 @@ message, restore, and count again: 5 and 1, with the changed version kept aside.
 
 ## 5. When something goes wrong
 
-| Symptom                                            | What to do                                                                                                                                 |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Discord: `backup FAILED while dumping …`           | `ssh portfolio`, `docker compose -f ~/portfolio/deploy/compose.prod.yml ps`: is Postgres up? Then run `backup.sh` by hand                  |
-| No Sunday message at all                           | `crontab -l` on the server (is the line there?), then `~/backups/backup.log`                                                               |
-| Task result `0x1`, `pull.log`: `Permission denied` | The `authorized_keys` line or `~/.ssh/config` (section 3.1); `ssh -v portfolio-backups` shows why                                          |
-| Task result `0x2` (checksum)                       | That copy is damaged: delete it (and its `.sha256`); the next run copies it again if the server still has it                               |
-| Task result `0x3` (too old)                        | The server has not made a backup for 8 days: see "No Sunday message"                                                                       |
-| `restore.sh` failed after stopping services        | It restarted them. `psql -l` (inside the Postgres container) lists the databases: the old one is untouched or renamed `…_before_restore_…` |
-| A restore went wrong and you want the old one      | Swap back the same way: stop api-1, api-2, worker; rename the databases; start them                                                        |
+| Symptom                                           | What to do                                                                                                                                 |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Discord: `backup FAILED while dumping …`          | `ssh portfolio`, `docker compose -f ~/portfolio/deploy/compose.prod.yml ps`: is Postgres up? Then run `backup.sh` by hand                  |
+| No Sunday message at all                          | `crontab -l` on the server (is the line there?), then `~/backups/backup.log`                                                               |
+| Copy: `FAILED`, with `Permission denied` above it | The `authorized_keys` line or `~/.ssh/config` (section 3.1); `ssh -v portfolio-backups` shows why                                          |
+| Copy: `PROBLEM: … does not match its checksum`    | That copy is damaged: delete it (and its `.sha256`); the next run copies it again if the server still has it                               |
+| Copy: `PROBLEM: no backup newer than 8 days`      | The server has not made a backup for 8 days: see "No Sunday message"                                                                       |
+| `restore.sh` failed after stopping services       | It restarted them. `psql -l` (inside the Postgres container) lists the databases: the old one is untouched or renamed `…_before_restore_…` |
+| A restore went wrong and you want the old one     | Swap back the same way: stop api-1, api-2, worker; rename the databases; start them                                                        |
 
 ---
 
@@ -218,7 +236,7 @@ message, restore, and count again: 5 and 1, with the changed version kept aside.
 2. Why does the desktop _pull_ the backups instead of the server _pushing_ them to it?
 3. The backup key has no passphrase. What can someone who steals it do?
 4. During a restore, where are the visits that arrived after the backup was taken?
-5. Your desktop was off for three weeks. What happens the next time you turn it on?
+5. You haven't copied the backups home for two months. What do you get when you do?
 
 <details>
 <summary>Answers</summary>
@@ -233,7 +251,8 @@ message, restore, and count again: 5 and 1, with the changed version kept aside.
    in, change or delete anything on the server. Remove its line from `authorized_keys` to revoke it.
 4. In the old database, renamed `portfolio_before_restore_<time>`. Nothing is deleted until
    you drop it yourself.
-5. Task Scheduler runs the missed task as soon as it can (`-StartWhenAvailable`), and the
-   script copies the three backups made meanwhile (the server keeps four).
+5. The four the server still has: the last month, newest included. The weeks before that were
+   deleted on the server before you copied them, so your desktop has a gap there. For
+   rebuilding the server, the newest backup is the one that counts, and you have it.
 
 </details>
