@@ -103,6 +103,8 @@ section before changing behaviour, and update it in the same change when a desig
 Phases and live progress checklists: [ROADMAP.md](ROADMAP.md). Tick items there as they land.
 The owner's overview is [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md) (flows, diagrams, code links):
 update it in the same change when a flow, an endpoint or a file it links to changes.
+[docs/START-HERE.md](docs/START-HERE.md) is the owner's task map ("how do I…?"): update it when
+a command, a routine or a guide section it points to changes.
 
 1. **Skeleton & infra**: done (`main`)
 2. `feat/portfolio-cache-api`: CI workflow, profile/projects API, Redis cache-aside, cache metrics (done)
@@ -113,8 +115,8 @@ update it in the same change when a flow, an endpoint or a file it links to chan
 5. `feat/metrics-and-dashboard`: `/metrics`, system status API, Next.js portfolio + dashboard
    (done)
 6. `feat/continuous-delivery`: Docker images, GHCR, deploy workflow with approval gate, rollback,
-   pause switch (done: live since 2026-11-20; backups are open and Oracle's memory metric is
-   watched, ROADMAP.md)
+   pause switch (done: live since 2026-11-20; weekly backups on since 2026-11-22, copied home
+   by hand; Oracle's memory metric is watched, ROADMAP.md)
 
 One phase per branch → pull request → CI green → merge. Stop for review between phases.
 Each phase adds a "what to watch" section to `docs/DATA-TOOLS.md` (Postgres/Redis VS Code views).

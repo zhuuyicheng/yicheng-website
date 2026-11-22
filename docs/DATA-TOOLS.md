@@ -537,7 +537,7 @@ What to watch:
 
 ### 7.7 Phase 6c: a deploy, seen from the datastores
 
-Same commands as §7.6; on the server, `C="docker compose -f ~/portfolio/deploy/compose.prod.yml"`.
+Same commands as §7.6; on the server, `C="docker compose -f $HOME/portfolio/deploy/compose.prod.yml"`.
 Try it on the laptop with `docker tag portfolio-api:dev portfolio-api:v2` (and the same for
 `portfolio-web`), then `npm run stack:deploy -- v2` ([CD.md](CD.md)).
 
