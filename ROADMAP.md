@@ -283,3 +283,11 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
       (313 API + 75 web tests)
 - [x] The last project page no longer leads back to the first: only "Back to projects"
       (owner's feedback; regression test in `project-page.test.ts`)
+
+### Fixes after launch (2026-11-22)
+
+- [x] Flaky CI: the worker sometimes exited with code 1 when stopped (`worker-process.test.ts`,
+      the merge of PR #13). Its shutdown closed the blocking Redis connection with `QUIT` right
+      after the consumer had cut it, while ioredis still reported it `ready`. Now it is only
+      disconnected (`closeInterruptedRedis`; regression test `redis-close.test.ts`). The worker
+      test now prints the worker's log when it fails, and waits for that log to be complete

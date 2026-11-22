@@ -1467,7 +1467,10 @@ left before the forced exit:
 3. `telemetry-flusher`: wake the flush loop if it is sleeping, let the current flush finish,
    then flush back to back (no interval, no backoff) until the buffer is empty, a flush fails,
    or the time left minus 1 s has passed. The last second is kept for the next steps.
-4. Close the blocking Redis connection, Redis, then the Postgres pool.
+4. Close the blocking Redis connection, Redis, then the Postgres pool. The blocking connection
+   is only disconnected, never sent `QUIT`: step 1 already cut it, and until its socket has
+   closed ioredis still reports it `ready`, so a `QUIT` would fail and turn a clean stop into
+   exit code `1` (seen in CI, 2026-11-22).
 
 Anything not drained is still safe in Redis (AOF) and is picked up on the next start. Draining
 matters most for deploys: the old worker empties the buffer before the new one starts (§14.5).

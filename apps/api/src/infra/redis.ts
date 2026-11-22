@@ -52,3 +52,15 @@ export async function closeRedis(redis: Redis): Promise<void> {
   }
   redis.disconnect();
 }
+
+/**
+ * Closes a connection that may already be closing: the worker's blocking connection, which
+ * the notification consumer cuts on stop to end a pending BLMOVE. Right after `disconnect()`
+ * ioredis still reports `ready` until the socket has closed, and `closeRedis`'s QUIT then fails
+ * ("Stream isn't writeable"), which made the worker exit with code 1 now and then in CI. Such a
+ * connection has no replies worth waiting for, so this only disconnects (safe to repeat).
+ */
+export function closeInterruptedRedis(redis: Redis): Promise<void> {
+  redis.disconnect();
+  return Promise.resolve();
+}
