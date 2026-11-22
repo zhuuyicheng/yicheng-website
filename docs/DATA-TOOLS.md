@@ -528,10 +528,11 @@ What to watch:
 1. **Two replicas, one Redis.** Run `MONITOR`, then load https://localhost twice. The content
    reads (`GET cache:v3:profile`…) arrive from two different client addresses: api-1 and
    api-2 share one cache, so a hit on one is a hit on both (DESIGN.md §14.5).
-2. **The round robin.** On https://localhost/admin, "answered by" at the bottom of the system
-   status alternates between `api-1` and `api-2`.
-3. **A replica stops.** `$C stop api-1`, keep reloading the site: nothing fails, and "answered
-   by" stays `api-2`. `$C up -d --wait api-1` brings it back.
+2. **The round robin.** On https://localhost/admin, the line at the bottom of the system status
+   names `api-1, api-2`: polls reach the two in turn, and the page adds up their requests and
+   cache counts (DESIGN.md §8.6).
+3. **A replica stops.** `$C stop api-1`, keep reloading the site: nothing fails, and 30 s later
+   the bottom line names only `api-2`. `$C up -d --wait api-1` brings it back.
 4. **Caddy's view.** `$C exec caddy wget -qO- http://127.0.0.1:2019/reverse_proxy/upstreams`
    lists each replica with the requests it is handling right now.
 

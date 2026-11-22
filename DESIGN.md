@@ -967,7 +967,8 @@ of request durations (Prometheus histograms are cumulative, not rolling). Reques
 left out of it (Prometheus still counts them), or a dashboard polling every few seconds would
 mostly measure itself. `cache` counts content-cache lookups since the process started. Values
 are per API instance; `instance` (the container hostname) says which one answered, because
-with two replicas (§14.5) consecutive polls can reach different instances.
+with two replicas (§14.5) consecutive polls can reach different instances. The dashboard
+keeps each instance's latest numbers and combines them (§8.6).
 
 ### 7.8 Owner endpoints (Phase 6)
 
@@ -1340,6 +1341,14 @@ shown. If the API stops answering, the last numbers stay on screen under a "lost
 banner instead of disappearing. It shows a health banner (icon + words, never colour alone),
 stat tiles (uptime, requests, p50/p95, cache hit ratio, page views), two charts and
 dependencies and queue lengths (a non-empty dead-letter queue is flagged "needs attention").
+**Replicas combined**: each API replica reports only what it answered, and polls reach them in
+turn, so showing each answer as it came made every number flip between the two (a quiet
+site's request chart jumped 0, 1, 0, 1). The page keeps each replica's latest reading (by
+`instance`, forgotten after 30 s of silence) and shows requests and cache counts added up,
+uptime from the most recently started replica, and p50/p95 from the slower one: not the exact
+percentile of all requests, but a safe upper bound. The second poll comes 1 s after the first
+(on page load, and again on returning to a hidden tab), so both replicas are known from the
+start; the charts begin with it.
 The charts (p95 latency and request count, one measure each) cover the last 30 minutes the
 page was open, placed by time: a labelled tick every 5 minutes on the viewer's clock, a 2 px
 line that breaks where polling paused (a hidden tab), crosshair and tooltip on hover or touch.
@@ -1905,8 +1914,8 @@ long-running service restarts `unless-stopped` and keeps at most 3 × 10 MB of l
 
 Per-process numbers: a Prometheus server (an open item in ROADMAP.md) must scrape each replica
 directly (`api-1:4000`, `api-2:4000`), never through Caddy, which would hand it a random
-replica each time. The system status includes `instance` (§7.7), so the dashboard shows which
-replica answered.
+replica each time. The system status includes `instance` (§7.7), so the dashboard can tell the
+replicas apart and combine their numbers (§8.6).
 
 **The load balancer must not use `/health`.** `/health` returns `503` when Redis is down, on
 both replicas at once. Caddy would then remove both and answer every request with an error, even

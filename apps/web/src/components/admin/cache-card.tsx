@@ -3,7 +3,7 @@ import { formatRatio } from '@/lib/status';
 
 /**
  * What the cache hit ratio measures and how to read it (DESIGN.md §8.1): the content
- * cache-aside in Redis, counted per API process since it started.
+ * cache-aside in Redis, counted by each API replica since it started, added up by the dashboard.
  */
 export function CacheCard({ cache }: { cache: SystemStatus['cache'] }) {
   return (

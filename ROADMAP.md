@@ -226,6 +226,11 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
       time ticks and gaps (300 API + 57 web total)
 - [x] Production: Caddy refuses `/api/v1/admin/*` from outside (`deploy/caddy/Caddyfile`, 6b;
       checked with the token, also as `/api/v1/%61dmin/…`, `/api/v1//admin/…`, `/API/…`)
+- [x] Bug (owner's feedback, 2026-11-22): the system status's numbers flipped between the two
+      API replicas on every poll, so the request chart zigzagged 0, 1, 0, 1. The dashboard now
+      combines the replicas' latest readings: requests and cache counts added up, latency from
+      the slower one, uptime from the latest start (`combineReplicas`, regression test in
+      `status.test.ts`)
 
 ### Warmer design and photos (2026-11-18)
 
