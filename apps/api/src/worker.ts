@@ -15,7 +15,12 @@ import { createLogger } from './infra/logger.js';
 import { createMetrics } from './infra/metrics.js';
 import { createNotifier } from './infra/notifiers/create-notifier.js';
 import { createPostgresPool, pingPostgres } from './infra/postgres.js';
-import { closeRedis, connectRedis, createRedisClient } from './infra/redis.js';
+import {
+  closeInterruptedRedis,
+  closeRedis,
+  connectRedis,
+  createRedisClient,
+} from './infra/redis.js';
 import { createGracefulShutdown, registerProcessHandlers } from './lifecycle/graceful-shutdown.js';
 import { createNotificationManager } from './services/notification.manager.js';
 import { createTelemetryFlushManager } from './services/telemetry-flush.manager.js';
@@ -112,7 +117,8 @@ const gracefulShutdown = createGracefulShutdown({
       close: (timeLeftMs) =>
         telemetryFlusher.stop(Math.max(0, timeLeftMs - CLOSE_CONNECTIONS_RESERVE_MS)),
     },
-    { name: 'redis-blocking', close: () => closeRedis(blockingRedis) },
+    // Already cut by the consumer's stop (interruptWait), possibly still closing: no QUIT.
+    { name: 'redis-blocking', close: () => closeInterruptedRedis(blockingRedis) },
     { name: 'redis', close: () => closeRedis(redis) },
     { name: 'postgres', close: () => postgres.end() },
   ],

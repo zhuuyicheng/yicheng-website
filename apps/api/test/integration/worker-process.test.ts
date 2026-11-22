@@ -35,11 +35,13 @@ function startWorkerProcess(readyMessage = 'telemetry buffer empty') {
   });
 
   const logs: LogLine[] = [];
+  const lines: string[] = [];
   const idle = new Promise<void>((resolve, reject) => {
     child.once('exit', (code) => {
       reject(new Error(`worker exited early with code ${String(code)}`));
     });
     createInterface({ input: child.stdout }).on('line', (line) => {
+      lines.push(line);
       const entry = JSON.parse(line) as LogLine;
       logs.push(entry);
       if (entry.msg === readyMessage) {
@@ -48,10 +50,13 @@ function startWorkerProcess(readyMessage = 'telemetry buffer empty') {
     });
   });
   const exited = new Promise<number | null>((resolve) => {
-    child.once('exit', resolve);
+    child.once('close', resolve); // 'close', not 'exit': every log line has been read by then
   });
 
-  return { child, logs, idle, exited };
+  /** The worker's own log, for a failure message: CI shows nothing else of it. */
+  const log = () => `worker log:\n${lines.join('\n')}`;
+
+  return { child, logs, idle, exited, log };
 }
 
 describe('worker process lifecycle', () => {
@@ -84,7 +89,7 @@ describe('worker process lifecycle', () => {
     await deps.redis.rpush(TELEMETRY_BUFFER_KEYS.buffer, ...events);
     worker.child.kill('SIGTERM');
 
-    expect(await worker.exited).toBe(0);
+    expect(await worker.exited, worker.log()).toBe(0);
     const rows = await deps.postgres.query('SELECT 1 FROM analytics_events');
     expect(rows.rowCount).toBe(5);
     expect(await deps.redis.llen(TELEMETRY_BUFFER_KEYS.buffer)).toBe(0);
@@ -117,7 +122,7 @@ describe('worker process lifecycle', () => {
     // interrupt that wait instead of sitting it out.
     const stopAskedAt = Date.now();
     worker.child.kill('SIGTERM');
-    expect(await worker.exited).toBe(0);
+    expect(await worker.exited, worker.log()).toBe(0);
     expect(Date.now() - stopAskedAt).toBeLessThan(3_000);
 
     const rows = await deps.postgres.query<{ status: string }>(
