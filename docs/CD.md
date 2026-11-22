@@ -207,7 +207,7 @@ States read `status/health/restarts`: `running/starting/0` (starting), `running/
 (ready), `restarting/none/3` (crashed 3 times). On the server:
 
 ```bash
-C="docker compose -f ~/portfolio/deploy/compose.prod.yml"
+C="docker compose -f $HOME/portfolio/deploy/compose.prod.yml"   # $HOME: ~ is not expanded in quotes
 $C ps                                  # each service's image (= release) and health
 $C logs --tail 50 api-1                # why it failed
 grep _IMAGE ~/portfolio/deploy/.env    # the release the server considers current

@@ -176,6 +176,8 @@ written to `pull.log` in the backups folder:
 `deploy/restore.sh` replaces the live database with a backup. On the server:
 
 ```bash
+ssh portfolio
+ls -lh ~/backups/portfolio/ # pick one: the names are dates and times in UTC
 bash ~/portfolio/deploy/restore.sh ~/backups/portfolio/portfolio-2026-11-22-1800Z.dump
 ```
 
@@ -187,10 +189,61 @@ bash ~/portfolio/deploy/restore.sh ~/backups/portfolio/portfolio-2026-11-22-1800
 5. applies newer migrations, clears the cached content, starts the services again.
 
 **Nothing is deleted**: the replaced database stays, under its new name, until you drop it.
-Visits and messages that arrived after the backup was taken are only in that old one.
+Visits and messages that arrived after the backup was taken are only in that old one: hidden
+from the site, not lost. The next section brings them back.
 
 It asks you to type `restore` first. A damaged file, a wrong answer or a failed load changes
 nothing; once the services are stopped, a failure starts them again.
+
+### Bringing back the visits and messages that came after the backup
+
+A restore rewinds everything, including the visits and contact messages that arrived after the
+backup. To add those back, copy them over from the old database. Every visit and message has
+a unique ID, so the copy skips the ones the restored database already has: only the missing
+ones arrive, nothing is doubled, and the restored rows stay as they are (a message you got
+back by restoring stays back). Content (profile, projects) is not copied: it comes from
+`portfolio.json`.
+
+**Do** (on the server, while the site runs). First the shortcut and the old database's name,
+which `restore.sh` printed at the end (`… kept as "portfolio_before_restore_<time>"`):
+
+```bash
+C="docker compose -f $HOME/portfolio/deploy/compose.prod.yml"
+old=portfolio_before_restore_20261122_1405        # yours: the name restore.sh printed
+```
+
+Copy the rows across. It prints nothing when it works:
+
+```bash
+$C exec -T -e OLD="$old" postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$OLD" --data-only \
+    --table=analytics_events --table=contact_messages --column-inserts --on-conflict-do-nothing |
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 --quiet --single-transaction >/dev/null'
+```
+
+Then compare the two databases:
+
+```bash
+$C exec -T -e OLD="$old" postgres sh -c 'for db in "$OLD" "$POSTGRES_DB"; do
+    echo "$db: $(psql -U "$POSTGRES_USER" -d "$db" -At -c "SELECT count(*) FROM analytics_events") visits, $(psql -U "$POSTGRES_USER" -d "$db" -At -c "SELECT count(*) FROM contact_messages") messages"
+  done'
+```
+
+**See**: `portfolio` has at least as many visits and messages as the old one (more, if the
+restore brought back rows that had been deleted).
+
+- **How it works**: `pg_dump --data-only` writes the two tables' rows as `INSERT` statements,
+  `--on-conflict-do-nothing` makes each one skip an ID that already exists, and `psql` runs
+  them into the live database in one transaction: all of them, or none if anything fails.
+- **Safe to repeat**: a second run finds every ID already there and adds nothing.
+- **A typo in the name** shows `database "…" does not exist` and copies nothing.
+- **Messages copied this way don't go to Discord again**: they were sent when they first
+  arrived, and the copy keeps their status (`SENT`).
+- **When you're sure**, delete the old database:
+  `$C exec -T -e OLD="$old" postgres sh -c 'dropdb -U "$POSTGRES_USER" "$OLD"'`.
+
+Drilled on the desktop's stack (2026-11-22): back up (2 visits, 1 message), add 3 visits and a
+message, delete the first message by mistake, restore (2 and 1), copy: 5 visits and both
+messages, the deleted one included; a second copy changed nothing.
 
 **From your desktop to a new server** (the VM was lost): rebuild it with
 [HOSTING.md](HOSTING.md) and deploy, then send the newest copy up and restore it:
@@ -250,7 +303,8 @@ message, restore, and count again: 5 and 1, with the changed version kept aside.
 3. Read the backups (and only them), thanks to `command="rrsync -ro …",restrict`. It cannot log
    in, change or delete anything on the server. Remove its line from `authorized_keys` to revoke it.
 4. In the old database, renamed `portfolio_before_restore_<time>`. Nothing is deleted until
-   you drop it yourself.
+   you drop it yourself, and "Bringing back the visits and messages that came after the
+   backup" (section 4) copies them into the restored one.
 5. The four the server still has: the last month, newest included. The weeks before that were
    deleted on the server before you copied them, so your desktop has a gap there. For
    rebuilding the server, the newest backup is the one that counts, and you have it.

@@ -1988,7 +1988,11 @@ nothing else (no shell, no writes, no forwarding; tested on Ubuntu 24.04).
 terminate leftover connections and rename `portfolio` → `portfolio_before_restore_<time>` and
 `portfolio_restoring` → `portfolio` → `migrate` (an older backup has an older schema) →
 delete `cache:*` keys → start the services (`up --wait`). Nothing is deleted: the replaced
-database is the way back. It asks for the word `restore` unless given `--yes`. A damaged file,
+database is the way back, and it holds the visits and contact messages written after the
+backup. Both tables have UUID keys, so those rows are copied back with
+`pg_dump --data-only --column-inserts --on-conflict-do-nothing` piped into the live database in
+one transaction: only missing ids are added, a rerun adds nothing (BACKUPS.md §4, drilled
+2026-11-22). It asks for the word `restore` unless given `--yes`. A damaged file,
 a refused confirmation or a failed load change nothing; a failure after the services stopped
 starts them again. Both scripts give `docker compose exec` an empty input except for
 `pg_restore` (exec otherwise consumes the script's input, e.g. the confirmation).

@@ -567,6 +567,7 @@ without a notice to visitors (owner's decision, [DESIGN.md §12](../DESIGN.md#12
 
 | Guide                                                              | Read it for                                                  |
 | ------------------------------------------------------------------ | ------------------------------------------------------------ |
+| [START-HERE.md](START-HERE.md)                                     | "How do I…?": each task's command and guide                  |
 | [DESIGN.md](../DESIGN.md)                                          | The full specification: every table, key, endpoint, decision |
 | [ROADMAP.md](../ROADMAP.md)                                        | What was built, phase by phase                               |
 | [GUIDED-TOUR.md](GUIDED-TOUR.md)                                   | Hands-on: poke every feature from the terminal               |

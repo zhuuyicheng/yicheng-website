@@ -188,6 +188,10 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
       choice). Found and fixed: the copy's freshness check did not look inside the linked
       backups folder and called a fresh backup missing (`find -H`, regression test
       `pull-backups-script.test.ts`)
+- [x] After a restore, copy back the visits and messages that arrived after the backup
+      ([BACKUPS.md §4](docs/BACKUPS.md#bringing-back-the-visits-and-messages-that-came-after-the-backup)):
+      drilled on the desktop stack (2026-11-22), a rerun adds nothing. Also fixed: the server
+      shortcut `C="docker compose -f ~/…"` in the docs (a quoted `~` is not expanded: `$HOME`)
 - [ ] Oracle idle rule: Oracle's Memory utilization reads about 22 % (2026-11-20, first hour),
       just above the 20 % line; CPU about 5 %. Recheck the 7-day view in a week; resize to
       3 GB if memory falls under 20 % ([HOSTING.md](docs/HOSTING.md#check-yourself), question 3)

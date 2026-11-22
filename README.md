@@ -5,12 +5,15 @@ with a Redis cache, an analytics pipeline with a batch worker, a rate-limited co
 background notifications, and an owner dashboard. Releases go to an Oracle Cloud VM after my
 approval, with automatic rollback. Live since 2026-11-20.
 
-**Start here: [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md)**, the whole project on one page
-(architecture, code flows with diagrams, using and editing the site, reading the data,
+**Coming back, or wondering how to do something? [docs/START-HERE.md](docs/START-HERE.md)**:
+from "I want to…" to the command and the guide.
+**How it all works: [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md)**, the whole project on one
+page (architecture, code flows with diagrams, using and editing the site, reading the data,
 interview notes).
 
 | Guide                                                                   | For                                   |
 | ----------------------------------------------------------------------- | ------------------------------------- |
+| [Start here](docs/START-HERE.md)                                        | "How do I…?": every task, where to go |
 | [DESIGN.md](DESIGN.md)                                                  | The full specification                |
 | [ROADMAP.md](ROADMAP.md)                                                | Progress, phase by phase              |
 | [Guided tour](docs/GUIDED-TOUR.md)                                      | Hands-on: try every feature locally   |

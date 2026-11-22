@@ -100,5 +100,7 @@ counts="$(in_postgres "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -At -F '
     (SELECT count(*) FROM analytics_events), (SELECT count(*) FROM contact_messages)'")"
 read -r events messages <<<"$counts"
 log "restored: $events events, $messages contact messages."
-log "The previous database is kept as \"$old_db\". Once you are sure you don't need it:"
+log "The previous database is kept as \"$old_db\". It holds the visits and messages that"
+log "arrived after the backup: docs/BACKUPS.md §4 copies them back. Once you are sure you"
+log "don't need it any more:"
 log "  docker compose -f deploy/compose.prod.yml exec postgres dropdb -U <POSTGRES_USER> $old_db"
