@@ -24,34 +24,37 @@ themselves: [DOCKER.md](DOCKER.md).
                    postgres + redis      (all shared state lives here)
 
    prometheus ── every 15 s ──► api-1, api-2, worker, node-exporter (the VM)   (monitoring)
-        └── alert rules ──► alertmanager ──► Discord (NOTIFIER_DRIVER=discord only)
+        ├── alert rules ──► alertmanager ──► Discord (NOTIFIER_DRIVER=discord only)
+        └──◄ grafana ◄── caddy: https://localhost/grafana (its own login)
 ```
 
 Everything is in [`deploy/`](../deploy/):
 
 | File                                                     | What                                                                              |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`compose.prod.yml`](../deploy/compose.prod.yml)         | the ten services, their settings and health checks                                |
+| [`compose.prod.yml`](../deploy/compose.prod.yml)         | the eleven services, their settings and health checks                             |
 | [`prometheus/`](../deploy/prometheus/)                   | what Prometheus reads, the alert rules and their tests, the check CI runs         |
 | [`alertmanager/`](../deploy/alertmanager/)               | where alerts go: `discord.yml` (server) or `log.yml` (yours: nothing is sent)     |
+| [`grafana/`](../deploy/grafana/)                         | Grafana's data source and the "Portfolio" dashboard (DESIGN.md §15.4)             |
 | [`caddy/Caddyfile`](../deploy/caddy/Caddyfile)           | HTTPS, routing, load balancing                                                    |
 | [`caddy/back-soon.html`](../deploy/caddy/back-soon.html) | what visitors see while the site is paused ([CD.md §5](CD.md#5-pausing-the-site)) |
 | [`.env.example`](../deploy/.env.example)                 | template for `deploy/.env`: hostname and secrets                                  |
 | [`failover-test.sh`](../deploy/failover-test.sh)         | the proof that load balancing works (section 6)                                   |
 | [`deploy.sh`](../deploy/deploy.sh)                       | a release, rolled out one service at a time ([CD.md](CD.md))                      |
 
-| Service                         | Image                | Reachable from your machine? | Health check                   |
-| ------------------------------- | -------------------- | ---------------------------- | ------------------------------ |
-| `caddy`                         | `caddy:2.11-alpine`  | **yes**: ports 80 and 443    | none                           |
-| `api-1`, `api-2`                | `portfolio-api`      | no                           | `GET /health` every 30 s       |
-| `worker`                        | `portfolio-api`      | no                           | none (only `/metrics`, 4001)   |
-| `web`                           | `portfolio-web`      | no                           | `GET /icon.svg` every 30 s     |
-| `postgres`, `redis`             | official images      | no                           | `pg_isready`, `redis-cli ping` |
-| `prometheus`                    | `prom/prometheus`    | no                           | `promtool check ready`, 30 s   |
-| `node-exporter`                 | `prom/node-exporter` | no                           | none (Prometheus reads it)     |
-| `alertmanager`                  | `prom/alertmanager`  | no                           | `GET /-/ready` every 30 s      |
-| `migrate`, `seed`, `replay-dlq` | `portfolio-api`      | no, run on demand            | (tools: they run and exit)     |
-| `record-backup-time`            | `prom/node-exporter` | no, `backup.sh` runs it      | (a tool)                       |
+| Service                         | Image                | Reachable from your machine?                 | Health check                    |
+| ------------------------------- | -------------------- | -------------------------------------------- | ------------------------------- |
+| `caddy`                         | `caddy:2.11-alpine`  | **yes**: ports 80 and 443                    | none                            |
+| `api-1`, `api-2`                | `portfolio-api`      | no                                           | `GET /health` every 30 s        |
+| `worker`                        | `portfolio-api`      | no                                           | none (only `/metrics`, 4001)    |
+| `web`                           | `portfolio-web`      | no                                           | `GET /icon.svg` every 30 s      |
+| `postgres`, `redis`             | official images      | no                                           | `pg_isready`, `redis-cli ping`  |
+| `prometheus`                    | `prom/prometheus`    | no                                           | `promtool check ready`, 30 s    |
+| `node-exporter`                 | `prom/node-exporter` | no                                           | none (Prometheus reads it)      |
+| `alertmanager`                  | `prom/alertmanager`  | no                                           | `GET /-/ready` every 30 s       |
+| `grafana`                       | `grafana/grafana`    | **through Caddy**: https://localhost/grafana | `GET /grafana/api/health`, 30 s |
+| `migrate`, `seed`, `replay-dlq` | `portfolio-api`      | no, run on demand                            | (tools: they run and exit)      |
+| `record-backup-time`            | `prom/node-exporter` | no, `backup.sh` runs it                      | (a tool)                        |
 
 Only Caddy publishes ports. The database and Redis are reachable only by the other
 containers, which is most of what keeps them safe on a server facing the internet.
@@ -70,9 +73,11 @@ cp deploy/.env.example deploy/.env
 openssl rand -hex 32     # run once per secret, paste each into deploy/.env
 ```
 
-Fill in `POSTGRES_PASSWORD`, `IP_HASH_SECRET`, `METRICS_TOKEN` and `ADMIN_TOKEN`. On your
-laptop keep `SITE_HOST=localhost` and `NOTIFIER_DRIVER=log` (so trying the stack never posts
-to your Discord channel). A missing value stops Compose with a message naming it.
+Fill in `POSTGRES_PASSWORD`, `IP_HASH_SECRET`, `METRICS_TOKEN`, `ADMIN_TOKEN` and (Phase 7)
+`GRAFANA_ADMIN_PASSWORD` (`openssl rand -hex 24`). On your laptop keep `SITE_HOST=localhost`
+and `NOTIFIER_DRIVER=log` (so trying the stack never posts to your Discord channel). A missing
+value stops Compose with a message naming it: a `deploy/.env` from before Phase 7 needs the
+`GRAFANA_ADMIN_PASSWORD=` line added.
 
 (Phase 6b created a `deploy/.env` like this for you, with fresh random secrets. The server has
 its own, with different secrets ([CD.md §2.2](CD.md#22-the-servers-settings-file)); keep a
@@ -217,6 +222,17 @@ $C exec prometheus promtool query instant http://localhost:9090 up   # who answe
 $C kill -s HUP prometheus             # apply a prometheus/ change ("Killed" means signalled)
 $C exec alertmanager amtool alert query --alertmanager.url=http://localhost:9093   # firing now
 ```
+
+- **Grafana**: https://localhost/grafana (on the server `https://<host>/grafana`), user `admin`,
+  password `GRAFANA_ADMIN_PASSWORD`. It opens on the "Portfolio" dashboard; each panel's (i)
+  says what it shows. Five wrong passwords lock the account for 5 minutes.
+- **Changing Grafana's password**: Grafana reads `GRAFANA_ADMIN_PASSWORD` only on its very
+  first start. Put the new one in `deploy/.env`, then hand it over from there (it never lands
+  in your shell history):
+  `$C exec grafana grafana cli admin reset-admin-password "$(sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' deploy/.env)"`
+- **Changing the dashboard**: Grafana refuses to save it (it comes from Git). Change it in the
+  UI, then Share → Export → copy the JSON over `deploy/grafana/dashboards/portfolio.json`,
+  run `npm run monitoring:check`, commit and deploy; Grafana reloads the file within 30 s.
 
 - **Logs are capped**: 3 files × 10 MB per container (Docker otherwise keeps them forever and a
   small server's disk fills up).

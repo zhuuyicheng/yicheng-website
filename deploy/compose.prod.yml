@@ -1,6 +1,6 @@
 # The production stack (DESIGN.md §14.5, docs/PRODUCTION-STACK.md), on the server or your laptop:
 #   Caddy (HTTPS, routing) → api-1 + api-2 and web; worker; Postgres; Redis
-#   monitoring (§15): Prometheus, node-exporter, Alertmanager
+#   monitoring (§15): Prometheus, node-exporter, Alertmanager, Grafana (https://<host>/grafana)
 # Values come from deploy/.env next to this file. Images default to the ones built locally;
 # deploy/deploy.sh sets API_IMAGE and WEB_IMAGE (docs/CD.md). From the repository root:
 #   docker compose -f deploy/compose.prod.yml run --rm migrate     apply migrations
@@ -234,6 +234,45 @@ services:
       start_interval: 2s
     logging: *logging
 
+  # Dashboards at https://<host>/grafana (DESIGN.md §15.4). Anyone can reach its login page, so:
+  # one admin account, sign-up and guests off, 5 wrong passwords lock it for 5 minutes (Grafana's
+  # default), secure cookies, nothing sent to grafana.com. Its only data source is Prometheus.
+  grafana:
+    image: grafana/grafana:13.2.6
+    restart: unless-stopped
+    environment:
+      GF_SERVER_ROOT_URL: https://${SITE_HOST:?set SITE_HOST in deploy/.env}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+      # Read only when Grafana first creates its database; to change it later, see
+      # docs/PRODUCTION-STACK.md §7 (grafana cli admin reset-admin-password).
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in deploy/.env}
+      GF_SECURITY_COOKIE_SECURE: 'true'
+      GF_SECURITY_DISABLE_GRAVATAR: 'true'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: 'false'
+      GF_PLUGINS_PREINSTALL_DISABLED: 'true'
+      GF_NEWS_NEWS_FEED_ENABLED: 'false'
+      # Opens on the dashboard after login.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/portfolio.json
+    volumes:
+      # Only these two provisioning folders: Grafana expects its other (empty) ones to exist.
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      # Its own database: the admin account and sessions. The dashboard comes from Git.
+      - grafana-data:/var/lib/grafana
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:3000/grafana/api/health]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+    logging: *logging
+
   # Tools (DESIGN.md §14.3): the `tools` profile keeps `up` from starting them;
   # `docker compose run --rm <name>` runs one.
   migrate:
@@ -278,6 +317,7 @@ volumes:
   prometheus-data:
   alertmanager-data:
   backup-metrics:
+  grafana-data:
 
 secrets:
   # deploy/.env's values as files in /run/secrets/: never in Git, an image, or `docker inspect`.

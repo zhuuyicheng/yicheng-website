@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Checks the monitoring configuration with the images' own tools (DESIGN.md §15.2, §15.3), so a
+# Checks the monitoring configuration with the images' own tools (DESIGN.md §15.2–15.4), so a
 # mistake fails CI instead of the monitoring: both Prometheus files, the alert rules' unit tests
-# (alerts.test.yml) and both Alertmanager files. Needs Docker.
+# (alerts.test.yml), both Alertmanager files and Grafana's dashboards. Needs Docker and Node.
 #
 #   npm run monitoring:check
 set -Eeuo pipefail
@@ -39,3 +39,23 @@ promtool test rules /etc/prometheus/alerts.test.yml
 
 docker run --rm -v "$ROOT/deploy/alertmanager:/etc/alertmanager:ro" --entrypoint amtool \
   "$alertmanager_image" check-config /etc/alertmanager/discord.yml /etc/alertmanager/log.yml
+
+# Grafana's dashboards: valid JSON (an edit by hand easily breaks it), each with a uid, and every
+# query aimed at the provisioned data source (grafana/provisioning/datasources/prometheus.yml).
+node -e '
+const fs = require("fs");
+for (const file of process.argv.slice(1)) {
+  const dashboard = JSON.parse(fs.readFileSync(file, "utf8"));
+  const panels = dashboard.panels.flatMap((panel) => [panel, ...(panel.panels ?? [])]);
+  // The panel itself, and each query in it.
+  const wrong = panels
+    .filter((panel) => panel.targets)
+    .flatMap((panel) => [panel, ...panel.targets].map((item) => [panel.title, item]))
+    .filter(([, item]) => item.datasource?.uid !== "prometheus");
+  if (!dashboard.uid || wrong.length > 0) {
+    console.error(`FAILED: ${file}: ${dashboard.uid ? "" : "no uid; "}` +
+      wrong.map(([title]) => `"${title}" queries another data source`).join("; "));
+    process.exit(1);
+  }
+  console.log(`Checking ${file}  SUCCESS (${panels.length} panels)`);
+}' "$ROOT"/deploy/grafana/dashboards/*.json

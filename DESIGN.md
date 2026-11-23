@@ -137,7 +137,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │                                         backup.sh, restore.sh, pull-backups.sh, failover-test.sh,
 │                                         (P7) prometheus/ (prometheus.yml, prometheus.dev.yml,
 │                                         alerts.yml + alerts.test.yml, check.sh: npm run
-│                                         monitoring:check), alertmanager/ (discord.yml, log.yml)
+│                                         monitoring:check), alertmanager/ (discord.yml, log.yml),
+│                                         grafana/ (provisioning/, dashboards/portfolio.json)
 ├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests, (P7) Prometheus
 ├── eslint.config.mjs                     one flat config for the whole repo
 ├── package.json                          npm workspaces + repo-wide scripts
@@ -1803,6 +1804,7 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
   must not drop or rename anything the running version reads. A rename becomes: add the new
   column → backfill → release code using it → drop the old column in a later release.
 - **No secrets in images or Git.** Production values (`IP_HASH_SECRET`, `METRICS_TOKEN`,
+  `GRAFANA_ADMIN_PASSWORD` (Phase 7),
   `ADMIN_TOKEN`, `DISCORD_WEBHOOK_URL`, database passwords) live only in an env file on the
   host (`deploy/.env`, owner-only), with a copy of that file in a password manager. GitHub
   holds just what the deploy job needs to reach the server (§14.3), so a leaked workflow log
@@ -1921,7 +1923,7 @@ pages from inside the web container and expects the back-soon page at the public
 			root /etc/caddy
 			try_files /paused
 		}
-		not path /admin /admin/* /_next/*
+		not path /admin /admin/* /_next/* /grafana /grafana/*
 	}
 	handle @paused {
 		header Retry-After 3600
@@ -1939,6 +1941,10 @@ pages from inside the web container and expects the back-soon page at the public
 		}
 		handle /api/* {
 			import api_replicas
+		}
+		@grafana path /grafana /grafana/*   # Phase 7 (§15.4); the prefix stays
+		handle @grafana {
+			reverse_proxy grafana:3000
 		}
 		handle {
 			reverse_proxy web:3000
@@ -2219,15 +2225,35 @@ Prometheus read it within 15 s.
 - Caddy sends `/grafana` and `/grafana/*` to `grafana:3000` with the prefix kept (Grafana
   serves from the sub-path; its root URL is built from `SITE_HOST`). It stays reachable while
   the site is paused, like `/admin`.
-- **A public login page**, so: one admin account with `GRAFANA_ADMIN_PASSWORD` from
-  `deploy/.env` (read on the first start only: changing it later takes
-  `grafana cli admin reset-admin-password`), sign-up and anonymous access off, Grafana's
-  brute-force lockout on, secure cookies, and no Gravatar, usage reports or update checks (no
-  calls to outside services).
+- **Image**: `grafana/grafana:13.2.6`, the newest patch of a line out for two months.
+  Not `grafana-oss` (no longer updated since June 2026) and not `-slim` (1.3 GB instead of
+  1.9 GB, but it cannot query Prometheus: its data-source check answered 404).
+- **A public login page**, so: one admin account (`admin`) with `GRAFANA_ADMIN_PASSWORD` from
+  `deploy/.env`, read only when Grafana first creates its database (changing it later:
+  `grafana cli admin reset-admin-password`, docs/PRODUCTION-STACK.md §7); sign-up and anonymous
+  access off; secure cookies; no Gravatar, usage reports, update checks, news feed or plugin
+  preinstalls (no calls to outside services). Grafana's lockout per account stays on: after 5
+  wrong passwords within 5 minutes even the right one is refused, with the same message, until
+  5 minutes after the first. Its lockout per IP address stays off: behind Caddy every visitor
+  would share one address, so an attacker could lock the owner out.
 - Its only data source is Prometheus. Grafana cannot read Postgres, so visitors' details stay
   in `/admin`.
-- Data source and dashboard are **provisioned from Git** (`deploy/grafana/`). A dashboard
-  changed in the UI must be exported back to its JSON file, or the next start resets it.
+- Data source and dashboard are **provisioned from Git** (`deploy/grafana/`): the data source
+  on every start, the dashboard from its file every 30 s. Saving from the UI is refused
+  ("Cannot save provisioned dashboard"): export the JSON over
+  `deploy/grafana/dashboards/portfolio.json` instead. Only the provisioning folders in use are
+  mounted, as Grafana logs errors for missing ones.
+- **The dashboard** ("Portfolio", also Grafana's home page) explains every panel in its
+  description, like `/admin`: right now (requests, errors and p95 over 5 minutes, cache hit
+  ratio over 24 hours, alerts firing, the last backup's age), visitor requests (per replica,
+  by status, p50/p95/p99, p95 per route), the content cache, queues, visits received and saved,
+  worker problems, which process answers, memory and event-loop delay per process, the VM's
+  CPU, memory and disk, and the alerts firing now. `npm run monitoring:check` parses it and
+  checks every query goes to the Prometheus data source.
+- **Drilled** (2026-11-24) on the desktop's stack: login page 200, the API refuses a guest or a
+  wrong password (401) and sign-up (401); all 27 queries run through Grafana without an error;
+  paused, the site answers 503 and `/grafana` 200; the lockout refused the right password after
+  5 wrong ones and lifted after about 5 minutes.
 
 ### 15.5 `/admin` reads Prometheus
 
@@ -2265,5 +2291,8 @@ Prometheus already reads every replica and adds them up, so `/admin` stops doing
 
 ### 15.7 Cost
 
-About 300 MB more memory on the 6 GB VM (Prometheus and Grafana roughly 100–150 MB each,
-measured in 7f), at most 2 GB of disk, and next to no CPU (a few small pages every 15 s).
+Measured on the desktop's stack (2026-11-24, a few minutes after start): Grafana 261 MB,
+Prometheus 33 MB (it grows with the 30 days kept), Alertmanager 12 MB, node-exporter 10 MB:
+about 320 MB more, the whole stack about 800 MB of the VM's 6 GB. Grafana's image takes
+1.9 GB of disk, Prometheus's data at most 2 GB. CPU: next to none (a few small pages every 15 s).
+The server's own numbers are taken in 7f.

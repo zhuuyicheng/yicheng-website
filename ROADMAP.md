@@ -342,8 +342,12 @@ asking each replica, with the custom code that fed them removed; Grafana at
       api-1 stopped → `TargetDown` in Alertmanager after 137 s (site served by api-2), cleared
       9 s after its restart; a backup's time reached Prometheus; the Discord messages checked
       against a stand-in (firing, partly and fully resolved)
-- [ ] 7d Grafana at `/grafana` (its own login, open while the site is paused), data source and
-      dashboard provisioned from files in Git
+- [x] 7d Grafana at `/grafana` (its own login, open while the site is paused), data source and
+      dashboard provisioned from files in Git. Grafana 13.2.6 (the slim image cannot query
+      Prometheus). The "Portfolio" dashboard: 21 panels, each explained; all 27 queries run.
+      Drilled on the desktop's stack: guests and wrong passwords get 401, sign-up 401, `/grafana`
+      open while paused, 5 wrong passwords lock the account for about 5 minutes. Grafana uses
+      about 260 MB, the four monitoring containers about 320 MB together
 - [ ] 7e `/admin` reads Prometheus: tiles and charts from PromQL (the charts start full), `up`
       names a replica or worker that stopped answering. Removed: asking each replica
       (`API_REPLICA_URLS`) and the chart history kept by the browser
