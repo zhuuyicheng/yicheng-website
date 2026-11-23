@@ -6,6 +6,11 @@
 
 global:
   scrape_interval: 15s
+  evaluation_interval: 15s
+
+# The production rules, to watch them at http://localhost:9090/alerts. Nothing is sent: there
+# is no Alertmanager in development (TargetDown just means dev:api or dev:worker isn't running).
+rule_files: [alerts.yml]
 
 scrape_configs:
   # host.docker.internal is this computer, seen from a container. No token: METRICS_TOKEN stays

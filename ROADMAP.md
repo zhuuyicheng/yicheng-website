@@ -335,8 +335,13 @@ asking each replica, with the custom code that fed them removed; Grafana at
       Prometheus in `npm run infra:up` for development; configuration checked in CI (`promtool`).
       Tried on the desktop's stack: api-1, api-2, worker and node-exporter all answer, with the
       token; Prometheus about 30 MB and node-exporter 8 MB at start; no `/metrics` log lines
-- [ ] 7c Alerts: rules with unit tests (`promtool test rules`), Alertmanager → the Discord
-      channel; backups record their time for the "backup too old" alert; drill on the laptop stack
+- [x] 7c Alerts: rules with unit tests (`promtool test rules`), Alertmanager → the Discord
+      channel; backups record their time for the "backup too old" alert; drill on the laptop stack.
+      Nine rules, each test checked by breaking its rule on purpose. `NOTIFIER_DRIVER` picks
+      Alertmanager's file, so your computers' stacks never post. Drilled on the desktop's stack:
+      api-1 stopped → `TargetDown` in Alertmanager after 137 s (site served by api-2), cleared
+      9 s after its restart; a backup's time reached Prometheus; the Discord messages checked
+      against a stand-in (firing, partly and fully resolved)
 - [ ] 7d Grafana at `/grafana` (its own login, open while the site is paused), data source and
       dashboard provisioned from files in Git
 - [ ] 7e `/admin` reads Prometheus: tiles and charts from PromQL (the charts start full), `up`

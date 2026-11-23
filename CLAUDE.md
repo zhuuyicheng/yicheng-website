@@ -25,7 +25,7 @@ section before changing behaviour, and update it in the same change when a desig
 | Production stack on the laptop (PRODUCTION-STACK.md) | `npm run stack:up` / `stack:down` / `stack:failover`             |
 | Deploy a release to the stack, as CD does (CD.md)    | `npm run stack:deploy -- dev` (server: `deploy.sh <sha>`)        |
 | Back up / restore the stack's database (BACKUPS.md)  | `npm run stack:backup` / `npm run stack:restore -- <file.dump>`  |
-| Check the Prometheus config (promtool, needs Docker) | `npm run monitoring:check`                                       |
+| Check monitoring config + alert tests (needs Docker) | `npm run monitoring:check`                                       |
 | Lint / fix                                           | `npm run lint` / `npm run lint:fix`                              |
 | Typecheck                                            | `npm run typecheck`                                              |
 | Format                                               | `npm run format` / `npm run format:check`                        |

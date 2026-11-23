@@ -24,14 +24,16 @@ themselves: [DOCKER.md](DOCKER.md).
                    postgres + redis      (all shared state lives here)
 
    prometheus ── every 15 s ──► api-1, api-2, worker, node-exporter (the VM)   (monitoring)
+        └── alert rules ──► alertmanager ──► Discord (NOTIFIER_DRIVER=discord only)
 ```
 
 Everything is in [`deploy/`](../deploy/):
 
 | File                                                     | What                                                                              |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`compose.prod.yml`](../deploy/compose.prod.yml)         | the nine services, their settings and health checks                               |
-| [`prometheus/`](../deploy/prometheus/)                   | what Prometheus reads, and the check CI runs (DESIGN.md §15)                      |
+| [`compose.prod.yml`](../deploy/compose.prod.yml)         | the ten services, their settings and health checks                                |
+| [`prometheus/`](../deploy/prometheus/)                   | what Prometheus reads, the alert rules and their tests, the check CI runs         |
+| [`alertmanager/`](../deploy/alertmanager/)               | where alerts go: `discord.yml` (server) or `log.yml` (yours: nothing is sent)     |
 | [`caddy/Caddyfile`](../deploy/caddy/Caddyfile)           | HTTPS, routing, load balancing                                                    |
 | [`caddy/back-soon.html`](../deploy/caddy/back-soon.html) | what visitors see while the site is paused ([CD.md §5](CD.md#5-pausing-the-site)) |
 | [`.env.example`](../deploy/.env.example)                 | template for `deploy/.env`: hostname and secrets                                  |
@@ -47,7 +49,9 @@ Everything is in [`deploy/`](../deploy/):
 | `postgres`, `redis`             | official images      | no                           | `pg_isready`, `redis-cli ping` |
 | `prometheus`                    | `prom/prometheus`    | no                           | `promtool check ready`, 30 s   |
 | `node-exporter`                 | `prom/node-exporter` | no                           | none (Prometheus reads it)     |
+| `alertmanager`                  | `prom/alertmanager`  | no                           | `GET /-/ready` every 30 s      |
 | `migrate`, `seed`, `replay-dlq` | `portfolio-api`      | no, run on demand            | (tools: they run and exit)     |
+| `record-backup-time`            | `prom/node-exporter` | no, `backup.sh` runs it      | (a tool)                       |
 
 Only Caddy publishes ports. The database and Redis are reachable only by the other
 containers, which is most of what keeps them safe on a server facing the internet.
@@ -210,7 +214,8 @@ $C logs -f api-1 caddy                 # follow logs (JSON); Ctrl+C to stop foll
 $C run --rm replay-dlq telemetry       # the CLIs: migrate, seed, replay-dlq <queue>
 $C exec caddy caddy reload --config /etc/caddy/Caddyfile   # apply a Caddyfile change
 $C exec prometheus promtool query instant http://localhost:9090 up   # who answers Prometheus
-$C kill -s HUP prometheus             # apply a prometheus/prometheus.yml change
+$C kill -s HUP prometheus             # apply a prometheus/ change ("Killed" means signalled)
+$C exec alertmanager amtool alert query --alertmanager.url=http://localhost:9093   # firing now
 ```
 
 - **Logs are capped**: 3 files × 10 MB per container (Docker otherwise keeps them forever and a
@@ -231,7 +236,10 @@ $C kill -s HUP prometheus             # apply a prometheus/prometheus.yml change
   Encrypt issues the same one only 5 times a week.
 - **Inside the datastores**: [DATA-TOOLS.md §7.6](DATA-TOOLS.md#76-phase-6b-the-production-stack-on-your-laptop).
 - **Monitoring** (DESIGN.md §15): Prometheus reads every process's `/metrics` every 15 s and
-  keeps 30 days in its own volume. `up` above prints `1` for each target that answers and `0`
+  keeps 30 days in its own volume. Its alert rules go to Alertmanager, which posts to Discord
+  only with `NOTIFIER_DRIVER=discord` (the server): on your computers it uses
+  `alertmanager/log.yml` and sends nothing, so stopping `api-1` here is a safe drill
+  (`TargetDown` shows in the `amtool` query above after about 2 minutes). `up` above prints `1` for each target that answers and `0`
   for one that doesn't (stopped, or a wrong `METRICS_TOKEN`). On Docker Desktop the VM's disk
   numbers are missing: its root disk is a type node-exporter skips (the server's is counted).
 

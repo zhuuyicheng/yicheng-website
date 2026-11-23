@@ -5,7 +5,8 @@
 #   1. pg_dump to $BACKUP_DIR/portfolio-<UTC time>.dump, plus a .sha256 checksum
 #   2. prove it restores into a scratch database, count the rows, drop it
 #   3. keep the newest $KEEP backups
-#   4. report on Discord, success or failure (when NOTIFIER_DRIVER=discord)
+#   4. record the success time for Prometheus (its BackupStale alert, DESIGN.md §15.3)
+#   5. report on Discord, success or failure (when NOTIFIER_DRIVER=discord)
 #
 #   bash deploy/backup.sh          defaults: BACKUP_DIR=~/backups/portfolio KEEP=4
 set -Eeuo pipefail
@@ -88,5 +89,14 @@ find "$BACKUP_DIR" -maxdepth 1 -name 'portfolio-*.dump' | sort | head -n -"$KEEP
     log "removed $(basename "$old")"
   done
 
+step="recording the time for Prometheus"
+# The backup is safe by now, so a failure here is reported, not fatal: without a fresh time,
+# BackupStale fires 8 days after the last recorded one.
+unrecorded=""
+if ! output="$(compose run --rm --no-deps -T record-backup-time "$(date -u +%s)" </dev/null 2>&1)"; then
+  log "could not record the backup time for Prometheus: $output"
+  unrecorded=" Its time could not be recorded for Prometheus: run deploy/backup.sh by hand to see why."
+fi
+
 log "done: $name ($size)"
-notify "Portfolio backup OK: $name ($size), test restore found $events events and $messages contact messages. Copy it home whenever you like: deploy/pull-backups.sh on your desktop."
+notify "Portfolio backup OK: $name ($size), test restore found $events events and $messages contact messages. Copy it home whenever you like: deploy/pull-backups.sh on your desktop.$unrecorded"

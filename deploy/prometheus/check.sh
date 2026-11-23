@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Checks the Prometheus configuration with the image's own promtool (DESIGN.md §15.2), so a
-# mistake fails CI instead of the monitoring. Needs Docker.
+# Checks the monitoring configuration with the images' own tools (DESIGN.md §15.2, §15.3), so a
+# mistake fails CI instead of the monitoring: both Prometheus files, the alert rules' unit tests
+# (alerts.test.yml) and both Alertmanager files. Needs Docker.
 #
 #   npm run monitoring:check
 set -Eeuo pipefail
@@ -9,11 +10,12 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$DIR/../.." && pwd)"
 
 # One version everywhere: the production stack's, which development must match.
-prometheus_image() { sed -n 's/^ *image: *\(prom\/prometheus:[^ ]*\) *$/\1/p' "$1"; }
-image="$(prometheus_image "$ROOT/deploy/compose.prod.yml")"
-dev_image="$(prometheus_image "$ROOT/docker-compose.yml")"
-if [ -z "$image" ]; then
-  echo "FAILED: no prom/prometheus image in deploy/compose.prod.yml" >&2
+image_of() { sed -n "s/^ *image: *\(prom\/$1:[^ ]*\) *$/\1/p" "$2" | head -n 1; }
+image="$(image_of prometheus "$ROOT/deploy/compose.prod.yml")"
+dev_image="$(image_of prometheus "$ROOT/docker-compose.yml")"
+alertmanager_image="$(image_of alertmanager "$ROOT/deploy/compose.prod.yml")"
+if [ -z "$image" ] || [ -z "$alertmanager_image" ]; then
+  echo "FAILED: no prom/prometheus or prom/alertmanager image in deploy/compose.prod.yml" >&2
   exit 1
 fi
 if [ "$image" != "$dev_image" ]; then
@@ -33,3 +35,7 @@ promtool() {
 }
 
 promtool check config /etc/prometheus/prometheus.yml /etc/prometheus/prometheus.dev.yml
+promtool test rules /etc/prometheus/alerts.test.yml
+
+docker run --rm -v "$ROOT/deploy/alertmanager:/etc/alertmanager:ro" --entrypoint amtool \
+  "$alertmanager_image" check-config /etc/alertmanager/discord.yml /etc/alertmanager/log.yml

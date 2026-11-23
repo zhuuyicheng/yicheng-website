@@ -65,12 +65,16 @@ zone, which is UTC on Oracle's images. Each run:
 2. **test-restores** it into a scratch database and counts the rows: a backup that was never
    restored is only a hope;
 3. keeps the newest 4 (a month); your desktop keeps its own copies of all it has copied;
-4. posts to Discord, for example
+4. records its time for Prometheus (since Phase 7, DESIGN.md §15.3);
+5. posts to Discord, for example
    `Portfolio backup OK: … (20K), test restore found 1234 events and 5 contact messages`, or
    `Portfolio backup FAILED while …`.
 
 **If the Sunday message does not arrive, something is wrong**, even if nothing failed loudly
-(the server was down, cron was edited). Check `~/backups/backup.log` on the server.
+(the server was down, cron was edited). Check `~/backups/backup.log` on the server. Since
+Phase 7 you needn't notice the silence yourself: when no backup has succeeded for 8 days,
+Prometheus posts `Firing: BackupStale` to the same channel. It counts from the first backup
+after Phase 7 was deployed, so run one by hand then.
 
 ---
 
@@ -271,15 +275,16 @@ message, restore, and count again: 5 and 1, with the changed version kept aside.
 
 ## 5. When something goes wrong
 
-| Symptom                                           | What to do                                                                                                                                 |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Discord: `backup FAILED while dumping …`          | `ssh portfolio`, `docker compose -f ~/portfolio/deploy/compose.prod.yml ps`: is Postgres up? Then run `backup.sh` by hand                  |
-| No Sunday message at all                          | `crontab -l` on the server (is the line there?), then `~/backups/backup.log`                                                               |
-| Copy: `FAILED`, with `Permission denied` above it | The `authorized_keys` line or `~/.ssh/config` (section 3.1); `ssh -v portfolio-backups` shows why                                          |
-| Copy: `PROBLEM: … does not match its checksum`    | That copy is damaged: delete it (and its `.sha256`); the next run copies it again if the server still has it                               |
-| Copy: `PROBLEM: no backup newer than 8 days`      | The server has not made a backup for 8 days: see "No Sunday message"                                                                       |
-| `restore.sh` failed after stopping services       | It restarted them. `psql -l` (inside the Postgres container) lists the databases: the old one is untouched or renamed `…_before_restore_…` |
-| A restore went wrong and you want the old one     | Swap back the same way: stop api-1, api-2, worker; rename the databases; start them                                                        |
+| Symptom                                                      | What to do                                                                                                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Discord: `backup FAILED while dumping …`                     | `ssh portfolio`, `docker compose -f ~/portfolio/deploy/compose.prod.yml ps`: is Postgres up? Then run `backup.sh` by hand                  |
+| No Sunday message at all, or `Firing: BackupStale`           | `crontab -l` on the server (is the line there?), then `~/backups/backup.log`                                                               |
+| `backup OK` ends with `could not be recorded for Prometheus` | The backup is fine. Run `backup.sh` by hand: the error above `done:` says why (Docker, or node-exporter's image missing)                   |
+| Copy: `FAILED`, with `Permission denied` above it            | The `authorized_keys` line or `~/.ssh/config` (section 3.1); `ssh -v portfolio-backups` shows why                                          |
+| Copy: `PROBLEM: … does not match its checksum`               | That copy is damaged: delete it (and its `.sha256`); the next run copies it again if the server still has it                               |
+| Copy: `PROBLEM: no backup newer than 8 days`                 | The server has not made a backup for 8 days: see "No Sunday message"                                                                       |
+| `restore.sh` failed after stopping services                  | It restarted them. `psql -l` (inside the Postgres container) lists the databases: the old one is untouched or renamed `…_before_restore_…` |
+| A restore went wrong and you want the old one                | Swap back the same way: stop api-1, api-2, worker; rename the databases; start them                                                        |
 
 ---
 

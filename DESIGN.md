@@ -136,7 +136,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │                                         .env.example (→ gitignored .env), deploy.sh,
 │                                         backup.sh, restore.sh, pull-backups.sh, failover-test.sh,
 │                                         (P7) prometheus/ (prometheus.yml, prometheus.dev.yml,
-│                                         check.sh: npm run monitoring:check)
+│                                         alerts.yml + alerts.test.yml, check.sh: npm run
+│                                         monitoring:check), alertmanager/ (discord.yml, log.yml)
 ├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests, (P7) Prometheus
 ├── eslint.config.mjs                     one flat config for the whole repo
 ├── package.json                          npm workspaces + repo-wide scripts
@@ -1613,8 +1614,9 @@ compose, run serially):
 **CI** (from Phase 2): GitHub Actions runs `format:check`, `lint`, `typecheck` and the full
 test suite (API unit + integration, web unit) against Postgres and Redis service containers,
 then (P5) `next build` for the website, which must succeed without the API running, (P6)
-builds both Docker images for `linux/arm64`, and (P7) checks the Prometheus configuration with
-the image's own `promtool` (`npm run monitoring:check`). It runs on every pull request, and on every
+builds both Docker images for `linux/arm64`, and (P7) checks the monitoring configuration with
+the images' own `promtool` and `amtool`, alert-rule unit tests included
+(`npm run monitoring:check`). It runs on every pull request, and on every
 commit to `main` inside the Deploy workflow (§14.3); `main` only accepts pull requests that
 passed it. See [docs/CI.md](docs/CI.md).
 
@@ -2059,6 +2061,9 @@ a day makes a 2–4 MB backup.
    API's webhook from `deploy/.env`. The weekly success message doubles as a heartbeat: its
    absence means the job did not run.
 
+(Phase 7) Each success also records its time for Prometheus, whose `BackupStale` alert (§15.3)
+posts when the newest is over 8 days old: the missing heartbeat no longer has to be noticed.
+
 **On the owner's desktop** (Windows + WSL), `deploy/pull-backups.sh`, run by hand whenever
 the owner likes (no schedule: the owner's choice). The desktop copy is what survives losing
 the VM, so its age is the most that a lost server costs; the server keeps 4 weeks, so copying
@@ -2122,7 +2127,8 @@ Alertmanager and Grafana run in the production stack: on the server, and on the 
 `npm run stack:up`.
 
 Images: `prom/prometheus:v3.13.5`, from the line Prometheus keeps patching alongside newer
-releases (long-term support, like 3.5 before it), and `prom/node-exporter:v1.13.1`.
+releases (long-term support, like 3.5 before it), `prom/node-exporter:v1.13.1` and
+`prom/alertmanager:v0.34.2` (the patched release of a line out for three months).
 Development runs the same Prometheus image: `npm run monitoring:check` fails otherwise.
 
 ### 15.2 Scraping
@@ -2177,13 +2183,36 @@ waits (`for`) longer than a deploy's restart, so a release alerts nobody.
 | `MemoryHigh`     | The VM's memory is over 85 % used, for 10 min                                    |
 | `BackupStale`    | The last successful backup is over 8 days old                                    |
 
-`backup.sh` already reports each run on Discord; `BackupStale` catches the run that never
-happens (cron edited, server off). It writes its success time to a file node-exporter reads,
-outside the backups folder (which holds personal data).
+**Tests.** `deploy/prometheus/alerts.test.yml` feeds made-up samples to each rule and checks
+what fires, when, and the exact text: cases that must fire and cases that must not (an outage as
+short as a restart, a failing health check, a busy buffer that is being saved, one failed flush,
+a weekly backup). Each test was checked by breaking its rule on purpose; an `on ()` that no test
+could tell apart from its absence was removed as dead weight.
 
-Alertmanager posts to the **same Discord webhook as the contact notifications**
-(`DISCORD_WEBHOOK_URL`, the owner's choice: one place to look), grouped by alert name,
-repeated every 12 h while still firing, and once more when resolved.
+**The backup time.** `backup.sh` already reports each run on Discord; `BackupStale` catches the
+run that never happens (cron edited, server off). Its last step runs `record-backup-time` (a
+`tools` service with node-exporter's image, for its shell), which writes
+`portfolio_backup_last_success_timestamp_seconds` into the volume `backup-metrics`, where
+node-exporter's textfile collector reads it. A volume, not a folder in the home directory:
+node-exporter runs as `nobody`, which cannot enter `/home/ubuntu`, and Docker would create a
+missing host folder as root. Failing to record is logged and named in the success message, not
+fatal: the backup is safe by then.
+
+**Alertmanager** posts to the **same Discord webhook as the contact notifications**
+(`DISCORD_WEBHOOK_URL` as a Compose secret file; the owner's choice: one place to look).
+`NOTIFIER_DRIVER` picks its file as it picks the API's notifier: `alertmanager/discord.yml` on
+the server, `alertmanager/log.yml` (sends nothing) on the owner's computers, so a local drill
+never posts. Grouped by alert name, so two replicas down is one message: "Firing: TargetDown"
+(red) or "Resolved: TargetDown" (green), one line per instance (a summary, "Resolved: …" once
+one recovers), then the description, what to do, once (so descriptions name no instance).
+Repeated every 12 h while still firing. Silences (`amtool silence add`) and what was already
+sent survive a restart (volume `alertmanager-data`).
+
+**Drilled** (2026-11-24): the message format against a stand-in for Discord (firing, one
+replica recovered, all resolved); on the desktop's stack with `NOTIFIER_DRIVER=log`, stopping
+api-1 put `TargetDown` in Alertmanager after 137 s while the site kept answering through
+api-2, and starting it cleared the alert 9 s later. A real backup run recorded its time, and
+Prometheus read it within 15 s.
 
 ### 15.4 Grafana at `/grafana`
 

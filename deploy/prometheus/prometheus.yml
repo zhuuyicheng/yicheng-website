@@ -9,6 +9,16 @@
 
 global:
   scrape_interval: 15s
+  # Alert rules are checked as often as new samples arrive.
+  evaluation_interval: 15s
+
+# What counts as a problem (DESIGN.md §15.3), and where firing alerts go: Alertmanager, which
+# posts them to Discord.
+rule_files: [alerts.yml]
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [alertmanager:9093]
 
 scrape_configs:
   # The API's and the worker's /metrics need METRICS_TOKEN: a Compose secret from deploy/.env.
