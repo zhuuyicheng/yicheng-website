@@ -9,12 +9,9 @@ import {
 import { fetchOwnerData } from './owner-fetch';
 import { capitalise, deviceLabel, placeLabel, referrerLabel } from './visitors';
 
-/**
- * The queue card's "Show items" on /admin (DESIGN.md §8.7): what waits in one Redis queue, and
- * the words that explain it. No React, so it can be unit-tested.
- */
+/** "Show items" on /admin (DESIGN.md §8.7): one queue's items, and the words that explain them. */
 
-/** One queue's items, through this web server's owner route (app/admin/queues/[queue]). */
+/** Through this server's owner route (app/admin/queues/[queue]). */
 export function fetchQueueItems(options: {
   queue: QueueName;
   fetch: typeof globalThis.fetch;
@@ -25,9 +22,8 @@ export function fetchQueueItems(options: {
 }
 
 /**
- * What each dead-letter reason means, and what to fix before retrying (DESIGN.md §8.2, §8.3).
- * A `Record` over the contract's reasons, so a new one without an explanation fails the
- * typecheck.
+ * Each dead-letter reason, and what to fix before retrying (DESIGN.md §8.2, §8.3). A `Record`,
+ * so a new reason without an explanation fails the typecheck.
  */
 export const DEAD_LETTER_HELP: Record<DeadLetterReasonName, { label: string; fix: string }> = {
   insert_failed: {
@@ -48,7 +44,7 @@ export const DEAD_LETTER_HELP: Record<DeadLetterReasonName, { label: string; fix
   },
 };
 
-/** The different reasons among `items`, in the order they first appear: one hint each. */
+/** The distinct reasons, in order of appearance: one hint each. */
 export function deadLetterReasons(items: readonly QueueItem[]): DeadLetterReasonName[] {
   const reasons = items.flatMap((item) =>
     item.deadLetter === null ? [] : [item.deadLetter.reason],
@@ -65,7 +61,7 @@ export function eventLabel(event: Pick<QueuedEvent, 'type' | 'name' | 'path'>): 
   return `Click on ${link} (on ${event.path})`;
 }
 
-/** Who it was, as far as known: `Acme Pte Ltd · Singapore · Desktop · Chrome · via linkedin.com`. */
+/** As far as known: `Acme Pte Ltd · Singapore · Desktop · Chrome · via linkedin.com`. */
 export function eventSource(event: QueuedEvent): string {
   const knownPlace = event.countryCode !== null || event.city !== null;
   const knownDevice = event.deviceType !== null || event.browser !== null || event.os !== null;
@@ -108,14 +104,14 @@ export function shownLabel(result: Pick<QueueItems, 'queue' | 'total' | 'items'>
   return `${capitalise(which)} of ${String(result.total)}`;
 }
 
-/** A long text's start (cut at `max` characters) and whether anything was left out. */
+/** The start of a long text (`max` characters), and whether anything was cut. */
 export function clipText(text: string, max: number): { text: string; clipped: boolean } {
   return text.length <= max
     ? { text, clipped: false }
     : { text: `${text.slice(0, max).trimEnd()}…`, clipped: true };
 }
 
-/** The retry command for a dead-letter list: on the server, and on your computer. */
+/** A dead-letter list's retry command, on the server and on your computer. */
 export function replayCommands(pipeline: 'telemetry' | 'notifications'): {
   server: string;
   local: string;

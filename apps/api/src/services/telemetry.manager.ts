@@ -14,21 +14,21 @@ import type {
 import type { Visitor, VisitorDetailsManager } from './visitor-details.manager.js';
 
 /**
- * Telemetry ingestion (DESIGN.md §8.2). Accepting an event only appends it to a Redis list;
- * the worker writes it to Postgres later, so a slow or down database never slows a visitor.
+ * Telemetry ingestion (DESIGN.md §8.2): only appends to a Redis list; the worker writes to
+ * Postgres later, so a slow database never slows a visitor.
  */
 export interface TelemetryManager {
   ingest: (event: EventRequest, visitor: Visitor, log: Logger) => Promise<EventAccepted>;
 }
 
 export interface TelemetryManagerDependencies {
-  /** Ingestion only ever appends; claiming and acknowledging belong to the flusher. */
+  /** Ingestion only appends; claiming belongs to the flusher. */
   bufferDal: Pick<EventBufferDal, 'enqueue'>;
   saltDal: TelemetrySaltDal;
   visitorDetails: VisitorDetailsManager;
   metrics: Metrics;
   bufferMaxLength: number;
-  /** Injectable for tests. */
+  /** For tests. */
   now?: () => Date;
   newEventId?: () => string;
   newSalt?: () => string;
@@ -48,7 +48,7 @@ export function createTelemetryManager(deps: TelemetryManagerDependencies): Tele
     newSalt = () => randomBytes(32).toString('hex'),
   } = deps;
 
-  // Remembers today's salt, so Redis is asked once per day per process, not per event.
+  // Today's salt, so Redis is asked once a day per process, not per event.
   let saltOfTheDay: { date: string; salt: string } | null = null;
 
   async function dailySalt(at: Date): Promise<string> {
@@ -87,17 +87,15 @@ export function createTelemetryManager(deps: TelemetryManagerDependencies): Tele
         accepted = await bufferDal.enqueue(JSON.stringify(event), bufferMaxLength);
       } catch (error) {
         if (!isTransientDatastoreError(error)) {
-          throw error; // a bug, not an outage: let it surface as a 500
+          throw error; // a bug, not an outage: a 500
         }
-        // No in-memory fallback on purpose: events held in this process would be lost on a
-        // crash, and the client can simply retry. DESIGN.md §9.
+        // No in-memory fallback: a crash would lose them, and the client can retry (DESIGN.md §9).
         reject('redis_unavailable', log);
         throw new AppError(ErrorCode.SERVICE_UNAVAILABLE, UNAVAILABLE_MESSAGE, { cause: error });
       }
 
       if (!accepted) {
-        // The worker is not keeping up (or not running). Refusing is better than letting
-        // Redis run out of memory.
+        // The worker isn't keeping up (or running). Better to refuse than run Redis out of memory.
         reject('buffer_full', log);
         throw new AppError(ErrorCode.SERVICE_UNAVAILABLE, UNAVAILABLE_MESSAGE);
       }
@@ -108,7 +106,7 @@ export function createTelemetryManager(deps: TelemetryManagerDependencies): Tele
   };
 }
 
-/** `/bowling-buddy?utm_source=y#top` → `/bowling-buddy`. Query strings can carry personal data. */
+/** `/page?utm_source=y#top` → `/page`: query strings can carry personal data. */
 export function stripQueryAndFragment(path: string): string {
   const end = path.search(/[?#]/);
   return end === -1 ? path : path.slice(0, end);
@@ -119,20 +117,14 @@ export function hostOf(referrer: string | null | undefined): string | null {
   return referrer ? new URL(referrer).hostname : null;
 }
 
-/**
- * The address as Postgres INET will accept it, or null. `request.ip` is normally a valid
- * IPv4 or IPv6 address; anything else would fail the whole batch insert in the worker.
- */
+/** The IP if Postgres INET accepts it, else null (a bad one would fail the whole batch). */
 export function storableIp(ip: string): string | null {
   return isIP(ip) === 0 ? null : ip;
 }
 
 /**
- * sha256 of salt, IP and user agent. The same visitor gives the same hash all day (so unique
- * visitors can be counted) but a different one tomorrow (so the hash alone cannot link one
- * day's visits to the next), and it cannot be reversed to the IP. The newline separators keep
- * the parts unambiguous ("1.2.3.4" + "5x" must not equal "1.2.3.45" + "x"); headers cannot
- * contain one.
+ * sha256(salt, IP, user agent): the same all day (unique visitors), different tomorrow, and
+ * irreversible. Newlines keep the parts unambiguous; headers can't contain one.
  */
 export function hashVisitor(salt: string, visitor: Pick<Visitor, 'ip' | 'userAgent'>): string {
   return createHash('sha256').update(`${salt}\n${visitor.ip}\n${visitor.userAgent}`).digest('hex');

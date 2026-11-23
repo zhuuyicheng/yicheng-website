@@ -5,10 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-/**
- * deploy/pull-backups.sh, the desktop's weekly copy (docs/BACKUPS.md §3). Here because it
- * touches the filesystem; a local folder stands in for the server (rsync copies it the same way).
- */
+/** deploy/pull-backups.sh (docs/BACKUPS.md §3), with a local folder as the server. */
 const SCRIPT = path.resolve(import.meta.dirname, '../../../../deploy/pull-backups.sh');
 const BACKUP = 'portfolio-2026-11-22-1800Z.dump';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -24,7 +21,7 @@ function runPullBackups(
   let output = '';
   child.stdout.on('data', (chunk: Buffer) => (output += chunk.toString()));
   child.stderr.on('data', (chunk: Buffer) => (output += chunk.toString()));
-  // 'close', not 'exit': the script's output goes through tee, which may finish after bash.
+  // 'close', not 'exit': output goes through tee, which may finish after bash.
   return new Promise((resolve) => {
     child.once('close', (code) => {
       resolve({ code, output });
@@ -43,7 +40,7 @@ describe('deploy/pull-backups.sh', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  /** The server's backups folder with one backup (and its checksum), made `ageDays` ago. */
+  /** The server's backups folder with one backup (and checksum), `ageDays` old. */
   async function serverWithBackup(ageDays: number): Promise<string> {
     const server = path.join(root, 'server');
     await mkdir(server);
@@ -56,7 +53,7 @@ describe('deploy/pull-backups.sh', () => {
     return server;
   }
 
-  /** The desktop's ~/portfolio-backups as the guide sets it up: a link to a Windows folder. */
+  /** ~/portfolio-backups as the guide sets it up: a link to a Windows folder. */
   async function linkedDesktopFolder(): Promise<{ link: string; folder: string }> {
     const folder = path.join(root, 'windows-documents');
     await mkdir(folder);

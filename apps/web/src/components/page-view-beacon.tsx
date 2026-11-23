@@ -24,18 +24,9 @@ function browserTimezone(): string | null {
 }
 
 /**
- * Sends a page view to the API on every navigation, and an interaction for clicks on links
- * marked `data-track="click:…"` (see tracked-link.tsx). Renders nothing. DESIGN.md §8.2.
- *
- * The path includes the query string, so a tagged link (`/?ref=acme`) is recorded as such.
- * The referrer goes with the first page view only: afterwards the visitor came from our own
- * pages, which says nothing new.
- *
- * The owner's own browsing is skipped: the /admin pages, and any page in a browser marked as
- * theirs from /admin (`shouldRecord`).
- *
- * Must sit inside <Suspense> (app/layout.tsx): `useSearchParams` reads the URL, which is only
- * known in the browser for pages Next.js renders ahead of time.
+ * Sends a page view on every navigation, and a click for links marked `data-track` (DESIGN.md
+ * §8.2). The referrer goes with the first view only. Skips the owner's browsing. Needs
+ * <Suspense>: `useSearchParams` reads the URL.
  */
 export function PageViewBeacon() {
   const pathname = usePathname();
@@ -46,7 +37,7 @@ export function PageViewBeacon() {
   useEffect(() => {
     const query = searchParams.toString();
     const path = query ? `${pathname}?${query}` : pathname;
-    // React runs effects twice in development (Strict Mode): count each page once.
+    // Strict Mode runs effects twice in development: count each page once.
     if (lastSent.current === path) {
       return;
     }
@@ -70,7 +61,7 @@ export function PageViewBeacon() {
     }
   }, [pathname, searchParams]);
 
-  // One listener for every tracked link on every page ("event delegation").
+  // One listener for every tracked link (event delegation).
   useEffect(() => {
     const onClick = (event: MouseEvent) => {
       const link = (event.target as Element | null)?.closest<HTMLElement>('[data-track]');
@@ -94,7 +85,7 @@ export function PageViewBeacon() {
   return null;
 }
 
-/** Reading `window.sessionStorage` itself throws when storage is blocked. */
+/** `window.sessionStorage` itself throws when storage is blocked. */
 function safeSessionStorage(): Storage | null {
   try {
     return window.sessionStorage;
@@ -103,7 +94,7 @@ function safeSessionStorage(): Storage | null {
   }
 }
 
-/** Reading `window.localStorage` itself throws when storage is blocked. */
+/** `window.localStorage` itself throws when storage is blocked. */
 function safeLocalStorage(): Storage | null {
   try {
     return window.localStorage;

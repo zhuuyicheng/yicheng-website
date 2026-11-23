@@ -98,11 +98,11 @@ describe('telemetry flusher with live Redis and Postgres', () => {
       ref: 'acme',
       browser: 'Chrome',
       os: 'macOS',
-      ip_address: '127.0.0.1', // light-my-request's default client address
+      ip_address: '127.0.0.1', // light-my-request's default address
       device_type: 'desktop',
       language: 'en-SG',
       timezone: 'Asia/Singapore',
-      country_code: null, // the test app has no GeoIP databases
+      country_code: null, // no GeoIP databases in tests
     });
     expect(interaction).toMatchObject({
       event_type: 'interaction',
@@ -115,7 +115,7 @@ describe('telemetry flusher with live Redis and Postgres', () => {
   it('after a crash between insert and acknowledge, re-delivers the batch without duplicates', async () => {
     const bufferDal = createEventBufferDal(deps.redis);
     await deps.redis.rpush(TELEMETRY_BUFFER_KEYS.buffer, bufferedEventJson(), bufferedEventJson());
-    // A previous worker claimed the batch and inserted it, then died before acknowledging.
+    // A previous worker inserted the batch, then died before acknowledging.
     const claimed = await bufferDal.claimBatch(50);
     await createAnalyticsEventDal(deps.postgres).insertBatch(
       claimed.map((entry) => bufferedEventSchema.parse(JSON.parse(entry))),
@@ -131,7 +131,7 @@ describe('telemetry flusher with live Redis and Postgres', () => {
   it('dead-letters poison events and still inserts the rest of the batch', async () => {
     const good = bufferedEventJson();
     const notJson = '{oops';
-    // Passes the buffer schema, but breaks the table's CHECK (interactions need a name).
+    // Passes the buffer schema but breaks the CHECK (interactions need a name).
     const breaksCheck = bufferedEventJson({ type: 'interaction', name: null });
     await deps.redis.rpush(TELEMETRY_BUFFER_KEYS.buffer, good, notJson, breaksCheck);
 
@@ -206,7 +206,7 @@ describe('telemetry flusher with live Redis and Postgres', () => {
       JSON.stringify({
         payload: event,
         reason: 'insert_failed',
-        errorCode: '42P01', // e.g. the worker ran before the migration; since fixed
+        errorCode: '42P01', // e.g. the worker ran before the migration
         errorMessage: 'relation "analytics_events" does not exist',
         failedAt: new Date().toISOString(),
       }),

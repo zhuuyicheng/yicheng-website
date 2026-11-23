@@ -5,15 +5,12 @@ import {
   type ContactRequest,
 } from '@portfolio/shared';
 
-/**
- * The contact form's logic (DESIGN.md §7.6): validate, send, and turn the API's answer into
- * something the form can show. No React here, so every answer can be unit-tested.
- */
+/** The contact form's logic (DESIGN.md §7.6): validate, send, and word the answer. */
 
 export type ContactField = keyof ContactRequest;
 export type FieldErrors = Partial<Record<ContactField, string>>;
 
-/** The form's spam limit, from the API's `X-RateLimit-*` headers: `limit` per `windowSeconds`. */
+/** The spam limit from the `X-RateLimit-*` headers: `limit` per `windowSeconds`. */
 export interface RateLimitPolicy {
   limit: number;
   windowSeconds: number;
@@ -25,7 +22,7 @@ export type ContactOutcome =
   | { kind: 'rate_limited'; retryAfterSeconds: number; policy: RateLimitPolicy | null }
   | { kind: 'failed'; message: string };
 
-/** The same schema the API uses, so the form and the API always agree on what is valid. */
+/** The API's own schema, so form and API agree. */
 export function validateContact(
   input: Record<ContactField, string>,
 ): { ok: true; request: ContactRequest } | { ok: false; fieldErrors: FieldErrors } {
@@ -54,10 +51,7 @@ export async function sendContact(
   return interpretContactResponse(response.status, response.headers, body);
 }
 
-/**
- * The API's answer → what to show. The rate-limit headers are readable here only because the
- * API lists them in `Access-Control-Expose-Headers` (apps/api/src/middleware/security.ts).
- */
+/** The API's answer → what to show (rate-limit headers are readable via CORS's expose list). */
 export function interpretContactResponse(
   status: number,
   headers: Pick<Headers, 'get'>,
@@ -89,12 +83,7 @@ export function interpretContactResponse(
 
 const THANKS = 'Message sent. Thank you, I will get back to you soon.';
 
-/**
- * What the form says after a message went through. With the spam limit known, it explains it:
- * "… the form accepts 3 messages per person every 10 minutes, so you can send 2 more in that
- * time." The limit slides (the oldest message stops counting after the window), so "in that
- * time" is the honest promise.
- */
+/** After a send: "… you can send 2 more in that time". The limit slides, hence "in that time". */
 export function sentMessage(remaining: number | null, policy: RateLimitPolicy | null): string {
   if (remaining === null || policy === null) {
     return THANKS;
@@ -106,7 +95,7 @@ export function sentMessage(remaining: number | null, policy: RateLimitPolicy | 
   return `${THANKS} ${rule}, so you can send ${String(remaining)} more in that time.`;
 }
 
-/** What the form says when the spam limit was reached. */
+/** When the spam limit was reached. */
 export function rateLimitedMessage(
   retryAfterSeconds: number,
   policy: RateLimitPolicy | null,
@@ -123,7 +112,7 @@ function messages(count: number): string {
   return `${String(count)} message${count === 1 ? '' : 's'}`;
 }
 
-/** `570` → `"10 minutes"`, `45` → `"45 seconds"`: always rounded up, never too early. */
+/** `570` → `"10 minutes"`: rounded up, never too early. */
 export function formatWait(seconds: number): string {
   if (seconds < 60) {
     const s = Math.max(1, Math.ceil(seconds));
@@ -138,7 +127,7 @@ function toFieldErrors(issues: readonly { path: PropertyKey[] | string; message:
   for (const issue of issues) {
     const field = String(Array.isArray(issue.path) ? (issue.path[0] ?? '') : issue.path);
     if (isContactField(field) && errors[field] === undefined) {
-      errors[field] = issue.message; // first problem per field is enough
+      errors[field] = issue.message; // the first problem per field is enough
     }
   }
   return errors;

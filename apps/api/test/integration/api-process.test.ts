@@ -12,10 +12,7 @@ interface LogLine {
   exitCode?: number;
 }
 
-/**
- * Starts the real API entrypoint as a child process, so this exercises what `npm start`
- * does: config loading, datastore connection, listening, and signal handling.
- */
+/** The real API entrypoint as a child process: config, connections, listening, signals. */
 function startApiProcess(): { child: ChildProcess; logs: LogLine[]; started: Promise<string> } {
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], {
     cwd: API_ROOT,

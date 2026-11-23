@@ -21,9 +21,8 @@ const EMPTY = { name: '', email: '', message: '' };
 const LABELS: Record<ContactField, string> = { name: 'Name', email: 'Email', message: 'Message' };
 
 /**
- * The contact form (DESIGN.md §7.6). Validates in the browser with the API's own schema, then
- * sends. Every answer the API can give has a message: sent, a field problem, rate limited (with
- * how long to wait, from the `Retry-After` header), or the server being unavailable.
+ * The contact form (DESIGN.md §7.6): validates with the API's schema, then sends. Every answer
+ * gets a message: sent, a field problem, rate limited (with the wait), or unavailable.
  */
 export function ContactForm() {
   const [values, setValues] = useState<Record<ContactField, string>>(EMPTY);
@@ -33,8 +32,7 @@ export function ContactForm() {
   const update = (field: ContactField, value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
     if (errors[field] !== undefined) {
-      // Typing in a field clears its error (removed, not set to undefined: see tsconfig's
-      // exactOptionalPropertyTypes).
+      // Typing clears the field's error (deleted, not undefined: exactOptionalPropertyTypes).
       setErrors((current) => {
         const { [field]: _cleared, ...rest } = current;
         return rest;

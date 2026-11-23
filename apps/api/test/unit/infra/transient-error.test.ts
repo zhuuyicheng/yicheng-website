@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isTransientDatastoreError } from '../../../src/infra/transient-error.js';
 
-/** Builds an error the way pg / Node attach codes: an Error with an extra `code` property. */
+/** An Error with a `code`, the way pg and Node attach them. */
 function errorWithCode(code: string, message = 'boom'): Error {
   return Object.assign(new Error(message), { code });
 }

@@ -26,10 +26,8 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * The home page, rendered on the server for each request from the API's data (which the API
- * serves from its Redis cache). Sections in scroll order: hero, about, experience, projects,
- * outside work (photos), contact. Every other section sits on a white band, for rhythm.
- * The last line says when any of the content (projects included) last changed.
+ * The home page, rendered per request from the API: hero, about, experience, projects, photos,
+ * contact. Alternate sections sit on a white band.
  */
 export default async function HomePage() {
   const [profile, projects] = await Promise.all([getProfile(), getProjects()]);
@@ -129,7 +127,7 @@ function Section({
   );
 }
 
-/** Shown before `npm run content:seed` has been run (the API answers 404 for the profile). */
+/** Before `npm run content:seed` (the API answers 404 for the profile). */
 function NotSeeded() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-32 text-sm sm:px-6">

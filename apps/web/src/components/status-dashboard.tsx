@@ -20,24 +20,21 @@ import { CacheCard } from './admin/cache-card';
 import { QueueCard } from './admin/queue-card';
 import { LiveChart } from './live-chart';
 
-/** The API caches its status for 5 s, so polling faster would only repeat the same combined. */
+/** The API caches its status for 5 s; polling faster would repeat the same numbers. */
 const POLL_MS = 5_000;
 
-/** What each datastore holds, so "postgres: down" says what stops working. */
+/** So "postgres: down" says what stops working. */
 const DEPENDENCY_ROLES: Partial<Record<string, string>> = {
   postgres: 'The database: content, visits and contact messages, kept for good.',
   redis: 'In-memory store: the content cache, the queues below and the contact-form limit.',
 };
-/** The owner-only route that asks the API for its status (app/admin/system-status). */
+/** The owner-only route that asks each API replica (app/admin/system-status). */
 const STATUS_URL = '/admin/system-status';
 
 /**
- * The owner's live system dashboard, on /admin (DESIGN.md §7.7, §8.7). Polls every 5 s,
- * pauses while the tab is hidden, and keeps showing the last good numbers (marked stale) if
- * the API stops answering. Each API replica reports only its own requests, latency and cache
- * counts, so every poll gets all the replicas' reports (the web server asks each one) and the
- * page shows them combined (`combineReplicas`). The charts cover the last 30 minutes this page
- * was open.
+ * The live system dashboard on /admin (DESIGN.md §7.7, §8.7). Polls every 5 s while the tab is
+ * visible, combining every replica's report; keeps the last numbers, marked stale, if the API
+ * stops answering. Charts cover the last 30 minutes the page was open.
  */
 export function StatusDashboard() {
   const [combined, setCombined] = useState<CombinedStatus | null>(null);
@@ -56,7 +53,7 @@ export function StatusDashboard() {
     };
     async function poll() {
       if (document.visibilityState === 'hidden') {
-        schedule(); // nobody is looking: skip this round
+        schedule(); // nobody is looking: skip
         return;
       }
       controller = new AbortController();
@@ -69,7 +66,7 @@ export function StatusDashboard() {
         const at = Date.now();
         const next = combineReplicas(replicas);
         if (next === null) {
-          setFailed(true); // no replica answered: keep the last numbers on screen, marked stale
+          setFailed(true); // no replica answered: keep the last numbers, marked stale
         } else {
           setCombined(next);
           setUpdatedAt(at);
@@ -79,7 +76,7 @@ export function StatusDashboard() {
           );
         }
       } catch {
-        if (!stopped) setFailed(true); // keep the last numbers on screen, marked stale
+        if (!stopped) setFailed(true); // keep the last numbers, marked stale
       }
       schedule();
     }

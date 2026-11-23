@@ -13,18 +13,16 @@ import { nextProject, sectionAnchors } from '@/lib/project-page';
 import { trackName } from '@/lib/telemetry';
 
 /**
- * Written out instead of Next's generated `PageProps<'/[slug]'>`: that global type
- * only exists after `next typegen` has run, and a fresh checkout (CI) lints before that.
- * In Next.js 16, `params` is a Promise.
+ * Not Next's generated `PageProps<'/[slug]'>`: it only exists after `next typegen`, and CI
+ * lints before that. In Next.js 16, `params` is a Promise.
  */
 interface ProjectPageProps {
   params: Promise<{ slug: string }>;
 }
 
 /**
- * A project lives at `/<slug>` (e.g. `/bowling-buddy`). Static routes such as `/admin` win
- * over this one, and the content file refuses slugs that would collide with them. A path that
- * cannot be a slug (`/Foo`, `/a.b`) is a 404 without asking the API.
+ * A project lives at `/<slug>`. Static routes like `/admin` win, and the content file refuses
+ * colliding slugs. A path that can't be a slug is a 404 without asking the API.
  */
 async function findProject(props: ProjectPageProps) {
   const { slug } = await props.params;
@@ -36,11 +34,7 @@ export async function generateMetadata(props: ProjectPageProps): Promise<Metadat
   return project ? { title: project.title, description: project.summary } : {};
 }
 
-/**
- * One project: overview, then its sections (heading, explanation, points) with an "On this
- * page" list beside them on wide screens, when the project last changed, and a way back or on
- * at the end. Unknown slugs (the API answers 404) show the not-found page.
- */
+/** One project: overview, sections with an "On this page" list, its date, and a way on. */
 export default async function ProjectPage(props: ProjectPageProps) {
   const [project, projects] = await Promise.all([findProject(props), getProjects()]);
   if (!project) {
@@ -124,7 +118,7 @@ export default async function ProjectPage(props: ProjectPageProps) {
   );
 }
 
-/** A large, clearly labelled way back: easy to hit with a thumb (at least 44 px tall). */
+/** A big way back, easy to hit with a thumb (≥ 44 px tall). */
 function BackToProjects() {
   return (
     <Link

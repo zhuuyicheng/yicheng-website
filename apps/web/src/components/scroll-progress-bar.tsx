@@ -12,7 +12,7 @@ export function ScrollProgressBar() {
       frame = 0;
       const scrollable = document.documentElement.scrollHeight - window.innerHeight;
       const progress = scrollable > 0 ? window.scrollY / scrollable : 0;
-      // transform, not width: the browser can animate it without recalculating the layout.
+      // transform, not width: no layout recalculation.
       bar.current?.style.setProperty('transform', `scaleX(${String(progress)})`);
     };
     const onScroll = () => {

@@ -26,7 +26,7 @@ import {
   type TestDependencies,
 } from '../helpers/test-dependencies.js';
 
-/** Enough for the test backoff (10 ms, then 20 ms, ± 20 %) to be over. */
+/** Longer than the test backoff (10 ms, then 20 ms, ± 20 %). */
 const WAIT_FOR_BACKOFF_MS = 60;
 
 describe('notification worker with live Postgres, Redis and a stub webhook', () => {
@@ -58,7 +58,7 @@ describe('notification worker with live Postgres, Redis and a stub webhook', () 
     webhook.requests.length = 0;
   });
 
-  /** The real manager, sending to the stub webhook, with a 10 ms backoff instead of 5 s. */
+  /** The real manager, the stub webhook, and a 10 ms backoff. */
   function createManager(
     options: { postgres?: PostgresPool; metrics?: Metrics; now?: () => Date } = {},
   ) {
@@ -74,7 +74,7 @@ describe('notification worker with live Postgres, Redis and a stub webhook', () 
     });
   }
 
-  /** Stores a PENDING message and queues its first job, like POST /api/v1/contact does. */
+  /** A PENDING message and its first job, as POST /api/v1/contact makes them. */
   async function queueMessage(): Promise<string> {
     const message = await createContactMessageDal(deps.postgres).insert({
       name: 'Ada',
@@ -106,7 +106,7 @@ describe('notification worker with live Postgres, Redis and a stub webhook', () 
     };
   }
 
-  /** Waits out the backoff, then lets the promoter move the retry back to `ready`. */
+  /** Waits out the backoff, then lets the promoter move the retry to `ready`. */
   async function promoteRetry(manager: ReturnType<typeof createManager>): Promise<void> {
     await delay(WAIT_FOR_BACKOFF_MS);
     expect(await manager.promoteDue(deps.logger)).toBe(1);
@@ -147,8 +147,8 @@ describe('notification worker with live Postgres, Redis and a stub webhook', () 
   it('fails twice with 500, retries after a backoff, then succeeds: SENT on attempt 3', async () => {
     const id = await queueMessage();
     webhook.statuses.push(500, 500);
-    // A clock this test moves by hand. With real time, "not due yet" depended on the machine:
-    // under load more than the 10 ms backoff could pass before the check (a flaky test).
+    // A hand-moved clock: with real time, a busy machine could pass the 10 ms backoff before the
+    // "not due yet" check (a flaky test).
     let clockMs = Date.now();
     const manager = createManager({ now: () => new Date(clockMs) });
 
@@ -209,7 +209,7 @@ describe('notification worker with live Postgres, Redis and a stub webhook', () 
 
   it('recovers a job a crashed worker left in processing', async () => {
     const id = await queueMessage();
-    // A previous worker took the job (ready → processing), then died.
+    // A previous worker took the job, then died.
     await deps.redis.lmove(
       NOTIFICATION_QUEUE_KEYS.ready,
       NOTIFICATION_QUEUE_KEYS.processing,
@@ -229,7 +229,7 @@ describe('notification worker with live Postgres, Redis and a stub webhook', () 
     const id = await queueMessage();
     const manager = createManager();
     expect(await manager.processNext(deps.logger)).toBe('sent');
-    // The same message queued again (a crash after sending, or a reconciler re-queue).
+    // Queued again (crash after sending, or a reconciler re-queue).
     await deps.redis.lpush(NOTIFICATION_QUEUE_KEYS.ready, notificationJobJson({ messageId: id }));
 
     expect(await manager.processNext(deps.logger)).toBe('skipped');
@@ -254,15 +254,15 @@ describe('notification worker with live Postgres, Redis and a stub webhook', () 
       await deadPostgres.end();
     }
 
-    // Postgres is back: the next call puts the job back and sends it, on attempt 1.
+    // Postgres is back: the job is put back and sent, on attempt 1.
     expect(await createManager().processNext(deps.logger)).toBe('sent');
     expect(await storedMessage(id)).toMatchObject({ status: 'SENT', attempts: 1 });
   });
 
   it('reconciler: re-queues a PENDING message left without a job for over 5 minutes', async () => {
     const lost = await queueMessage();
-    await queueMessage(); // a recent one: not stale yet, so it is left alone
-    await deps.redis.del(NOTIFICATION_QUEUE_KEYS.ready); // both jobs lost (e.g. enqueue failed)
+    await queueMessage(); // recent: not stale yet, so left alone
+    await deps.redis.del(NOTIFICATION_QUEUE_KEYS.ready); // both jobs lost
     await deps.postgres.query(
       `UPDATE contact_messages SET updated_at = now() - interval '10 minutes' WHERE id = $1`,
       [lost],
@@ -275,7 +275,7 @@ describe('notification worker with live Postgres, Redis and a stub webhook', () 
     expect(jobs.map((job) => notificationJobSchema.parse(JSON.parse(job)))).toEqual([
       expect.objectContaining({ messageId: lost, attempt: 1 }),
     ]);
-    // Claimed: updated_at was bumped, so the next run does not queue it a second time.
+    // Claimed: updated_at was bumped, so the next run skips it.
     expect(await manager.reconcile(deps.logger)).toBe(0);
   });
 

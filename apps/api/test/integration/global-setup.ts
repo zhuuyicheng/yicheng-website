@@ -1,9 +1,4 @@
-/**
- * Runs once before the integration suite:
- *   1. checks that docker-compose Postgres and Redis are reachable (with an actionable error),
- *   2. creates the test database if it does not exist,
- *   3. applies all migrations to it.
- */
+/** Once before the suite: check Postgres and Redis are up, create the test database, migrate it. */
 import { Redis } from 'ioredis';
 import pg from 'pg';
 import { pino } from 'pino';
@@ -35,7 +30,7 @@ async function ensureDatabaseExists(databaseUrl: string): Promise<void> {
     throw new Error(`Unsafe test database name "${databaseName}"`);
   }
 
-  // Connect to the always-present maintenance database to create the test database.
+  // Via the always-present maintenance database.
   url.pathname = '/postgres';
   const client = new pg.Client({ connectionString: url.toString() });
 
@@ -52,7 +47,7 @@ async function ensureDatabaseExists(databaseUrl: string): Promise<void> {
       databaseName,
     ]);
     if (existing.rowCount === 0) {
-      // Identifiers cannot be bound as parameters; the name was validated above.
+      // Identifiers can't be parameters; the name was validated above.
       await client.query(`CREATE DATABASE ${databaseName}`);
     }
   } finally {

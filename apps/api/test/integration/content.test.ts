@@ -33,7 +33,7 @@ describe('content API with live Postgres and Redis', () => {
   });
 
   beforeEach(async () => {
-    // Every test starts from the same published content and an empty cache (Redis DB 1 only).
+    // Same published content and an empty cache for every test (Redis DB 1 only).
     await deps.postgres.query('TRUNCATE profile, experiences, education, projects');
     await createContentDal(deps.postgres).replaceAll(SAMPLE_CONTENT);
     await deps.redis.flushdb();
@@ -206,7 +206,7 @@ describe('content API with Postgres down', () => {
     await deps.close();
   });
 
-  // Regression test: found in the guided tour, a cache miss used to return 500 INTERNAL_ERROR.
+  // Regression: a cache miss with Redis down returned 500.
   it('serves cached entries, and answers 503 (not 500) for a cache miss', async () => {
     const healthyApp = buildApp(deps);
     await healthyApp.inject({ method: 'GET', url: '/api/v1/projects' }); // warm one key

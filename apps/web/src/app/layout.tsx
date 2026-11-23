@@ -7,9 +7,8 @@ import { SiteHeader } from '@/components/site-header';
 import './globals.css';
 
 /**
- * Headings use Fraunces, a soft serif (the `font-display` utility, globals.css). next/font
- * downloads it when the site is built and serves it from this site: visitors' browsers never
- * contact Google, and the text does not jump when the font arrives.
+ * Fraunces for headings (`font-display`). next/font serves it from this site: no request to
+ * Google, and no text jump when it loads.
  */
 const fraunces = Fraunces({ subsets: ['latin'], variable: '--font-fraunces', display: 'swap' });
 
@@ -24,11 +23,9 @@ export const viewport: Viewport = {
 };
 
 /**
- * Every page: header, content, footer, and the page-view beacon. The beacon renders nothing
- * and sits in <Suspense> because it reads the URL's query string (see page-view-beacon.tsx).
- *
- * `data-scroll-behavior="smooth"`: globals.css scrolls smoothly for in-page links; this tells
- * Next.js to switch that off while it changes pages, so navigation still jumps instantly.
+ * Every page: header, content, footer and the page-view beacon (in <Suspense>: it reads the
+ * query string). `data-scroll-behavior="smooth"` keeps page changes instant despite smooth
+ * scrolling in globals.css.
  */
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (

@@ -6,7 +6,7 @@ const LINKS = [
   { id: 'contact', label: 'Contact' },
 ] as const;
 
-/** Footer: links back to the main sections of the home page. */
+/** Links back to the home page's sections. */
 export function SiteFooter() {
   return (
     <footer className="border-t border-line">

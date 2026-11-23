@@ -1,7 +1,4 @@
-/**
- * The LinkedIn mark (path from Simple Icons, CC0). lucide-react no longer ships brand logos.
- * Decorative: the link next to it carries the name.
- */
+/** The LinkedIn mark (Simple Icons, CC0); lucide-react dropped brand logos. Decorative. */
 export function LinkedInIcon({ className }: { className?: string | undefined }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className={className}>

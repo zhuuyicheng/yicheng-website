@@ -2,22 +2,15 @@
 export interface LatencySnapshot {
   windowSeconds: number;
   requestCount: number;
-  /** Milliseconds, 1 decimal. `null` when there were no requests in the window. */
+  /** Milliseconds, 1 decimal; `null` with no requests in the window. */
   p50: number | null;
   p95: number | null;
 }
 
 /**
- * Remembers how long recent requests took, to answer "how fast is the API right now?"
- * (DESIGN.md §7.7, the system status endpoint).
- *
- * Why not read this from the Prometheus histogram: a histogram only ever adds up, since the
- * process started, so it cannot say "the last 5 minutes" by itself (Prometheus computes that
- * on its side, from many scrapes). This keeps the recent samples in memory instead.
- *
- * A ring buffer: a fixed-size array where each new sample overwrites the oldest one, so
- * memory stays constant however busy the API gets. Beyond `capacity` requests per window, the
- * snapshot covers only the latest `capacity` of them.
+ * Recent request durations, for the status report's p50/p95 (DESIGN.md §7.7). A Prometheus
+ * histogram can't say "the last 5 minutes" on its own. A ring buffer keeps memory constant;
+ * past `capacity` requests per window, only the latest are counted.
  */
 export interface RollingLatency {
   record: (durationMs: number) => void;
@@ -27,7 +20,7 @@ export interface RollingLatency {
 export interface RollingLatencyOptions {
   windowMs?: number;
   capacity?: number;
-  /** Injectable for tests. */
+  /** For tests. */
   now?: () => number;
 }
 
@@ -65,10 +58,7 @@ export function createRollingLatency(options: RollingLatencyOptions = {}): Rolli
   };
 }
 
-/**
- * Nearest-rank percentile of sorted values: p95 is the value 95 % of requests were at or
- * below. With 20 requests, that is the 19th fastest.
- */
+/** Nearest-rank percentile of sorted values: with 20 requests, p95 is the 19th fastest. */
 export function percentile(sorted: readonly number[], p: number): number | null {
   if (sorted.length === 0) {
     return null;

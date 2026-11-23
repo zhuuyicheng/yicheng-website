@@ -1,9 +1,6 @@
 import type { Visit } from '@portfolio/shared';
 
-/**
- * Labels and numbers for the owner's visitor summary (app/admin). No React, so it can be
- * unit-tested.
- */
+/** Labels and numbers for the visitor summary on /admin. */
 
 export const PERIODS = [
   { days: 1, label: 'Today' },
@@ -14,7 +11,7 @@ export const PERIODS = [
 
 export const DEFAULT_DAYS = 7;
 
-/** `?days=` from the URL: one of PERIODS, or the default for anything else. */
+/** `?days=`: one of PERIODS, else the default. */
 export function parseDays(value: string | string[] | undefined): number {
   const days = Number(Array.isArray(value) ? value[0] : value);
   return PERIODS.some((period) => period.days === days) ? days : DEFAULT_DAYS;
@@ -22,7 +19,7 @@ export function parseDays(value: string | string[] | undefined): number {
 
 const REGIONS = new Intl.DisplayNames(['en'], { type: 'region' });
 
-/** `SG` → `Singapore`; an unrecognised code is shown as it is. */
+/** `SG` → `Singapore`; unknown codes as they are. */
 export function countryName(code: string): string {
   try {
     return REGIONS.of(code) ?? code;
@@ -40,12 +37,12 @@ export function placeLabel(countryCode: string | null, city: string | null): str
   return city ?? country ?? 'Unknown place';
 }
 
-/** `www.linkedin.com` → `linkedin.com`; no referrer → typed in, a bookmark, or an app. */
+/** `www.linkedin.com` → `linkedin.com`; none → typed in, bookmark or app. */
 export function referrerLabel(referrer: string | null): string {
   return referrer === null ? 'Direct or unknown' : referrer.replace(/^www\./, '');
 }
 
-/** A tagged link: `ref acme`, `linkedin / social / launch` (source / medium / campaign). */
+/** `ref acme`, or `linkedin / social / launch` (source / medium / campaign). */
 export function campaignLabel(campaign: {
   ref: string | null;
   utmSource: string | null;
@@ -59,7 +56,7 @@ export function campaignLabel(campaign: {
   return parts.filter((part): part is string => part !== null).join(' · ');
 }
 
-/** `Desktop · Chrome · macOS`, leaving out what is unknown. */
+/** `Desktop · Chrome · macOS`, without the unknowns. */
 export function deviceLabel(visit: Pick<Visit, 'deviceType' | 'browser' | 'os'>): string {
   const type = visit.deviceType === null ? null : capitalise(visit.deviceType);
   const parts = [type, visit.browser, visit.os].filter((part): part is string => part !== null);
@@ -82,19 +79,19 @@ export function timeAgo(iso: string, now: number): string {
 
 const DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-/** `2026-11-18` → `18 Nov` (the days are UTC days). */
+/** `2026-11-18` → `18 Nov` (UTC days). */
 export function formatDay(day: string): string {
   return DAY.format(new Date(`${day}T00:00:00Z`));
 }
 
-/** The pages of a visit, shortened: `/ → /bowling-buddy → /portfolio-telemetry-platform +2`. */
+/** A visit's pages, shortened: `/ → /bowling-buddy → /other +2`. */
 export function pagesLabel(paths: readonly string[], shown = 3): string {
   const head = paths.slice(0, shown).join(' → ');
   const rest = paths.length - shown;
   return rest > 0 ? `${head} +${String(rest)}` : head;
 }
 
-/** A bar's length as a share of the longest (0 when everything is 0). */
+/** A bar's length as a share of the longest (0 when all are 0). */
 export function share(value: number, max: number): number {
   return max <= 0 ? 0 : Math.min(1, value / max);
 }

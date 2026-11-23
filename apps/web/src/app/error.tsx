@@ -1,9 +1,6 @@
 'use client';
 
-/**
- * Shown when rendering a page fails, typically because the API is unreachable (lib/api.ts
- * throws). The header and footer stay; `retry` renders the page again.
- */
+/** When a page fails to render, usually with the API unreachable. `retry` renders it again. */
 export default function ErrorPage({ retry }: { error: unknown; retry: () => void }) {
   return (
     <div className="mx-auto max-w-2xl px-4 py-32 sm:px-6">

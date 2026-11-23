@@ -3,15 +3,10 @@
 import { useRef, type ReactNode } from 'react';
 import { useScrollProgress } from './use-scroll-progress';
 
-/** How much of the element must have scrolled off the top before it starts fading. */
+/** How much must have scrolled off the top before fading starts. */
 const FADE_START = 0.6;
 
-/**
- * Fades out and drifts up a little as it scrolls off the top of the screen (the hero). It
- * stays fully visible until FADE_START of it has gone, then fades over the rest, so it is gone
- * only as it leaves. The motion is plain CSS driven by `--progress`, which useScrollProgress
- * updates while you scroll.
- */
+/** Fades and drifts up as it scrolls off the top (the hero), via `--progress` in CSS. */
 export function ScrollFade({ children, className }: { children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   useScrollProgress(ref, 'leave');

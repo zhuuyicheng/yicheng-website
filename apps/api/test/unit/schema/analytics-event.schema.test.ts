@@ -6,7 +6,7 @@ import {
 
 const PAGE_VIEW = { type: 'page_view', path: '/projects/x', sessionId: 'k3J9xQ2mP0aZ' };
 
-/** The `path.message` of every issue, so tests read like the 400 response's `details`. */
+/** Each issue's `path.message`, like the 400 response's `details`. */
 function problems(input: unknown): string[] {
   const result = eventRequestSchema.safeParse(input);
   return result.success
@@ -62,7 +62,7 @@ describe('eventRequestSchema', () => {
 
 describe('bufferedEventSchema', () => {
   it('still reads events buffered before visitor details existed (all details unknown)', () => {
-    // Exactly what the previous API version wrote to Redis.
+    // Exactly what the previous version wrote to Redis.
     const oldEvent = {
       id: 'c0dc5e66-638f-42e7-885f-0b392f07b8a6',
       type: 'page_view',

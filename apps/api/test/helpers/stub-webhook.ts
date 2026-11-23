@@ -1,16 +1,16 @@
 import { createServer } from 'node:http';
 
 export interface StubWebhook {
-  /** Pass to createDiscordNotifier; plain http on 127.0.0.1 with a random free port. */
+  /** For createDiscordNotifier: plain http on 127.0.0.1, random free port. */
   url: string;
-  /** Status codes to answer with, one per request, in order. Empty = 204 (Discord's success). */
+  /** Statuses to answer with, in order; empty = 204 (Discord's success). */
   statuses: number[];
   /** Every request body received, parsed as JSON. */
   requests: unknown[];
   close: () => Promise<void>;
 }
 
-/** A local stand-in for a Discord webhook, so tests can make it fail on demand. */
+/** A local stand-in for a Discord webhook that tests can make fail. */
 export async function startStubWebhook(): Promise<StubWebhook> {
   const statuses: number[] = [];
   const requests: unknown[] = [];
@@ -47,7 +47,7 @@ export async function startStubWebhook(): Promise<StubWebhook> {
     requests,
     close: () =>
       new Promise((resolve) => {
-        server.closeAllConnections(); // fetch keeps connections alive; do not wait for them
+        server.closeAllConnections(); // fetch keeps connections alive; don't wait for them
         server.close(() => {
           resolve();
         });

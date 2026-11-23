@@ -1,13 +1,12 @@
-# Continuous delivery (DESIGN.md §14.3). Guide: docs/CD.md
+# Continuous delivery (DESIGN.md §14.3, docs/CD.md).
 #
 #   merge to main ─► CI (ci.yml) ─► publish: both images to GHCR, tagged with the commit SHA
 #                                     ─► deploy [environment `production`: waits for your approval]
 #                                          migrate → seed → rolling update → smoke test,
 #                                          back to the previous release if that fails
 #
-# Started by hand (Actions → Deploy → Run workflow) it deploys an earlier release again, e.g. to
-# roll back: give the full commit SHA of a release published before. CI and publishing are
-# skipped; it still waits for your approval.
+# Run by hand (Actions → Deploy → Run workflow) with a published commit SHA to redeploy it,
+# e.g. to roll back. CI and publish are skipped; approval is still needed.
 name: Deploy
 
 on:
@@ -20,7 +19,7 @@ on:
         required: false
         default: ''
 
-# Least privilege: jobs that need more ask for it themselves.
+# Least privilege: jobs that need more ask for it.
 permissions:
   contents: read
 
@@ -29,8 +28,8 @@ jobs:
     if: github.event_name == 'push'
     uses: ./.github/workflows/ci.yml
 
-  # Rebuilds each image from the layers CI just cached (no work is repeated), then pushes it.
-  # Only commits that passed CI get here, so every image in the registry is a tested release.
+  # Rebuilds each image from CI's cached layers, then pushes it. Only commits that passed CI get
+  # here, so every published image is a tested release.
   publish:
     name: publish (${{ matrix.image }})
     needs: ci
@@ -59,10 +58,10 @@ jobs:
           file: apps/${{ matrix.image }}/Dockerfile
           platforms: linux/arm64
           push: true
-          # The tag is the commit: every release traces back to its code, and a rollback is
+          # Tagged with the commit: every release traces to its code, and a rollback is
           # "deploy the previous SHA" (DESIGN.md §14.2).
           tags: ghcr.io/${{ github.repository_owner }}/portfolio-${{ matrix.image }}:${{ github.sha }}
-          # `source` links the package to this repository on GitHub.
+          # Links the package to this repository.
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -71,17 +70,16 @@ jobs:
 
   deploy:
     needs: publish
-    # After a successful publish, or on its own when started by hand (CI and publish are then
-    # skipped). Not when CI failed or was cancelled by a newer push: that commit has no images.
+    # After a successful publish, or alone when run by hand. Not after a failed or cancelled CI:
+    # that commit has no images.
     if: ${{ !cancelled() && (needs.publish.result == 'success' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The approval gate: this job waits until a required reviewer approves it, and only then
-    # gets the environment's secrets (the SSH key). Setup: docs/CD.md §2.
+    # The approval gate: waits for a reviewer, and only then gets the secrets (docs/CD.md §2).
     environment:
       name: production
       url: ${{ steps.release.outputs.url }}
-    # One deploy at a time: a newer one waits for the running one instead of cancelling it.
+    # One deploy at a time: a newer one waits instead of cancelling.
     concurrency:
       group: production
       cancel-in-progress: false
@@ -103,7 +101,7 @@ jobs:
             echo "::error::Not a full commit SHA (40 characters): $SHA"
             exit 1
           fi
-          # Name every missing setting at once (docs/CD.md §2.3), instead of an SSH error later.
+          # Name every missing setting at once (docs/CD.md §2.3), not an SSH error later.
           missing=""
           for name in SITE_HOST SSH_HOST SSH_KNOWN_HOSTS; do
             [ -n "${!name}" ] || missing="$missing $name"
@@ -116,12 +114,12 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "url=https://$SITE_HOST" >> "$GITHUB_OUTPUT"
 
-      # The deploy files (compose file, Caddyfile, scripts) of the release being deployed.
+      # The deploy files of the release being deployed.
       - uses: actions/checkout@v7
         with:
           ref: ${{ steps.release.outputs.sha }}
 
-      # Never trust a host key on first sight: the expected one is SSH_KNOWN_HOSTS.
+      # Never trust a host key on first sight: expect SSH_KNOWN_HOSTS.
       - name: Set up SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -131,7 +129,7 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          # A key broken by copy and paste: say so, instead of SSH's "error in libcrypto".
+          # A key broken by copy-paste: say so, not SSH's "error in libcrypto".
           if ! ssh-keygen -y -P '' -f ~/.ssh/deploy_key > /dev/null; then
             echo "::error::SSH_PRIVATE_KEY is not a usable private key. Set it from the file: gh secret set SSH_PRIVATE_KEY --env production < ~/.ssh/portfolio_deploy (docs/CD.md §2.3)"
             exit 1
@@ -149,8 +147,8 @@ jobs:
           EOF
           ssh server true
 
-      # Excluded, so never touched: deploy/.env (the server's secrets and current release) and
-      # deploy/caddy/paused (the pause switch, docs/CD.md §5). Both exist only on the server.
+      # Never touched: deploy/.env (the server's secrets and release) and deploy/caddy/paused
+      # (docs/CD.md §5). Both live only on the server.
       - name: Copy the deploy files to ~/portfolio/deploy
         run: rsync --archive --delete --exclude=.env --exclude=/caddy/paused deploy/ server:portfolio/deploy/
 
@@ -163,13 +161,13 @@ jobs:
           printf '%s\n' "$REGISTRY_PASSWORD" |
             ssh server "REGISTRY_USER='$GITHUB_ACTOR' IMAGE_PREFIX='$IMAGE_PREFIX' bash portfolio/deploy/deploy.sh $SHA"
 
-      # The server tested itself through Caddy; this proves DNS and Oracle's firewall let the
-      # world in. A failure here is the path to the server, not the release: nothing rolls back.
+      # The server tested itself; this proves DNS and the firewall let the world in. A failure here
+      # is the path, not the release: nothing rolls back.
       - name: Check from the internet
         env:
           SITE_HOST: ${{ vars.SITE_HOST }}
         run: |
-          # Paused (docs/CD.md §5): the world gets the back-soon page, which proves the way in too.
+          # Paused (docs/CD.md §5): the back-soon page proves the way in too.
           if ssh server test -e portfolio/deploy/caddy/paused; then
             code=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
               --max-time 10 "https://$SITE_HOST/")

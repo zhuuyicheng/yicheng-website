@@ -7,10 +7,7 @@ import { formatDay } from '@/lib/visitors';
 
 type Day = VisitorSummary['daily'][number];
 
-/**
- * Unique visitors per (UTC) day as columns, with page views in the tooltip. One series, so
- * no legend: the title names it. A screen-reader table carries the same numbers.
- */
+/** Unique visitors per UTC day as columns, page views in the tooltip, and a screen-reader table. */
 export function DailyVisitorsChart({ days }: { days: readonly Day[] }) {
   const [hover, setHover] = useState<number | null>(null);
   const ceiling = niceCeiling(days.map((day) => day.visitors));
@@ -36,7 +33,7 @@ export function DailyVisitorsChart({ days }: { days: readonly Day[] }) {
           }}
         >
           {days.map((day, index) => (
-            // The whole column is the hover target, not just the (maybe tiny) bar.
+            // The whole column is the hover target, not just the bar.
             <div
               key={day.day}
               className="flex h-full flex-1 items-end justify-center px-px"
@@ -78,8 +75,7 @@ export function DailyVisitorsChart({ days }: { days: readonly Day[] }) {
         </div>
       </div>
 
-      {/* sr-only on a wrapper, not the table: a table's caption sits outside the table's own
-          box, so hiding the table alone left the caption visible. */}
+      {/* sr-only on a wrapper: on the table itself, its caption stayed visible. */}
       <div className="sr-only">
         <table>
           <caption>Unique visitors and page views per day</caption>

@@ -5,17 +5,13 @@ import { isTransientDatastoreError } from '../infra/transient-error.js';
 import type { FlushOutcome, TelemetryFlushManager } from '../services/telemetry-flush.manager.js';
 import { backoffMs } from './backoff.js';
 
-/**
- * The flush loop: decides *when* to flush. What one flush does is the manager's job
- * (services/telemetry-flush.manager.ts). See DESIGN.md §8.2 and §10.
- */
+/** The flush loop: decides when to flush (DESIGN.md §8.2, §10). */
 export interface TelemetryFlusher {
   /** Starts the loop in the background. */
   start: () => void;
   /**
-   * Graceful stop: wakes the loop if it is sleeping, then flushes back to back until the buffer
-   * is empty, a flush fails, or `drainForMs` has passed. Anything left stays safe in Redis for
-   * the next start. Resolves once the loop has exited.
+   * Graceful stop: flushes back to back until the buffer is empty, a flush fails or `drainForMs`
+   * is up. Whatever is left stays in Redis for the next start.
    */
   stop: (drainForMs: number) => Promise<void>;
 }
@@ -26,7 +22,7 @@ export interface TelemetryFlusherDependencies {
   logger: Logger;
   batchSize: number;
   flushIntervalMs: number;
-  /** Injectable for tests, which then run without real waiting. */
+  /** For tests, so they don't really wait. */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   now?: () => number;
 }
@@ -36,7 +32,7 @@ export function createTelemetryFlusher(deps: TelemetryFlusherDependencies): Tele
   const { sleep = realSleep, now = Date.now } = deps;
   const log = deps.logger.child({ worker: 'telemetry-flusher' });
 
-  const wakeUp = new AbortController(); // aborting it cuts the current (and any later) sleep short
+  const wakeUp = new AbortController(); // aborting it cuts every sleep short
   let drainDeadline: number | null = null; // set by stop(): drain instead of sleeping
   let loop: Promise<void> | null = null;
 
@@ -65,7 +61,7 @@ export function createTelemetryFlusher(deps: TelemetryFlusherDependencies): Tele
         const retryInMs = backoffMs(consecutiveFailures);
         const context = { err: error, consecutiveFailures, retryInMs };
         if (transient) {
-          // An outage: the batch waits in the in-flight list and is retried, never dropped.
+          // An outage: the batch waits in flight and is retried, never dropped.
           log.warn(context, 'telemetry flush failed: datastore unavailable, will retry');
         } else {
           log.error(context, 'telemetry flush failed unexpectedly, will retry');
@@ -84,7 +80,7 @@ export function createTelemetryFlusher(deps: TelemetryFlusherDependencies): Tele
       } else if (outcome.claimed < batchSize && !draining) {
         await sleep(flushIntervalMs, wakeUp.signal); // caught up: let more events arrive
       }
-      // A full batch means more may be waiting (or we are draining): flush again right away.
+      // A full batch: more may be waiting (or we're draining), so flush again now.
     }
   }
 
@@ -95,7 +91,7 @@ export function createTelemetryFlusher(deps: TelemetryFlusherDependencies): Tele
 
     async stop(drainForMs) {
       if (loop === null) {
-        return; // never started, e.g. startup failed before the loop began
+        return; // never started (startup failed first)
       }
       drainDeadline = now() + drainForMs;
       wakeUp.abort();

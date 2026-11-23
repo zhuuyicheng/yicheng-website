@@ -11,19 +11,16 @@ import type {
   ProjectSummary,
 } from '../schema/content.schema.js';
 
-/**
- * All SQL for portfolio content. Reads return rows shaped like `dao/` and map them to the API
- * types in `schema/`; `replaceAll` serves `content:seed`.
- */
+/** All SQL for portfolio content; `replaceAll` serves `content:seed`. */
 export interface ContentDal {
-  /** `null` until content has been seeded. */
+  /** `null` until content is seeded. */
   findProfile: () => Promise<Profile | null>;
   listProjects: () => Promise<ProjectSummary[]>;
   findProjectBySlug: (slug: string) => Promise<Project | null>;
   replaceAll: (content: PortfolioContent) => Promise<boolean>;
 }
 
-// Column lists match the row types in dao/content.dao.ts. Dates go through to_char (see there).
+// Match dao/content.dao.ts; dates go through to_char (see there).
 const PROFILE_COLUMNS =
   'id, full_name, headline, summary, location, links, updated_at, content_updated_at';
 
@@ -53,7 +50,7 @@ export function createContentDal(pool: PostgresPool): ContentDal {
         return null;
       }
 
-      // Independent lists, so both queries run at the same time.
+      // Independent, so both run at once.
       const [experiences, education] = await Promise.all([
         pool.query<ExperienceRow>(
           `SELECT ${EXPERIENCE_COLUMNS} FROM experiences ORDER BY sort_order, start_date DESC`,
@@ -93,7 +90,7 @@ export function createContentDal(pool: PostgresPool): ContentDal {
           const changed =
             profileChanged || experiencesChanged || educationChanged || projectsChanged;
 
-          // now() is the transaction's start time, so this equals the changed rows' updated_at.
+          // now() is the transaction's start, so this equals the changed rows' updated_at.
           if (changed) {
             await client.query('UPDATE profile SET content_updated_at = now()');
           }
@@ -110,10 +107,7 @@ export function createContentDal(pool: PostgresPool): ContentDal {
   };
 }
 
-// ---------------------------------------------------------------------------------------------
-// Row → API mapping. Only the fields the API exposes are copied; internal columns such as
-// sort_order and created_at stay behind.
-// ---------------------------------------------------------------------------------------------
+// Row → API types. Internal columns (sort_order, created_at) stay behind.
 
 function toProfile(
   row: ProfileRow,
@@ -175,16 +169,14 @@ function toProject(row: ProjectRow): Project {
   };
 }
 
-// ---------------------------------------------------------------------------------------------
-// Writes (content:seed). Each returns whether it changed anything: a row that already matches
-// the file is not written, so its updated_at keeps meaning "last changed".
-// ---------------------------------------------------------------------------------------------
+// Writes (content:seed). Each says whether it changed anything: a row that already matches
+// isn't written, so updated_at keeps meaning "last changed".
 
 async function upsertProfile(
   client: PoolClient,
   profile: PortfolioContent['profile'],
 ): Promise<boolean> {
-  // With a WHERE, DO UPDATE skips a row that already matches: 0 rows written instead of 1.
+  // With a WHERE, DO UPDATE skips a row that already matches.
   const result = await client.query(
     `INSERT INTO profile (id, full_name, headline, summary, location, links)
      VALUES (1, $1, $2, $3, $4, $5::jsonb)
@@ -211,11 +203,7 @@ async function upsertProfile(
   return result.rowCount === 1;
 }
 
-/**
- * Experiences have no natural key, so a changed list is replaced wholesale (new ids, which
- * are only used as stable list keys within one response). An unchanged list, in the same
- * order, is left alone.
- */
+/** No natural key, so a changed list is replaced wholesale; an unchanged one is left alone. */
 async function replaceExperiences(
   client: PoolClient,
   experiences: PortfolioContent['experiences'],
@@ -252,7 +240,7 @@ async function replaceExperiences(
   return true;
 }
 
-/** Education, like experiences, has no natural key: replaced wholesale, only if it changed. */
+/** Like experiences: replaced wholesale, only if changed. */
 async function replaceEducation(
   client: PoolClient,
   education: PortfolioContent['education'],
@@ -291,9 +279,8 @@ async function replaceEducation(
 }
 
 /**
- * Projects are upserted by slug (keeping their id and created_at); missing slugs are deleted.
- * A project is only written when a column differs, `sort_order` included: moving it in the
- * file moves it on the home page, so that counts as a change.
+ * Upserted by slug (keeping id and created_at); missing slugs are deleted. A new `sort_order`
+ * counts as a change: it moves the project on the home page.
  */
 async function replaceProjects(
   client: PoolClient,
@@ -340,7 +327,7 @@ async function replaceProjects(
     changed ||= result.rowCount === 1; // 1: inserted or updated, 0: already matched
   }
 
-  // "Not in the file": the slug differs from every slug in the list.
+  // "Not in the file": unlike every slug in the list.
   const slugs = projects.map((project) => project.slug);
   const removed = await client.query('DELETE FROM projects WHERE slug <> ALL($1::text[])', [slugs]);
   return changed || (removed.rowCount ?? 0) > 0;

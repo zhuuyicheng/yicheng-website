@@ -5,10 +5,7 @@ import { OWNER_BROWSER_KEY } from '@/lib/telemetry';
 
 const CHANGED = 'portfolio:owner-browser';
 
-/**
- * This browser's mark: `excluded` ("1"), `counted` ("0"), `unset`, `blocked` (storage cannot
- * be used), or `unknown` (rendering on the server, before the browser has been asked).
- */
+/** `excluded` ("1"), `counted` ("0"), `unset`, `blocked` (no storage) or `unknown` (server). */
 type Mark = 'excluded' | 'counted' | 'unset' | 'blocked' | 'unknown';
 
 function readMark(): Mark {
@@ -26,7 +23,7 @@ function writeMark(value: '0' | '1'): void {
   try {
     window.localStorage.setItem(OWNER_BROWSER_KEY, value);
   } catch {
-    // readMark() reports the storage as blocked, and the toggle says so.
+    // readMark() reports blocked storage, and the toggle says so.
   }
   window.dispatchEvent(new Event(CHANGED));
 }
@@ -41,9 +38,8 @@ function subscribe(onChange: () => void): () => void {
 }
 
 /**
- * Keeps the owner's own browsing out of the visitor numbers. Opening /admin marks this browser
- * as the owner's (unless the owner turned that off before); the page-view beacon then sends
- * nothing from it (lib/telemetry.ts `shouldRecord`).
+ * Keeps the owner's browsing out of the numbers: opening /admin marks this browser (unless
+ * turned off), and the beacon then sends nothing from it.
  */
 export function OwnerBrowserToggle() {
   const mark = useSyncExternalStore(subscribe, readMark, (): Mark => 'unknown');

@@ -4,12 +4,12 @@ import path from 'node:path';
 import type { Pool, PoolClient } from 'pg';
 import type { Logger } from '../infra/logger.js';
 
-/** apps/api/migrations — the same relative location from src/db and dist/db. */
+/** apps/api/migrations, from both src/db and dist/db. */
 export const DEFAULT_MIGRATIONS_DIRECTORY = path.resolve(import.meta.dirname, '../../migrations');
 
 const MIGRATION_FILE_NAME = /^(?<version>\d{4})_(?<name>[a-z0-9_]+)\.sql$/;
 
-/** Arbitrary constant; every migrator run takes this advisory lock so runs never overlap. */
+/** Any constant: every run takes this advisory lock, so runs never overlap. */
 const MIGRATION_LOCK_ID = 7_331_001;
 
 const CREATE_MIGRATIONS_TABLE = `
@@ -29,7 +29,7 @@ export interface Migration {
 }
 
 export interface MigrationRunResult {
-  /** File names applied during this run, in order. Empty when already up to date. */
+  /** Applied in this run, in order; empty when up to date. */
   applied: string[];
 }
 
@@ -57,8 +57,8 @@ export async function readMigrations(directory: string): Promise<Migration[]> {
 }
 
 /**
- * Applies every pending migration, each in its own transaction together with its
- * schema_migrations row. Refuses to run if an applied migration was edited or deleted.
+ * Applies each pending migration in its own transaction with its schema_migrations row.
+ * Refuses to run if an applied migration was edited or deleted.
  */
 export async function runMigrations(options: {
   pool: Pool;
@@ -159,7 +159,7 @@ async function releaseLock(client: PoolClient, logger: Logger): Promise<void> {
   try {
     await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]);
   } catch (err) {
-    // Not fatal: a session-level advisory lock is released when the connection closes.
+    // Not fatal: the lock is released when the connection closes anyway.
     logger.warn({ err }, 'failed to release migration lock explicitly');
   }
 }

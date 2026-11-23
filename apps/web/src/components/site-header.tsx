@@ -11,7 +11,7 @@ import { ScrollProgressBar } from './scroll-progress-bar';
 import { SectionLink } from './section-link';
 import { useScrollSpy } from './use-scroll-spy';
 
-/** Sections of the home page, in page order. Each is a `<section id="…">`. */
+/** The home page's sections, in order; each is a `<section id="…">`. */
 export const SECTIONS = [
   { id: 'about', label: 'About' },
   { id: 'experience', label: 'Experience' },
@@ -20,18 +20,14 @@ export const SECTIONS = [
   { id: 'contact', label: 'Contact' },
 ] as const;
 
-/** Module-level, so the scrollspy's observer is built once, not on every render. */
+/** Module-level, so the scrollspy's observer is built once. */
 const SECTION_IDS = SECTIONS.map((section) => section.id);
 
-/**
- * Sticky header: photo and name, section links (highlighting the one you are reading), a menu
- * button on small screens, and the scroll progress bar. Section links scroll on every click
- * (components/section-link.tsx).
- */
+/** Sticky header: photo, name, section links (current highlighted), phone menu, progress bar. */
 export function SiteHeader() {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
-  // The section crossing the middle of the screen is the one being read; none above "About".
+  // The section crossing the middle of the screen; none above "About".
   const active = useScrollSpy(SECTION_IDS, '-45% 0px -50% 0px', pathname === '/');
 
   // Escape closes the mobile menu.
@@ -60,7 +56,7 @@ export function SiteHeader() {
           className="flex items-center gap-3 font-display text-lg font-semibold tracking-tight text-ink"
           onClick={(event) => {
             setMenuOpen(false);
-            // Already on the home page, <Link href="/"> would do nothing: scroll up instead.
+            // On the home page, <Link href="/"> does nothing: scroll up instead.
             const modified = event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
             if (pathname === '/' && !modified) {
               event.preventDefault();

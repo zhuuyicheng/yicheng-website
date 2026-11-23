@@ -1,9 +1,8 @@
 import type { Redis } from '../infra/redis.js';
 
 /**
- * Redis keys for cached content. See DESIGN.md §6.2. `vN` is the shape version: bump it when
- * a cached response shape changes, so old entries are never read and simply expire. During a
- * deploy, old and new code then use different keys instead of overwriting each other's entries.
+ * Content cache keys (DESIGN.md §6.2). Bump `vN` when a cached shape changes: old entries are
+ * then never read, and old and new code don't overwrite each other during a deploy.
  */
 export const CONTENT_CACHE_KEYS = {
   profile: 'cache:v3:profile', // v2: added `education`, v3: `contentUpdatedAt`
@@ -14,14 +13,14 @@ export const CONTENT_CACHE_KEYS = {
 const PROJECT_KEY_PATTERN = CONTENT_CACHE_KEYS.project('*');
 const SCAN_BATCH_SIZE = 100;
 
-/** Minimal key/value cache used by the cache-aside manager. Values are JSON strings. */
+/** Key/value cache for the cache-aside manager; values are JSON. */
 export interface CacheDal {
   get: (key: string) => Promise<string | null>;
   set: (key: string, value: string, ttlSeconds: number) => Promise<void>;
 }
 
 export interface ContentCacheDal extends CacheDal {
-  /** Deletes every content cache key (including projects that no longer exist). */
+  /** Deletes every content key (projects that no longer exist too). */
   deleteAllContent: () => Promise<number>;
 }
 
@@ -36,7 +35,7 @@ export function createContentCacheDal(redis: Redis): ContentCacheDal {
     },
 
     async deleteAllContent() {
-      // SCAN walks the keyspace in small steps, unlike KEYS, which blocks Redis until done.
+      // SCAN, not KEYS, which blocks Redis until done.
       const keys: string[] = [CONTENT_CACHE_KEYS.profile, CONTENT_CACHE_KEYS.projects];
       let cursor = '0';
       do {

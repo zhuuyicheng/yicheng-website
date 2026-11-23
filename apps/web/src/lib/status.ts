@@ -2,16 +2,11 @@ import { systemStatusSchema, type SystemStatus } from '@portfolio/shared';
 import { z } from 'zod';
 import { fetchOwnerData } from './owner-fetch';
 
-/**
- * The owner's live system dashboard (on /admin): fetch the API's self-report (DESIGN.md §7.7)
- * and turn it into what the page shows. No React, so it can be unit-tested.
- */
+/** The /admin system dashboard: fetch each replica's report (DESIGN.md §7.7) and shape it. */
 
 /**
- * What the web server's owner-only route (app/admin/system-status/route.ts) answers: every API
- * replica's own status, by name, or `null` for one that did not answer. The API runs as two
- * replicas (DESIGN.md §14.5), each counting only what it answered, so the page needs all of
- * them to know the whole API's numbers.
+ * What app/admin/system-status/route.ts answers: each API replica's status by name, `null` if
+ * it didn't answer. Each replica counts only its own requests, so the page needs them all.
  */
 export const replicaStatusesSchema = z.object({
   replicas: z
@@ -21,7 +16,7 @@ export const replicaStatusesSchema = z.object({
 export type ReplicaStatuses = z.infer<typeof replicaStatusesSchema>;
 export type ReplicaStatus = ReplicaStatuses['replicas'][number];
 
-/** The replicas' statuses as the browser gets them, validated (each against the shared contract). */
+/** The replicas' statuses, each checked against the shared contract. */
 export async function fetchStatus(options: {
   url: string;
   fetch: typeof globalThis.fetch;
@@ -39,10 +34,7 @@ export interface Health {
   silent: string[];
 }
 
-/**
- * Operational when every dependency is up and every replica answered. One silent replica is
- * not an outage (Caddy sends its visitors to the other one), but the site has lost its spare.
- */
+/** Operational when every dependency is up and every replica answered. */
 export function overallHealth(status: SystemStatus, silent: readonly string[] = []): Health {
   const down = Object.entries(status.dependencies)
     .filter(([, health]) => health.status === 'down')
@@ -51,7 +43,7 @@ export function overallHealth(status: SystemStatus, silent: readonly string[] = 
   return { level: healthy ? 'operational' : 'degraded', down, silent: [...silent] };
 }
 
-/** What is wrong, for the banner: `redis is down · api-2 is not answering (…)`. */
+/** For the banner: `redis is down · api-2 is not answering (…)`. */
 export function healthProblems(health: Health): string {
   const verb = (names: readonly string[]) => (names.length === 1 ? 'is' : 'are');
   const problems: string[] = [];
@@ -66,24 +58,20 @@ export function healthProblems(health: Health): string {
   return problems.join(' · ');
 }
 
-/** The whole API's numbers, from every replica that answered the same poll. */
+/** The whole API's numbers, from one poll's answers. */
 export interface CombinedStatus {
-  /**
-   * What the replicas share, from the first that answered: dependencies, queues and page views
-   * live in Postgres and Redis, which every replica reads alike.
-   */
+  /** Dependencies, queues and page views, from the first replica that answered (they're shared). */
   shared: SystemStatus;
-  /** Replicas that answered, and those that did not, by name. */
+  /** By name. */
   answered: string[];
   silent: string[];
-  /** The most recently started replica's: a deploy restarts them one after the other. */
+  /** The most recently started replica's. */
   uptimeSeconds: number;
   /** Added up: every request reaches exactly one replica. */
   requestCount: number;
   /**
-   * The slower replica's value: not the exact percentile of all requests together (that would
-   * need every duration), but a safe upper bound. If each replica answered half its requests
-   * faster than its own p50, at least half of all of them were faster than the larger p50.
+   * The slower replica's: not the exact percentile of all requests (that needs every duration),
+   * but a safe upper bound.
    */
   p50: number | null;
   p95: number | null;
@@ -94,10 +82,8 @@ export interface CombinedStatus {
 }
 
 /**
- * Combines one poll's answers; `null` when no replica answered. All of them come from the same
- * moment, so the totals are never half old: a replica that does not answer is named (`silent`)
- * rather than guessed. While it is down, Caddy sends every visitor to the others, so their
- * counts still hold nearly all recent requests.
+ * One poll's answers combined; `null` if none answered. A silent replica is named, not guessed;
+ * while it's down Caddy sends everyone to the others, so their counts hold nearly everything.
  */
 export function combineReplicas(replicas: readonly ReplicaStatus[]): CombinedStatus | null {
   const answering = replicas.flatMap((replica) =>
@@ -131,18 +117,18 @@ export function combineReplicas(replicas: readonly ReplicaStatus[]): CombinedSta
   };
 }
 
-/** One point of the charts: what the status said at `at` (ms since epoch). */
+/** One chart point: the status at `at` (ms since epoch). */
 export interface Sample {
   at: number;
   p95: number | null;
   requests: number;
 }
 
-/** The charts' time axis: the last 30 minutes, with a labelled tick every 5 minutes. */
+/** The charts' axis: the last 30 minutes, a tick every 5. */
 export const CHART_WINDOW_MS = 30 * 60_000;
 export const CHART_TICK_MS = 5 * 60_000;
 
-/** Adds `sample` and drops those older than `windowMs` before it: the chart's time window. */
+/** Adds `sample` and drops those older than `windowMs`. */
 export function appendSample(
   history: readonly Sample[],
   sample: Sample,
@@ -163,28 +149,28 @@ export function formatUptime(totalSeconds: number): string {
   return `${String(s)}s`;
 }
 
-/** `7.5` → `7.5 ms`; `null` (no requests in the window) → `—`. */
+/** `7.5` → `7.5 ms`; `null` (no requests) → `—`. */
 export function formatMs(value: number | null): string {
   return value === null ? '—' : `${value < 10 ? value.toFixed(1) : String(Math.round(value))} ms`;
 }
 
-/** `0.968` → `96.8 %`; `null` (no lookups yet) → `—`. */
+/** `0.968` → `96.8 %`; `null` (no lookups) → `—`. */
 export function formatRatio(ratio: number | null): string {
   return ratio === null ? '—' : `${(ratio * 100).toFixed(1)} %`;
 }
 
-/** Seconds since the last successful update, for "updated 3 s ago". */
+/** For "updated 3 s ago". */
 export function secondsAgo(at: number, now: number): number {
   return Math.max(0, Math.round((now - at) / 1000));
 }
 
-/** One point of a chart's line: a value (or `null`, unknown) at a time (ms since epoch). */
+/** A value (or `null`, unknown) at a time (ms since epoch). */
 export interface TimePoint {
   at: number;
   value: number | null;
 }
 
-/** Where a chart's time axis starts and ends (ms since epoch), and how wide it is drawn. */
+/** The axis' start and end (ms) and drawn width. */
 export interface TimeScale {
   start: number;
   end: number;
@@ -196,11 +182,7 @@ export function timeX(at: number, scale: TimeScale): number {
   return ((at - scale.start) / (scale.end - scale.start)) * scale.width;
 }
 
-/**
- * Tick times between `start` and `end`: every multiple of `stepMs` since the epoch. With a
- * 5-minute step these fall on :00, :05, :10 … of the viewer's clock, because every time zone
- * is offset from UTC by whole quarter hours.
- */
+/** Multiples of `stepMs` since the epoch: :00, :05… on any clock (zones are quarter hours). */
 export function timeTicks(start: number, end: number, stepMs: number): number[] {
   const ticks: number[] = [];
   for (let at = Math.ceil(start / stepMs) * stepMs; at <= end; at += stepMs) {
@@ -209,18 +191,14 @@ export function timeTicks(start: number, end: number, stepMs: number): number[] 
   return ticks;
 }
 
-/**
- * How far down the plot `value` sits, as a fraction of its height: 0 at the top (`ceiling` or
- * more), 1 at the bottom (zero). The line and the hover marker both use it, so they agree.
- */
+/** How far down `value` sits: 0 at `ceiling`, 1 at zero. Shared by the line and the marker. */
 export function valueDepth(value: number, ceiling: number): number {
   return 1 - Math.min(Math.max(value, 0), ceiling) / ceiling;
 }
 
 /**
- * An SVG path through `points`, placed by time (x) and scaled from 0 (bottom) to `ceiling`
- * (top). The line breaks at unknown values and at gaps longer than `maxGapMs` (polling pauses
- * while the tab is hidden) instead of drawing a straight line across time it knows nothing of.
+ * An SVG path placed by time and scaled 0 → `ceiling`. It breaks at unknown values and at gaps
+ * over `maxGapMs` (a hidden tab) rather than draw across time it knows nothing about.
  */
 export function timeLinePath(
   points: readonly TimePoint[],
@@ -244,7 +222,7 @@ export function timeLinePath(
   return path.trim();
 }
 
-/** The point closest in time to `at` (for the hover crosshair), or `null` if there is none. */
+/** The point nearest `at` in time (the hover crosshair), or `null`. */
 export function nearestPoint(points: readonly TimePoint[], at: number): TimePoint | null {
   let best: TimePoint | null = null;
   for (const point of points) {
@@ -261,12 +239,12 @@ const CLOCK = new Intl.DateTimeFormat('en-GB', {
   hourCycle: 'h23',
 });
 
-/** `17:35` in the viewer's time zone: the time axis' labels. */
+/** `17:35` on the viewer's clock: the axis labels. */
 export function formatClock(at: number): string {
   return CLOCK.format(at);
 }
 
-/** A round number just above the largest value, so the chart's top label reads cleanly. */
+/** A round number just above the largest value, for a clean top label. */
 export function niceCeiling(values: readonly (number | null)[]): number {
   const max = Math.max(0, ...values.filter((v): v is number => v !== null));
   if (max === 0) return 1;

@@ -2,8 +2,7 @@ import type { DependencyHealth } from '../schema/health.schema.js';
 import type { SystemStatus } from '../schema/system-status.schema.js';
 import type { DataResponseBody } from './data.view.js';
 
-// Fields are copied one by one on purpose: anything added to the status object only reaches
-// the owner's dashboard once it is added here.
+// Copied field by field: a new status field only reaches the dashboard once it's added here.
 
 export function renderSystemStatus(status: SystemStatus): DataResponseBody<SystemStatus> {
   return {

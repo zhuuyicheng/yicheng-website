@@ -1,6 +1,5 @@
--- Phase 2: portfolio content. Read-only queries to explore the data.
--- Open this file in VS Code, choose the "portfolio (dev)" connection, put the cursor on one
--- statement and run it. Guide: docs/DATA-TOOLS.md
+-- Portfolio content, read-only. In VS Code: pick the "portfolio (dev)" connection, put the
+-- cursor on a statement and run it (docs/DATA-TOOLS.md).
 
 -- Which migrations have been applied?
 SELECT version, name, applied_at
@@ -22,7 +21,7 @@ SELECT institution, qualification, start_date, end_date, highlights
   FROM education
  ORDER BY sort_order, start_date DESC;
 
--- The profile (always exactly one row once seeded).
+-- The profile (one row once seeded).
 SELECT full_name, headline, location, jsonb_pretty(links) AS links, updated_at
   FROM profile;
 
@@ -31,8 +30,7 @@ SELECT relname AS table_name, n_live_tup AS approx_rows
   FROM pg_stat_user_tables
  ORDER BY relname;
 
--- Who is connected right now? Each process sets its own application_name
--- (portfolio-api, portfolio-seed, portfolio-migrator, ...).
+-- Who is connected now? Each process sets its application_name (portfolio-api, …).
 SELECT application_name, state, backend_start, left(query, 80) AS last_query
   FROM pg_stat_activity
  WHERE datname = current_database();

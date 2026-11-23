@@ -1,12 +1,10 @@
 /**
- * The owner's login for /admin (DESIGN.md §8.7): HTTP Basic authentication, where the browser
- * itself asks for a username and password. The password must be ADMIN_TOKEN; the username
- * is ignored. Checked in proxy.ts for every /admin request, and again inside each /admin
- * route, so a route that slips past the proxy's matcher is still protected.
+ * The /admin login (DESIGN.md §8.7): HTTP Basic, password = ADMIN_TOKEN, any username.
+ * Checked in proxy.ts and again in each /admin route, in case one slips past the matcher.
  */
 export type OwnerCheck = 'owner' | 'denied' | 'disabled';
 
-/** The browser's login prompt, and the header that asks for it. */
+/** The header that makes the browser show its login prompt. */
 export const OWNER_CHALLENGE = 'Basic realm="Owner", charset="UTF-8"';
 
 export async function checkOwner(
@@ -34,16 +32,15 @@ export function basicPassword(authorization: string | null): string | null {
     const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
     decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
-    return null; // not base64, or not UTF-8: the same as no password
+    return null; // not base64 or UTF-8: same as no password
   }
   const colon = decoded.indexOf(':');
   return colon === -1 ? null : decoded.slice(colon + 1);
 }
 
 /**
- * Compares SHA-256 digests of both values, every byte, whatever the input. A plain `===`
- * stops at the first difference, so its timing would reveal how much of a guess was right;
- * hashing first also makes the lengths equal without revealing the token's.
+ * Compares SHA-256 digests byte by byte: `===` returns sooner on a wrong prefix, leaking how
+ * much of a guess was right. Hashing also hides the token's length.
  */
 async function sameSecret(given: string, expected: string): Promise<boolean> {
   const [a, b] = await Promise.all([sha256(given), sha256(expected)]);

@@ -11,53 +11,41 @@ import {
   type NotificationJob,
 } from '../schema/notification-job.schema.js';
 
-/** How long one `take` waits for a job. Short, so a stopping worker is never stuck long. */
+/** How long one `take` waits; short, so stopping never hangs. */
 const TAKE_TIMEOUT_SECONDS = 5;
 const PROMOTE_BATCH_SIZE = 100;
-/** A PENDING message untouched this long has lost its job (DESIGN.md §8.3, step 7). */
+/** A PENDING message untouched this long has lost its job (DESIGN.md §8.3). */
 const STALE_AFTER_SECONDS = 5 * 60;
 const RECONCILE_BATCH_SIZE = 100;
-/**
- * Retries never wait longer than this. It stays below STALE_AFTER_SECONDS on purpose: a retry
- * waiting in `delayed` must not look like a lost message to the reconciler.
- */
+/** Below STALE_AFTER_SECONDS, so a waiting retry never looks lost to the reconciler. */
 export const MAX_RETRY_DELAY_MS = 4 * 60 * 1000;
 
 /**
- * Delay before retrying after attempt `failedAttempt` failed: base × 2^(attempt − 1), ± 20 %
- * jitter, capped at MAX_RETRY_DELAY_MS. With the defaults (5 s, 3 attempts): ~5 s, then ~10 s.
- *
- * Why jitter: if many jobs failed at the same moment (the webhook was down), identical delays
- * would make them all retry at the same moment too, and possibly fail together again.
+ * base × 2^(attempt − 1), ± 20 % jitter, capped at MAX_RETRY_DELAY_MS (defaults: ~5 s, ~10 s).
+ * Jitter, so jobs that failed together don't all retry (and fail) together.
  */
 export function retryDelayMs(failedAttempt: number, baseMs: number, random: () => number): number {
   const exponential = baseMs * 2 ** (failedAttempt - 1);
-  const jitter = 0.8 + 0.4 * random(); // a factor between 0.8 and 1.2
+  const jitter = 0.8 + 0.4 * random(); // 0.8 to 1.2
   return Math.min(Math.round(exponential * jitter), MAX_RETRY_DELAY_MS);
 }
 
-/** What `processNext` did: finished one job, or found none to do within the wait. */
+/** One job's outcome, or `idle` when none came. */
 export type ProcessOutcome = NotificationJobOutcome | 'idle';
 
 /**
- * Notification jobs, from the queue to the site owner's inbox (DESIGN.md §8.3). The worker
- * loops that decide *when* to call these live in workers/.
- *
- * Delivery is at least once: a crash at the wrong moment can repeat a notification, never
- * drop one. Every step that could repeat is made harmless by checking the message's status.
+ * Notification jobs, queue to inbox (DESIGN.md §8.3); workers/ decide when. At least once: a
+ * crash can repeat a notification, never drop one, and repeats check the message's status.
  */
 export interface NotificationManager {
   /**
-   * Takes the next job (waiting up to 5 s) and runs it: send, then sent / retry / DLQ.
-   *
-   * First, it puts back anything left in `processing`. There is one consumer and it runs one
-   * job at a time, so between two jobs that list must be empty: whatever is there was left by
-   * a crash or an outage mid-job. This one rule covers both startup and recovery.
+   * Takes the next job (waiting up to 5 s) and runs it. First puts back anything in
+   * `processing`: with one consumer running one job at a time, it can only be a crash's leftover.
    */
   processNext: (log: Logger) => Promise<ProcessOutcome>;
-  /** Moves retries whose backoff is over from `delayed` to `ready`. */
+  /** Delayed retries whose backoff is over → `ready`. */
   promoteDue: (log: Logger) => Promise<number>;
-  /** Queues a new job for every message PENDING for over 5 minutes with no job in sight. */
+  /** Queues a job for every message PENDING over 5 minutes with no job. */
   reconcile: (log: Logger) => Promise<number>;
 }
 
@@ -75,7 +63,7 @@ export interface NotificationManagerDependencies {
   /** Total attempts, including the first. */
   maxAttempts: number;
   backoffBaseMs: number;
-  /** Injectable for tests. */
+  /** For tests. */
   now?: () => Date;
   random?: () => number;
   newJobId?: () => string;
@@ -97,7 +85,7 @@ export function createNotificationManager(
     return JSON.stringify(deadLetter);
   }
 
-  /** Runs one job taken from the queue. `entry` is its exact text, needed to remove it. */
+  /** Runs one job; `entry` is its exact text, needed to remove it. */
   async function run(entry: string, log: Logger): Promise<NotificationJobOutcome> {
     const parsed = parseJob(entry);
     if ('problem' in parsed) {
@@ -112,8 +100,7 @@ export function createNotificationManager(
     const { job } = parsed;
     const jobLog = log.child({ jobId: job.jobId, messageId: job.messageId, attempt: job.attempt });
 
-    // Idempotency: the job may be a repeat (a crash after sending, a reconciler re-queue).
-    // Only a PENDING message still needs notifying.
+    // The job may be a repeat (crash after sending, reconciler re-queue): only PENDING needs it.
     const message = await contactMessageDal.findById(job.messageId);
     if (message?.status !== 'PENDING') {
       await queueDal.complete(entry);
@@ -121,9 +108,8 @@ export function createNotificationManager(
       return 'skipped';
     }
 
-    // Only the notifier's own failure is caught here. If Postgres or Redis fails in the steps
-    // below, the error escapes on purpose: the job stays in `processing`, and the consumer
-    // loop requeues it once the outage is over. An outage must not use up the attempts.
+    // Only the notifier's failure is caught. A Postgres or Redis failure below escapes on purpose:
+    // the job stays in `processing` and is requeued after the outage, using up no attempts.
     let failure: NotificationError | null = null;
     try {
       await notifier.send(message);
@@ -152,8 +138,8 @@ export function createNotificationManager(
       return 'retried';
     }
 
-    // Postgres first: it is the source of truth. A crash before the DLQ write leaves the
-    // message FAILED (docs/sql/contact.sql lists those) and the job is skipped on requeue.
+    // Postgres first, the source of truth. A crash before the DLQ write leaves the message FAILED
+    // (docs/sql/contact.sql) and the job is skipped on requeue.
     const reason = failure.retryable ? 'attempts_exhausted' : 'rejected';
     await contactMessageDal.markFailed(message.id, job.attempt, failure.message);
     await queueDal.deadLetter(entry, deadLetterEntry(entry, reason, failure.message));
@@ -210,7 +196,7 @@ export function createNotificationManager(
   };
 }
 
-/** One queue entry → a valid job, or the reason it is not one. */
+/** Entry → a valid job, or why it isn't one. */
 function parseJob(entry: string): { job: NotificationJob } | { problem: string } {
   let json: unknown;
   try {
@@ -229,10 +215,7 @@ function parseJob(entry: string): { job: NotificationJob } | { problem: string }
   };
 }
 
-/**
- * Notifiers throw NotificationError for every failure they know about. Anything else is a
- * bug in the notifier: retrying the same code would fail the same way, so it is not retryable.
- */
+/** Anything but a NotificationError is a notifier bug: retrying would fail the same way. */
 function asNotificationError(error: unknown): NotificationError {
   if (error instanceof NotificationError) {
     return error;

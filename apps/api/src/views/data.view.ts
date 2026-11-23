@@ -1,2 +1,2 @@
-/** Success envelope used by every `/api/v1` endpoint (DESIGN.md §7.1), from the shared contract. */
+/** The `{ data }` envelope (DESIGN.md §7.1). */
 export type { DataResponseBody } from '@portfolio/shared';

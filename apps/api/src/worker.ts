@@ -1,10 +1,6 @@
 /**
- * Worker process entrypoint (composition root): background work that must never slow down an
- * HTTP request. See DESIGN.md §2.1.
- *   - Phase 3: the telemetry flusher (Redis buffer → Postgres).
- *   - Phase 4: contact notifications (consumer, delayed-retry promoter, reconciler).
- *
- * Run exactly one worker (DESIGN.md §8.4): the in-flight and processing lists are single keys.
+ * Worker entrypoint (composition root): background work that must never slow a request
+ * (telemetry flusher, contact notifications). Run exactly one (DESIGN.md §8.4).
  */
 import { loadConfigOrExit } from './config/env.js';
 import { createAnalyticsEventDal } from './dal/analytics-event.dal.js';
@@ -28,7 +24,7 @@ import { createNotificationConsumer } from './workers/notification-consumer.work
 import { createPeriodicWorker } from './workers/periodic.worker.js';
 import { createTelemetryFlusher } from './workers/telemetry-flusher.worker.js';
 
-/** Part of the shutdown deadline kept for closing connections after draining. */
+/** Kept from the shutdown deadline for closing connections after draining. */
 const CLOSE_CONNECTIONS_RESERVE_MS = 1_000;
 const PROMOTER_INTERVAL_MS = 1_000;
 const RECONCILER_INTERVAL_MS = 60_000;
@@ -47,7 +43,7 @@ const redis = createRedisClient(
   logger,
   metrics,
 );
-// Only for BLMOVE, which waits for a job and blocks its connection meanwhile.
+// Only for BLMOVE, which blocks its connection while it waits.
 const blockingRedis = createRedisClient(
   { url: config.redis.url, connectionName: 'portfolio-worker-blocking' },
   logger,
@@ -95,16 +91,15 @@ const notificationPromoter = createPeriodicWorker({
 const notificationReconciler = createPeriodicWorker({
   name: 'notification-reconciler',
   intervalMs: RECONCILER_INTERVAL_MS,
-  // Not at startup: after downtime, jobs already queued would look "lost" for a moment.
-  // One interval gives the consumer time to work through them first.
+  // Not at startup: after downtime, queued jobs would look "lost" until the consumer catches up.
   runImmediately: false,
   task: (log) => notificationManager.reconcile(log),
   metrics,
   logger,
 });
 
-// Order matters: stop every loop while the connections are still open (the consumer finishes
-// its current job, the flusher drains the buffer with the time left), then close them.
+// Stop every loop while connections are open (the flusher drains with the time left),
+// then close them.
 const gracefulShutdown = createGracefulShutdown({
   logger,
   timeoutMs: config.shutdown.timeoutMs,
@@ -117,7 +112,7 @@ const gracefulShutdown = createGracefulShutdown({
       close: (timeLeftMs) =>
         telemetryFlusher.stop(Math.max(0, timeLeftMs - CLOSE_CONNECTIONS_RESERVE_MS)),
     },
-    // Already cut by the consumer's stop (interruptWait), possibly still closing: no QUIT.
+    // Already cut by the consumer's stop, maybe still closing: no QUIT.
     { name: 'redis-blocking', close: () => closeInterruptedRedis(blockingRedis) },
     { name: 'redis', close: () => closeRedis(redis) },
     { name: 'postgres', close: () => postgres.end() },
@@ -126,7 +121,7 @@ const gracefulShutdown = createGracefulShutdown({
 registerProcessHandlers(gracefulShutdown, logger);
 
 try {
-  // Fail fast, like the API: no point starting the loops without both datastores.
+  // Like the API: no point starting the loops without both datastores.
   await Promise.all([connectRedis(redis), connectRedis(blockingRedis), pingPostgres(postgres)]);
   telemetryFlusher.start();
   notificationConsumer.start();

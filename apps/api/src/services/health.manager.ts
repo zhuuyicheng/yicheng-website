@@ -6,7 +6,7 @@ import type { DependencyCheck, DependencyHealth, HealthReport } from '../schema/
 export const HEALTH_CHECK_TIMEOUT_MS = 2_000;
 
 export interface HealthManager {
-  /** `log` is the caller's (request-scoped) logger, so failures carry the requestId. */
+  /** The caller's request logger, so failures carry the requestId. */
   checkHealth: (log: Logger) => Promise<HealthReport>;
 }
 
@@ -36,7 +36,7 @@ async function probe(dependency: DependencyCheck, log: Logger): Promise<Dependen
     await withTimeout(dependency.ping(), HEALTH_CHECK_TIMEOUT_MS, `${dependency.name} ping`);
     return { status: 'up', latencyMs: elapsedMs(startedAt) };
   } catch (err) {
-    // The reason is logged but not returned: error messages can contain hostnames.
+    // Logged, not returned: error messages can contain hostnames.
     log.warn({ err, dependency: dependency.name }, 'dependency health check failed');
     return { status: 'down', latencyMs: elapsedMs(startedAt) };
   }

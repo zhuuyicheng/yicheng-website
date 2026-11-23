@@ -7,17 +7,13 @@ import { renderContactAccepted } from '../views/contact.view.js';
 import { API_V1 } from './api-v1.js';
 import { parseRequest } from './parse-request.js';
 
-/** The contact form. See DESIGN.md §7.6. */
+/** The contact form (DESIGN.md §7.6). */
 export function registerContactController(
   app: FastifyInstance,
   contactManager: ContactManager,
   rateLimiter: RateLimiterManager,
 ): void {
-  /**
-   * The rate limiter runs first (an `onRequest` hook), then validation, then the manager.
-   * 202 Accepted, not 201 Created: the message is stored, but the notification it triggers
-   * has only been queued.
-   */
+  /** Rate limit, validation, manager. 202: stored, but the notification is only queued. */
   app.post(`${API_V1}/contact`, { onRequest: rateLimit(rateLimiter) }, async (request, reply) => {
     const message = parseRequest(contactRequestSchema, request.body);
     const accepted = await contactManager.submit(message, { ip: request.ip }, request.log);

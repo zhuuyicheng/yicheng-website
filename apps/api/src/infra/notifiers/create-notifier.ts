@@ -4,7 +4,7 @@ import { createDiscordNotifier } from './discord.notifier.js';
 import { createLogNotifier } from './log.notifier.js';
 import type { Notifier } from './notifier.js';
 
-/** The notifier NOTIFIER_DRIVER asks for. Called by the worker's composition root. */
+/** The notifier NOTIFIER_DRIVER asks for. */
 export function createNotifier(config: NotifierConfig, logger: Logger): Notifier {
   switch (config.driver) {
     case 'log':

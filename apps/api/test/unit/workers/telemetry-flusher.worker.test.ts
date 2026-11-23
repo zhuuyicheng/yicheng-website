@@ -16,9 +16,8 @@ const batchOf = (claimed: number): FlushOutcome => ({
 const OUTAGE = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
 
 /**
- * Runs the real loop against a scripted flush manager and a fake `sleep` that records every
- * wait. While outcomes remain in the script, sleeps return at once; when the script runs out,
- * the loop's next sleep blocks until stop() wakes it, and `waiting` resolves.
+ * The real loop, a scripted flush manager and a recording `sleep`. Once the script runs out,
+ * the next sleep blocks until stop(), and `waiting` resolves.
  */
 function setup(options: { msPerFlush?: number } = {}) {
   const script: (FlushOutcome | Error)[] = [];

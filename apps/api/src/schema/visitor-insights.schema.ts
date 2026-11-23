@@ -1,7 +1,4 @@
-/**
- * GET /api/v1/admin/visitors (DESIGN.md §7.8). Request and response are the public contract
- * (the web app's /admin page sends and parses them), so they live in `@portfolio/shared`.
- */
+/** GET /api/v1/admin/visitors (DESIGN.md §7.8); the schemas are shared with the web app. */
 export {
   visitorSummaryQuerySchema,
   type Visit,

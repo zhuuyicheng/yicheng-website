@@ -13,15 +13,11 @@ import yellowShirt from './photos/yellow-shirt.jpg';
 import yoteiArmsCrossed from './photos/yotei-arms-crossed.jpg';
 
 /**
- * The "Outside work" photos on the home page, in the order the carousel shows them. Edit
- * captions here; add a photo by putting a JPEG in ./photos (resized, location data removed:
- * see docs/EDITING-THE-SITE.md §3) and adding an entry.
- *
- *   - `alt`: what the picture shows, for people who cannot see it (read by screen readers).
- *   - `caption`: the title under the photo, e.g. the activity or place.
- *   - `description` (optional): a sentence or two under the caption.
- *   - `focus` (optional): which part stays in view when the photo is cropped to the portrait
- *     card, as "x% y%" (from the left, from the top). Default: the centre.
+ * The "Outside work" photos, in carousel order. To add one, put a JPEG in ./photos (resized,
+ * location removed: docs/EDITING-THE-SITE.md §3) and add an entry.
+ *   - `alt`: what it shows, for screen readers.
+ *   - `caption`: the title under the photo; `description`: optional sentence or two.
+ *   - `focus`: optional, which part stays in view when cropped, as "x% y%". Default: centre.
  */
 export interface Photo {
   src: StaticImageData;
@@ -65,10 +61,8 @@ export const PHOTOS: readonly Photo[] = [
 ];
 
 /**
- * The photo collage beside the name at the top of the home page (components/hero-collage.tsx).
- * The first is the large one in the middle; the others are pinned around it, tilted. The
- * collage has seven places, so only the first seven are shown, and on phones only the first
- * five. `alt` and `focus` mean the same as above.
+ * The collage beside the name on the home page: the first is the big one in the middle. Only
+ * the first seven show (five on phones). `alt` and `focus` as above.
  */
 export interface CollagePhoto {
   src: StaticImageData;

@@ -11,11 +11,7 @@ import { ApiUnavailableError } from './api';
 import { adminToken, apiReplicas, serverApiBaseUrl } from './config';
 import type { ReplicaStatuses } from './status';
 
-/**
- * The owner's API reads (/api/v1/admin/*, DESIGN.md §7.8), made by the Next.js server with
- * ADMIN_TOKEN as the bearer token. Server code only (the /admin page and its route): the
- * token never goes to the browser.
- */
+/** Owner API reads (DESIGN.md §7.8) with ADMIN_TOKEN. Server only: it never reaches a browser. */
 async function getOwnerData<T extends z.ZodType>(
   path: string,
   schema: T,
@@ -47,14 +43,12 @@ export function getVisitorSummary(days: number): Promise<VisitorSummary> {
   return getOwnerData(`/api/v1/admin/visitors?days=${String(days)}`, visitorSummarySchema);
 }
 
-/** A replica silent this long is reported as such, so a stuck one cannot hold up the page. */
+/** A replica silent this long is reported as such, so a stuck one can't hold up the page. */
 const REPLICA_TIMEOUT_MS = 3_000;
 
 /**
- * Every API replica's own status, for the live dashboard (DESIGN.md §8.6). Each is asked at
- * its own address (API_REPLICA_URLS), not through Caddy, which would hand the request to just
- * one of them. One that fails or takes longer than 3 s is listed with `status: null`, and the
- * dashboard names it instead of losing the others' numbers too.
+ * Each API replica's own status (DESIGN.md §8.6), asked at its own address, since Caddy would
+ * pick just one. A failed or slow (> 3 s) replica gets `status: null`; the page names it.
  */
 export async function getReplicaStatuses(): Promise<ReplicaStatuses> {
   const replicas = apiReplicas();

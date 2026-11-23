@@ -3,16 +3,13 @@ import type { Logger } from '../infra/logger.js';
 import type { Visit, VisitorSummary } from '../schema/visitor-insights.schema.js';
 
 const DAY_MS = 86_400_000;
-/** Entries per ranked list (referrers, places, pages, ...). */
+/** Entries per ranked list. */
 const TOP = 10;
 const RECENT_VISITS = 50;
-/** Visits read per summary: plenty for a portfolio, and a cap on memory if a bot floods it. */
+/** Plenty for a portfolio, and a memory cap if a bot floods it. */
 export const MAX_VISITS_PER_SUMMARY = 20_000;
 
-/**
- * The owner's visitor summary (DESIGN.md §7.8): who visited, from where, and how they arrived.
- * Postgres groups events into visits (dal/visitor-insights.dal.ts); this manager ranks them.
- */
+/** The visitor summary (DESIGN.md §7.8). Postgres groups events into visits; this ranks them. */
 export interface VisitorInsightsManager {
   /** The last `days` UTC days, today included. */
   getSummary: (days: number, log: Logger) => Promise<VisitorSummary>;
@@ -81,7 +78,7 @@ function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
-/** One entry per day from `since` to today, so days without visits show as zero. */
+/** One entry per day, so days without visits show as zero. */
 function everyDay(since: Date, today: Date, counts: readonly DailyCount[]): DailyCount[] {
   const byDay = new Map(counts.map((count) => [count.day, count]));
   const days: DailyCount[] = [];
@@ -96,10 +93,7 @@ function hasCampaign(visit: Visit): boolean {
   return [visit.ref, visit.utmSource, visit.utmMedium, visit.utmCampaign].some((v) => v !== null);
 }
 
-/**
- * Groups visits by the fields `pick` returns and counts them: the largest groups first (ties
- * in a stable order), at most TOP. `null` is a group too ("direct", "unknown").
- */
+/** Visits per `pick` group, largest first (ties stable), at most TOP; `null` is a group too. */
 function rank<K extends Record<string, string | null>>(
   visits: readonly Visit[],
   pick: (visit: Visit) => K,

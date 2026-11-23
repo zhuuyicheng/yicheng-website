@@ -15,14 +15,11 @@ export interface TestDependencies {
   close: () => Promise<void>;
 }
 
-/**
- * Real, connected Postgres + Redis clients configured from the integration test env. IP lookup
- * is off (no GeoIP files); tests that need it open the fixtures in test/fixtures/geoip.
- */
+/** Connected Postgres and Redis clients from the test env. IP lookup is off (no GeoIP files). */
 export async function createTestDependencies(): Promise<TestDependencies> {
   const config = loadConfig();
   const logger = createLogger(config);
-  // A fresh registry per test file, so counter assertions start from zero.
+  // Fresh per test file, so counters start at zero.
   const metrics = createMetrics();
   const postgres = createPostgresPool(
     { url: config.postgres.url, poolMax: 2, applicationName: 'portfolio-api-test' },
@@ -50,6 +47,6 @@ export async function createTestDependencies(): Promise<TestDependencies> {
   };
 }
 
-/** A URL on which nothing listens: connections are refused immediately. */
+/** Nothing listens here: connections are refused at once. */
 export const UNREACHABLE_POSTGRES_URL = 'postgres://portfolio:portfolio@127.0.0.1:1/unreachable';
 export const UNREACHABLE_REDIS_URL = 'redis://127.0.0.1:1/0';

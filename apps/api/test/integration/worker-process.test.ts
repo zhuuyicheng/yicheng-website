@@ -17,9 +17,8 @@ interface LogLine {
 }
 
 /**
- * Starts the real worker entrypoint as a child process, with a flush interval so long that it
- * would never flush again by itself: anything flushed after SIGTERM was flushed by draining.
- * `readyMessage`: the log line after which the test may go on.
+ * The real worker as a child process, with a flush interval too long to flush again: anything
+ * flushed after SIGTERM came from draining. Waits for `readyMessage` in the log.
  */
 function startWorkerProcess(readyMessage = 'telemetry buffer empty') {
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/worker.ts'], {
@@ -45,7 +44,7 @@ function startWorkerProcess(readyMessage = 'telemetry buffer empty') {
       const entry = JSON.parse(line) as LogLine;
       logs.push(entry);
       if (entry.msg === readyMessage) {
-        resolve(); // e.g. the flush loop has checked the buffer once and is now sleeping
+        resolve(); // e.g. the flush loop checked once and is sleeping
       }
     });
   });
@@ -53,7 +52,7 @@ function startWorkerProcess(readyMessage = 'telemetry buffer empty') {
     child.once('close', resolve); // 'close', not 'exit': every log line has been read by then
   });
 
-  /** The worker's own log, for a failure message: CI shows nothing else of it. */
+  /** The worker's log, for failure messages (CI shows nothing else). */
   const log = () => `worker log:\n${lines.join('\n')}`;
 
   return { child, logs, idle, exited, log };
@@ -84,7 +83,7 @@ describe('worker process lifecycle', () => {
     child = worker.child;
     await worker.idle;
 
-    // Five events arrive while the worker sleeps: three batches of at most two.
+    // Five events while the worker sleeps: three batches of at most two.
     const events = Array.from({ length: 5 }, () => bufferedEventJson());
     await deps.redis.rpush(TELEMETRY_BUFFER_KEYS.buffer, ...events);
     worker.child.kill('SIGTERM');
@@ -118,8 +117,7 @@ describe('worker process lifecycle', () => {
     child = worker.child;
     await worker.idle;
 
-    // The consumer is now waiting in BLMOVE (up to 5 s) for the next job. Shutdown must
-    // interrupt that wait instead of sitting it out.
+    // The consumer is waiting in BLMOVE (up to 5 s); shutdown must cut that short.
     const stopAskedAt = Date.now();
     worker.child.kill('SIGTERM');
     expect(await worker.exited, worker.log()).toBe(0);

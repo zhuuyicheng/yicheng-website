@@ -9,10 +9,7 @@ import { useScrollProgress } from './use-scroll-progress';
 
 type Entry = { kind: 'work'; item: Experience } | { kind: 'study'; item: Education };
 
-/**
- * Work and education on one vertical line. The line fills with colour as you scroll through
- * it (`--progress`), and each entry slides in as it arrives.
- */
+/** Work and education on one line that fills with colour as you scroll; entries slide in. */
 export function ExperienceTimeline({ entries }: { entries: Entry[] }) {
   const ref = useRef<HTMLDivElement>(null);
   useScrollProgress(ref, 'through');

@@ -22,14 +22,12 @@ import type {
   QueuedMessage,
 } from '../schema/queue-items.schema.js';
 
-/** An unreadable entry is shown by its first characters: enough to recognise it. */
+/** How much of an unreadable entry is shown: enough to recognise it. */
 export const RAW_PREVIEW_CHARS = 300;
 
 /**
- * What waits in each Redis queue, for the owner's queue card on /admin (DESIGN.md §7.8): the
- * visits not saved yet, the contact messages you have not been told about, and why each dead
- * letter failed. Reading never takes anything out, so looking cannot change what the worker
- * does. A notification job holds ids only (§8.3), so its message is looked up in Postgres.
+ * What waits in each queue, for /admin (DESIGN.md §7.8). Reads never take anything out. Jobs
+ * hold ids only, so their messages are looked up in Postgres.
  */
 export interface QueueItemsManager {
   getItems: (queue: QueueName, limit: number, log: Logger) => Promise<QueueItems>;
@@ -41,12 +39,12 @@ export function createQueueItemsManager(deps: {
   bufferDal: Pick<EventBufferDal, 'peekBuffer' | 'peekDeadLetters'>;
   queueDal: Pick<NotificationQueueDal, 'peekReady' | 'peekDelayed' | 'peekDeadLetters'>;
   contactMessageDal: Pick<ContactMessageDal, 'findByIds'>;
-  /** Injectable for tests. */
+  /** For tests. */
   now?: () => Date;
 }): QueueItemsManager {
   const { bufferDal, queueDal, contactMessageDal, now = () => new Date() } = deps;
 
-  /** Notification items, each with its message: one Postgres query for all of them. */
+  /** Each with its message, in one Postgres query. */
   async function withMessages(entries: readonly JobEntry[]): Promise<QueueItem[]> {
     const ids = new Set(entries.flatMap(({ job }) => (job === null ? [] : [job.messageId])));
     const found = await contactMessageDal.findByIds([...ids]);
@@ -64,7 +62,7 @@ export function createQueueItemsManager(deps: {
     });
   }
 
-  // A `Record`: a queue added to the contract without a reader here fails the typecheck.
+  // A `Record`, so a queue added to the contract without a reader fails the typecheck.
   const readers: Record<QueueName, Reader> = {
     async telemetryBuffer(limit) {
       const peek = await bufferDal.peekBuffer(limit);
@@ -96,7 +94,7 @@ export function createQueueItemsManager(deps: {
   return {
     async getItems(queue, limit, log) {
       const { total, items } = await readers[queue](limit);
-      // Entries the worker did not write (a dead letter's unreadable payload is expected).
+      // Entries the worker didn't write (a dead letter's unreadable payload is expected).
       const unreadable = items.flatMap((item, index) =>
         item.raw !== null && item.deadLetter === null ? [index] : [],
       );
@@ -120,7 +118,7 @@ function deadLetteredEventItem(entry: string): QueueItem {
     return { kind: 'event', event: null, deadLetter: null, raw: clip(entry) };
   }
   const { payload, reason, errorCode, errorMessage, failedAt } = deadLettered.data;
-  const event = readEvent(payload); // `invalid_payload`: unreadable, so `raw` shows it
+  const event = readEvent(payload); // `invalid_payload`: `raw` shows it
   return {
     kind: 'event',
     event,
@@ -129,10 +127,10 @@ function deadLetteredEventItem(entry: string): QueueItem {
   };
 }
 
-/** A notification job as found in a queue, with whatever of it could be read. */
+/** A job as found in a queue, with whatever could be read. */
 interface JobEntry {
   job: NotificationJob | null;
-  /** The text holding the job: the queue entry, or a dead letter's `payload`. */
+  /** The queue entry, or a dead letter's `payload`. */
   raw: string;
   dueAtMs: number | null;
   deadLetter: DeadLetter | null;
@@ -203,6 +201,6 @@ function parseJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
-    return undefined; // fails the schema check, which reports it as unreadable
+    return undefined; // the schema check then reports it unreadable
   }
 }

@@ -12,11 +12,8 @@ import { z } from 'zod';
 import { serverApiBaseUrl } from './config';
 
 /**
- * Reads portfolio content from the API while a page renders on the Next.js server. Server
- * Components only: browsers never call these.
- *
- * Each response is checked against the shared contract (`@portfolio/shared`), so if the API
- * and the site ever disagree, the page fails loudly instead of rendering half-empty.
+ * Portfolio content from the API, for Server Components. Responses are checked against the
+ * shared contract, so a disagreement fails loudly instead of rendering half-empty.
  */
 
 export class ApiUnavailableError extends Error {
@@ -26,13 +23,9 @@ export class ApiUnavailableError extends Error {
   }
 }
 
-/**
- * `null` for 404 (e.g. an unknown project slug). Anything else that is not a valid 200 throws,
- * and the nearest error.tsx shows "This page couldn't load" with a "Try again" button.
- */
+/** `null` for 404; anything else that isn't a valid 200 throws (error.tsx then shows a retry). */
 async function getData<T extends z.ZodType>(path: string, schema: T): Promise<z.infer<T> | null> {
-  // Render at request time, not during `next build`: the content lives in the API (which
-  // keeps it in Redis), and the build must not depend on the API running.
+  // At request time, not during `next build`: the build mustn't need the API running.
   await connection();
 
   let response: Response;
@@ -50,15 +43,14 @@ async function getData<T extends z.ZodType>(path: string, schema: T): Promise<z.
   if (!response.ok) {
     throw new ApiUnavailableError(path, new Error(`HTTP ${String(response.status)}`));
   }
-  // The `{ data }` envelope first, then the payload against its contract.
+  // The envelope first, then the payload against its contract.
   const envelope = z.object({ data: z.unknown() }).parse(await response.json());
   return schema.parse(envelope.data);
 }
 
-// `cache` (React): within one page render, calling getProfile() twice (e.g. in generateMetadata
-// and in the page) makes one request, not two.
+// React's `cache`: getProfile() twice in one render (metadata and page) is one request.
 
-/** `null` until the content has been seeded (`npm run content:seed`). */
+/** `null` until content is seeded. */
 export const getProfile = cache((): Promise<Profile | null> =>
   getData('/api/v1/profile', profileSchema),
 );

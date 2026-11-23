@@ -48,7 +48,7 @@ describe('loadConfig', () => {
     });
 
     expect(config.contact).toEqual({ rateLimitMax: 5, rateLimitWindowSeconds: 60 });
-    // A short secret is guessable, and then every IP hash can be reversed.
+    // A short secret is guessable, and then every IP hash reversible.
     expect(captureConfigError({ ...REQUIRED_ENV, IP_HASH_SECRET: 'too-short' }).problems).toEqual([
       'IP_HASH_SECRET: must be at least 32 characters (try: openssl rand -hex 32)',
     ]);
@@ -71,7 +71,7 @@ describe('loadConfig', () => {
       asnDbPath: 'data/geoip/dbip-asn-lite.mmdb',
       locationDbPath: '/srv/geoip/city.mmdb',
     });
-    // A batch must fit in one INSERT; a 0 ms interval would spin the worker.
+    // A batch must fit one INSERT; a 0 ms interval would spin.
     expect(
       captureConfigError({
         ...REQUIRED_ENV,
@@ -136,7 +136,7 @@ describe('loadConfig', () => {
   });
 
   it('refuses CORS origins with a path or trailing slash, and a short metrics token', () => {
-    // A browser sends "https://example.com", which would never equal "https://example.com/".
+    // Browsers send "https://example.com", never with a trailing "/".
     const error = captureConfigError({
       ...REQUIRED_ENV,
       CORS_ORIGINS: 'https://example.com/',

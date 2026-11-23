@@ -8,18 +8,13 @@ export const LIVENESS_PATH = '/health/live';
 const ALIVE: LivenessReport = { status: 'ok' };
 
 /**
- * Operational endpoints (DESIGN.md §7.3). Both are polled by machines (Docker every 30 s, Caddy
- * every 5 s, per replica), so their routes log at `warn`: Fastify's two info lines per request
- * ("incoming request", "request completed") would bury the logs that matter. A dependency that
- * fails its check is still logged, as a warning.
+ * Health endpoints (DESIGN.md §7.3). Docker and Caddy poll them every few seconds, so they log
+ * at `warn` only; a failing dependency is still logged.
  */
 const QUIET = { logLevel: 'warn' } as const;
 
 export function registerHealthController(app: FastifyInstance, healthManager: HealthManager): void {
-  /**
-   * Readiness check for deploys, monitoring and the smoke test. Sends the report itself (no
-   * `{ data }` envelope): 200 when every dependency is up, otherwise 503.
-   */
+  /** Readiness (deploys, smoke test): the bare report; 200 if every dependency is up, else 503. */
   app.get(HEALTH_PATH, QUIET, async (request, reply) => {
     const report = await healthManager.checkHealth(request.log);
     const statusCode = report.status === 'ok' ? 200 : 503;
@@ -27,10 +22,8 @@ export function registerHealthController(app: FastifyInstance, healthManager: He
   });
 
   /**
-   * Liveness check for the load balancer (DESIGN.md §14.5): 200 whenever this process can
-   * answer. It calls no manager on purpose: Postgres or Redis being down affects every replica
-   * alike, so a check that looked at them would make Caddy drop all replicas at once and turn
-   * a degraded site into a full outage.
+   * Liveness for Caddy (DESIGN.md §14.5): 200 whenever the process answers. It checks no
+   * datastore on purpose: one down would fail every replica, and Caddy would drop them all.
    */
   app.get(LIVENESS_PATH, QUIET, () => ALIVE);
 }

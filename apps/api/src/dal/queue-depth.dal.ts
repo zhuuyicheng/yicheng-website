@@ -4,7 +4,7 @@ import { TELEMETRY_BUFFER_KEYS } from './event-buffer.dal.js';
 import { NOTIFICATION_QUEUE_KEYS } from './notification-queue.dal.js';
 import { execOrThrow } from './redis-exec.js';
 
-/** Redis DAL: how full each queue is, for the status endpoint and GET /metrics. Read-only. */
+/** How full each queue is, for the status report and /metrics. Read-only. */
 export interface QueueDepthDal {
   readDepths: () => Promise<QueueDepths>;
 }
@@ -12,7 +12,7 @@ export interface QueueDepthDal {
 export function createQueueDepthDal(redis: Redis): QueueDepthDal {
   return {
     async readDepths() {
-      // One round trip for all five counts. LLEN and ZCARD are O(1): Redis keeps the sizes.
+      // One round trip; LLEN and ZCARD are O(1).
       const results = await execOrThrow(
         redis
           .pipeline()

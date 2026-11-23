@@ -16,9 +16,8 @@ export const ADMIN_VISITORS_PATH = `${API_V1}/admin/visitors`;
 export const ADMIN_QUEUE_ITEMS_PATH = `${API_V1}/admin/queues/:queue`;
 
 /**
- * The owner's endpoints (DESIGN.md §7.7, §7.8), read by the web app's password-protected
- * /admin page. Every route needs `Authorization: Bearer <ADMIN_TOKEN>`; without the token
- * set, app.ts does not register them at all. Responses are never stored by caches.
+ * The owner's endpoints (DESIGN.md §7.7, §7.8), for /admin. They need the ADMIN_TOKEN bearer
+ * token and exist only when it's set. Never cached.
  */
 export function registerAdminController(
   app: FastifyInstance,
@@ -44,7 +43,7 @@ export function registerAdminController(
     return reply.header('cache-control', 'no-store').send(renderVisitorSummary(summary));
   });
 
-  /** What waits in one queue, `?limit=` (default 20) of them, newest first. Takes nothing out. */
+  /** What waits in one queue (`?limit=`, default 20), newest first. Takes nothing out. */
   app.get(ADMIN_QUEUE_ITEMS_PATH, ownerOnly, async (request, reply) => {
     const { queue } = parseRequest(queueItemsParamsSchema, request.params);
     const { limit } = parseRequest(queueItemsQuerySchema, request.query);

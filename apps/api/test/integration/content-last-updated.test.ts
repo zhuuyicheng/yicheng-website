@@ -4,7 +4,7 @@ import { createContentDal, type ContentDal } from '../../src/dal/content.dal.js'
 import { SAMPLE_CONTENT } from '../helpers/sample-content.js';
 import { createTestDependencies, type TestDependencies } from '../helpers/test-dependencies.js';
 
-/** Long before any test runs: a date still equal to it was not touched by the seed. */
+/** A date still equal to this wasn't touched by the seed. */
 const LONG_AGO = '2020-01-01T00:00:00.000Z';
 
 type ContentProject = PortfolioContent['projects'][number];
@@ -32,14 +32,14 @@ describe('content:seed moves the "Last updated" dates only for real changes', ()
   });
 
   beforeEach(async () => {
-    // Publish the sample, then pretend that happened long ago.
+    // Publish the sample, then pretend it was long ago.
     await deps.postgres.query('TRUNCATE profile, experiences, education, projects');
     await dal.replaceAll(SAMPLE_CONTENT);
     await deps.postgres.query('UPDATE profile SET content_updated_at = $1', [LONG_AGO]);
     await deps.postgres.query('UPDATE projects SET updated_at = $1', [LONG_AGO]);
   });
 
-  /** What the pages show: the home page's date and each project page's date. */
+  /** The home page's date and each project page's. */
   async function pageDates() {
     const [profile, noteG, bernoulli] = await Promise.all([
       dal.findProfile(),
@@ -90,7 +90,7 @@ describe('content:seed moves the "Last updated" dates only for real changes', ()
   });
 
   it('removing a project moves the home page date', async () => {
-    // note-g is last, so bernoulli-numbers keeps its position and its date.
+    // note-g is last, so bernoulli-numbers keeps its place and date.
     const withoutNoteG = { ...SAMPLE_CONTENT, projects: SAMPLE_CONTENT.projects.slice(0, 1) };
 
     expect(await dal.replaceAll(withoutNoteG)).toBe(true);

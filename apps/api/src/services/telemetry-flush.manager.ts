@@ -10,25 +10,19 @@ import {
   type DeadLetterReason,
 } from '../schema/analytics-event.schema.js';
 
-/** What one flush did. `claimed === 0` means the buffer was empty. */
+/** What one flush did; `claimed === 0` = the buffer was empty. */
 export interface FlushOutcome {
   claimed: number;
-  /** New rows in Postgres. Events already there (re-claimed after a crash) are not counted. */
+  /** New rows only; events already stored (re-claimed after a crash) don't count. */
   inserted: number;
   deadLettered: number;
 }
 
-/**
- * Moves telemetry from the Redis buffer into Postgres, one batch at a time (DESIGN.md §8.2).
- * The loop that decides *when* to flush lives in workers/telemetry-flusher.worker.ts.
- */
+/** Redis buffer → Postgres, one batch at a time (DESIGN.md §8.2); workers/ decide when. */
 export interface TelemetryFlushManager {
   /**
-   * claim a batch → validate each event → insert them all at once → acknowledge.
-   *
-   * An outage (Postgres or Redis down) throws, and the batch stays in flight: the next call
-   * retries exactly the same events. Bad data never throws: those events go to the DLQ and
-   * the rest of the batch is still inserted.
+   * Claim, validate, insert, acknowledge. An outage throws and the batch stays in flight for the
+   * next call. Bad data never throws: those events go to the DLQ, the rest are inserted.
    */
   flushOnce: (log: Logger) => Promise<FlushOutcome>;
 }
@@ -38,17 +32,17 @@ export interface TelemetryFlushManagerDependencies {
   analyticsEventDal: Pick<AnalyticsEventDal, 'insertBatch'>;
   metrics: Metrics;
   batchSize: number;
-  /** Injectable for tests. */
+  /** For tests. */
   now?: () => Date;
 }
 
-/** A buffer entry that passed validation, kept with its original text for the DLQ. */
+/** A valid entry, with its original text for the DLQ. */
 interface ValidEntry {
   entry: string;
   event: BufferedEvent;
 }
 
-/** A buffer entry the flusher gives up on, on its way to the DLQ. */
+/** An entry on its way to the DLQ. */
 interface Rejection {
   entry: string;
   reason: DeadLetterReason;
@@ -62,9 +56,8 @@ export function createTelemetryFlushManager(
   const { bufferDal, analyticsEventDal, metrics, batchSize, now = () => new Date() } = deps;
 
   /**
-   * Inserts every valid event. If Postgres rejects the batch for its data, one bad row has
-   * failed the whole statement, so the rows are retried one at a time to find it: good rows
-   * are inserted, bad ones rejected. An outage at any point throws (retry later).
+   * Inserts every valid event. If Postgres refuses the batch for its data, retries row by row to
+   * find the bad ones. An outage at any point throws.
    */
   async function insertAll(
     valid: readonly ValidEntry[],
@@ -138,8 +131,7 @@ export function createTelemetryFlushManager(
       const inserted = await insertAll(valid, rejections, log);
       await bufferDal.acknowledge(rejections.map(toDeadLetter));
 
-      // Logged and counted only now that the DLQ holds them: if this flush had thrown, the
-      // batch would be retried and the same events would be rejected (and counted) again.
+      // Logged and counted only once in the DLQ: had the flush thrown, they'd be counted twice.
       for (const { reason, errorCode, errorMessage } of rejections) {
         metrics.telemetryEventsDeadLettered.inc({ reason });
         log.warn({ reason, errorCode, error: errorMessage }, 'telemetry event dead-lettered');
@@ -147,7 +139,7 @@ export function createTelemetryFlushManager(
       metrics.telemetryEventsFlushed.inc(inserted);
 
       const outcome = { claimed: entries.length, inserted, deadLettered: rejections.length };
-      // Valid events that were neither inserted nor rejected were already in Postgres.
+      // Neither inserted nor rejected: already in Postgres.
       const alreadyStored = entries.length - inserted - rejections.length;
       log.info({ ...outcome, alreadyStored }, 'telemetry batch flushed');
       return outcome;
@@ -155,7 +147,7 @@ export function createTelemetryFlushManager(
   };
 }
 
-/** One buffer entry → a valid event, or the reason it is not one. */
+/** Entry → a valid event, or why it isn't one. */
 function parseEntry(entry: string): { event: BufferedEvent } | { problem: string } {
   let json: unknown;
   try {
@@ -172,7 +164,7 @@ function parseEntry(entry: string): { event: BufferedEvent } | { problem: string
   return { problem: problems.join('; ') };
 }
 
-/** The Postgres SQLSTATE (e.g. "23514" check violation) and message of a failed insert. */
+/** SQLSTATE (e.g. "23514") and message of a failed insert. */
 function describeError(error: unknown): { errorCode: string | null; errorMessage: string } {
   const code =
     typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'

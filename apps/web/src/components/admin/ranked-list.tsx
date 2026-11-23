@@ -3,15 +3,12 @@ import { share } from '@/lib/visitors';
 export interface RankedRow {
   key: string;
   label: string;
-  /** A second, quieter line, e.g. a country or "last seen 3 h ago". */
+  /** A quieter second line, e.g. a country or "last seen 3 h ago". */
   detail?: string;
   value: number;
 }
 
-/**
- * A top-N list: label and count on one line, a thin bar under it scaled to the largest. The
- * optional `description` says what the list measures, so the counts mean something.
- */
+/** A top-N list: label, count, and a bar scaled to the largest. */
 export function RankedList(props: {
   title: string;
   description?: string;

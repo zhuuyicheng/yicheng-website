@@ -1,7 +1,4 @@
-/**
- * `npm run db:migrate` — applies pending SQL migrations, then exits.
- * Run as a deploy step; the API never migrates on boot.
- */
+/** `npm run db:migrate`: a deploy step; the API never migrates on boot. */
 import { loadConfigOrExit } from '../config/env.js';
 import { createLogger } from '../infra/logger.js';
 import { createMetrics } from '../infra/metrics.js';

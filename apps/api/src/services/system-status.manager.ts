@@ -9,25 +9,21 @@ import type { HealthManager } from './health.manager.js';
 
 const READ_TIMEOUT_MS = 2_000;
 
-/** The Prometheus text exposition and the header that says which format it is. */
+/** The Prometheus text and its content-type header. */
 export interface MetricsText {
   contentType: string;
   body: string;
 }
 
 /**
- * What the system reports about itself, in two formats (DESIGN.md §7.7, §8.5):
- *   - `getStatus`: JSON for people, behind the owner's dashboard on /admin;
- *   - `getMetricsText`: the Prometheus format, for a monitoring server that scrapes it.
- *
- * Both read the same sources. Each source that fails is left out (`null`, or no sample) and
- * counted in `observability_read_errors_total`, so the dashboard still loads during an outage:
- * that is exactly when you look at it.
+ * The system's report on itself (DESIGN.md §7.7, §8.5): JSON for /admin, Prometheus text for
+ * a scraper. A source that fails is left out and counted, so the dashboard still works during
+ * an outage, when you need it most.
  */
 export interface SystemStatusManager {
-  /** Served from a 5 s in-process cache, so any number of viewers cost one refresh per 5 s. */
+  /** Cached for 5 s in-process: any number of viewers cost one refresh per 5 s. */
   getStatus: (log: Logger) => Promise<SystemStatus>;
-  /** Refreshes the queue gauges from Redis, then renders every metric. */
+  /** Refreshes the queue gauges, then renders every metric. */
   getMetricsText: (log: Logger) => Promise<MetricsText>;
 }
 
@@ -37,10 +33,10 @@ export interface SystemStatusManagerDependencies {
   analyticsEventDal: Pick<AnalyticsEventDal, 'countPageViews'>;
   latency: RollingLatency;
   metrics: Metrics;
-  /** Usually the hostname: the container name once deployed (DESIGN.md §14.5). */
+  /** The hostname: the container name once deployed. */
   instance: string;
   cacheTtlMs?: number;
-  /** Injectable for tests. */
+  /** For tests. */
   now?: () => number;
   uptimeSeconds?: () => number;
 }
@@ -52,10 +48,10 @@ export function createSystemStatusManager(
   const { cacheTtlMs = 5_000, now = Date.now, uptimeSeconds = () => process.uptime() } = deps;
 
   let cached: { at: number; status: SystemStatus } | null = null;
-  // Concurrent requests during a refresh share it (single-flight, as in the content cache).
+  // Concurrent requests share one refresh (single-flight).
   let refreshing: Promise<SystemStatus> | null = null;
 
-  /** Runs one read; on failure logs, counts, and returns `null` instead of failing the page. */
+  /** On failure: log, count and return `null` instead of failing the page. */
   async function orNull<T>(source: ObservabilitySource, read: () => Promise<T>, log: Logger) {
     try {
       return await withTimeout(read(), READ_TIMEOUT_MS, source);
@@ -83,7 +79,7 @@ export function createSystemStatusManager(
   }
 
   async function buildStatus(log: Logger): Promise<SystemStatus> {
-    // Independent reads, so they run at the same time: the slowest one sets the pace.
+    // Independent, so they run at once.
     const [health, queues, pageViews, cache] = await Promise.all([
       healthManager.checkHealth(log),
       orNull('queue_depths', () => queueDepthDal.readDepths(), log),
@@ -110,7 +106,7 @@ export function createSystemStatusManager(
 
   function setQueueGauges(depths: QueueDepths | null): void {
     if (depths === null) {
-      // Unknown is not zero: with no sample, Prometheus shows a gap instead of a false "empty".
+      // Unknown isn't zero: no sample shows as a gap, not a false "empty".
       metrics.queueDepth.reset();
       return;
     }

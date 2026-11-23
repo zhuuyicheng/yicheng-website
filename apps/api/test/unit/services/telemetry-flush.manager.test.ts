@@ -11,7 +11,7 @@ import { counterValue } from '../../helpers/metrics.js';
 
 const log = pino({ level: 'silent' });
 
-/** A valid buffer entry (JSON text, as the API writes it). */
+/** A valid buffer entry, as the API writes it. */
 function entry(id: string, overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     id,
@@ -32,7 +32,7 @@ const ID = {
   c: '00000000-0000-4000-8000-00000000000c',
 };
 
-/** What Postgres throws, in the shapes the classifier recognises. */
+/** A Postgres outage, in a shape the classifier recognises. */
 const OUTAGE = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), {
   code: 'ECONNREFUSED',
 });
@@ -41,11 +41,11 @@ const checkViolation = () =>
 
 interface FakeOptions {
   claim: string[];
-  /** Ids already in Postgres (a re-claimed batch after a crash). */
+  /** Ids already in Postgres (a re-claimed batch). */
   stored?: string[];
-  /** Ids whose row Postgres rejects for its data. */
+  /** Ids whose row Postgres refuses. */
   poison?: string[];
-  /** Fail every insert as if Postgres were down, starting with insert number `outageFrom`. */
+  /** Every insert from number `outageFrom` on fails as if Postgres were down. */
   outageFrom?: number;
 }
 
@@ -174,7 +174,7 @@ describe('TelemetryFlushManager.flushOnce', () => {
 
     await expect(manager.flushOnce(log)).rejects.toBe(OUTAGE);
 
-    // The retry will reject '{oops' again; counting it now as well would count it twice.
+    // The retry will reject '{oops' again; counting it now would count it twice.
     expect(await counterValue(metrics.telemetryEventsDeadLettered)).toBe(0);
   });
 
@@ -182,7 +182,7 @@ describe('TelemetryFlushManager.flushOnce', () => {
     const { manager, insertCalls, acknowledged } = setup({
       claim: [entry(ID.a), entry(ID.b)],
       poison: [ID.b],
-      outageFrom: 2, // the batch fails for its data, then the first single-row insert hits an outage
+      outageFrom: 2, // bad data, then an outage on the first single-row insert
     });
 
     await expect(manager.flushOnce(log)).rejects.toBe(OUTAGE);

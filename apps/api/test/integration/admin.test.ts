@@ -66,7 +66,7 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
       headers: OWNER,
     });
     expect(response.statusCode).toBe(200);
-    // Parsing with the shared schema checks the response against the contract the web app uses.
+    // The shared schema: the contract the web app parses.
     return visitorSummarySchema.parse(response.json<{ data: unknown }>().data);
   }
 
@@ -130,7 +130,7 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
         device: { browser: 'Safari', os: 'iOS', type: 'mobile', language: null, timezone: null },
         receivedAt: minutesAgo(10),
       }),
-      // Not counted: a crawler, the owner's own /admin page, and a visit 10 days ago.
+      // Not counted: a crawler, the owner's /admin page, and a visit 10 days ago.
       event({
         sessionId: 'crawler-visit-00003',
         device: { browser: null, os: null, type: 'bot', language: null, timezone: null },
@@ -164,7 +164,7 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
     ]);
     expect(summary.clicks).toEqual([{ name: 'click:linkedin', clicks: 1 }]);
 
-    // Newest first: the phone visit, then the tagged one with everything known about it.
+    // Newest first: the phone visit, then the tagged one.
     expect(summary.recentVisits.map((visit) => visit.deviceType)).toEqual(['mobile', 'desktop']);
     expect(summary.recentVisits[1]).toMatchObject({
       pageViews: 2,
@@ -206,7 +206,7 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
         headers: OWNER,
       });
       expect(response.statusCode).toBe(200);
-      // The shared schema: the contract the web app's queue card parses.
+      // The shared schema: the contract the web app parses.
       return queueItemsSchema.parse(response.json<{ data: unknown }>().data);
     }
 
@@ -216,7 +216,7 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
       result.items.map((item) => (item.kind === 'notification' ? item.message?.name : undefined));
 
     it('lists waiting and dead-lettered visits newest first, and takes nothing out', async () => {
-      // Written the way the API and the worker write them.
+      // Written as the API and the worker write them.
       const bufferDal = createEventBufferDal(deps.redis);
       for (const path of ['/first', '/second', '/third']) {
         expect(await bufferDal.enqueue(bufferedEventJson({ path }), 100)).toBe(true);

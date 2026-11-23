@@ -6,14 +6,12 @@ import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import type { Photo } from '@/content/photos';
 import { circularOffset, ringPlacement, wrapIndex } from '@/lib/carousel';
 
-/** A horizontal drag at least this long (px) counts as a swipe. */
+/** A horizontal drag this long (px) is a swipe. */
 const SWIPE_PX = 40;
 
 /**
- * The "Outside work" photos on a turning ring (geometry in lib/carousel.ts): the active photo
- * in front with its caption, its neighbours angled away on each side. Turn it with the arrow
- * buttons, the dots, a click on a side photo, the keyboard's ← →, or a swipe. CSS animates
- * each move; with reduced motion, photos change without the animation (globals.css).
+ * The "Outside work" photos on a turning ring (lib/carousel.ts). Turn it with the arrows, dots,
+ * a side photo, ← → or a swipe. Reduced motion skips the animation.
  */
 export function PhotoCarousel({ photos }: { photos: readonly Photo[] }) {
   const [active, setActive] = useState(0);
@@ -42,7 +40,7 @@ export function PhotoCarousel({ photos }: { photos: readonly Photo[] }) {
     if (start === null) return;
     const distance = event.clientX - start;
     if (Math.abs(distance) >= SWIPE_PX) {
-      go(active + (distance < 0 ? 1 : -1)); // swipe left = next, like turning a page
+      go(active + (distance < 0 ? 1 : -1)); // swipe left = next, like a page
     }
   };
 

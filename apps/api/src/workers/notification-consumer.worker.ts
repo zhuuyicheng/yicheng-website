@@ -8,15 +8,12 @@ import { backoffMs } from './backoff.js';
 const LOOP = 'notification-consumer';
 
 /**
- * The notification consumer: runs jobs one after another, for as long as the worker runs.
- * What one job does is the manager's job (services/notification.manager.ts). DESIGN.md §8.3.
- *
- * It never sleeps between jobs: `processNext` itself waits (up to 5 s) for the next job, so a
- * new contact message is picked up the moment it is queued.
+ * Runs notification jobs one after another (DESIGN.md §8.3). No sleep between jobs:
+ * `processNext` waits for the next one, so a new message is picked up at once.
  */
 export interface NotificationConsumer {
   start: () => void;
-  /** Lets the current job finish, then stops. Resolves once the loop has exited. */
+  /** Lets the current job finish, then stops. */
   stop: () => Promise<void>;
 }
 
@@ -25,13 +22,11 @@ export interface NotificationConsumerDependencies {
   metrics: Metrics;
   logger: Logger;
   /**
-   * Cuts short a wait for the next job, so stop() does not have to wait up to 5 s for it to
-   * time out. worker.ts closes the dedicated blocking Redis connection, which makes the
-   * pending BLMOVE fail at once. Nothing is lost: if Redis had already moved a job into
-   * `processing`, the next start puts it back.
+   * Ends a pending wait for a job so stop() is quick: worker.ts closes the blocking connection.
+   * Nothing is lost: a job already in `processing` is put back on the next start.
    */
   interruptWait: () => void;
-  /** Injectable for tests. */
+  /** For tests. */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
@@ -43,8 +38,7 @@ export function createNotificationConsumer(
 
   const wakeUp = new AbortController(); // cuts a backoff sleep short on stop
   let stopping = false;
-  // Read through a function inside the loop: TypeScript would otherwise assume `stopping`
-  // cannot change there, but stop() sets it while the loop is waiting on an `await`.
+  // A function, or TypeScript assumes `stopping` can't change across the loop's awaits.
   const isStopping = (): boolean => stopping;
   let loop: Promise<void> | null = null;
 
@@ -57,7 +51,7 @@ export function createNotificationConsumer(
         consecutiveFailures = 0;
       } catch (error) {
         if (isStopping()) {
-          break; // the wait was interrupted on purpose by stop()
+          break; // interrupted on purpose by stop()
         }
         consecutiveFailures += 1;
         const transient = isTransientDatastoreError(error);
@@ -68,7 +62,7 @@ export function createNotificationConsumer(
         const retryInMs = backoffMs(consecutiveFailures);
         const context = { err: error, consecutiveFailures, retryInMs };
         if (transient) {
-          // The job (if any) waits in `processing`; the next processNext puts it back.
+          // The job waits in `processing`; the next processNext puts it back.
           log.warn(context, 'notification consumer: datastore unavailable, will retry');
         } else {
           log.error(context, 'notification consumer failed unexpectedly, will retry');

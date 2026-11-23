@@ -48,7 +48,7 @@ import { createTelemetryManager } from './services/telemetry.manager.js';
 import { createVisitorDetailsManager } from './services/visitor-details.manager.js';
 import { createVisitorInsightsManager } from './services/visitor-insights.manager.js';
 
-/** Infrastructure created by the composition root (main.ts, or a test) and shared by modules. */
+/** Infra clients built by main.ts (or a test), shared by every module. */
 export interface AppDependencies {
   config: AppConfig;
   logger: Logger;
@@ -61,10 +61,7 @@ export interface AppDependencies {
 
 const BODY_LIMIT_BYTES = 16 * 1024;
 
-/**
- * Builds a fully wired Fastify instance without listening on a port. That lets tests call
- * `app.inject()` against the exact same app that production runs.
- */
+/** The fully wired app, not listening: tests `inject()` into exactly what production runs. */
 export function buildApp(dependencies: AppDependencies): FastifyInstance {
   const { config, logger, metrics, postgres, redis, ipDatabases } = dependencies;
 
@@ -73,9 +70,8 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     genReqId: resolveRequestId,
     logController: new LogController({ requestIdLogLabel: 'requestId' }),
     bodyLimit: BODY_LIMIT_BYTES,
-    // Behind a proxy (Caddy), every request comes from the proxy's IP. Trusting it makes
-    // `request.ip` the visitor's IP from X-Forwarded-For. Never enable without a proxy:
-    // anyone could then fake their IP with that header.
+    // Behind Caddy, `request.ip` comes from X-Forwarded-For. Never without a proxy: anyone
+    // could fake their IP with that header.
     trustProxy: config.server.trustProxy,
   });
 
@@ -91,8 +87,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   registerHttpMetrics(app, {
     metrics,
     latency,
-    // Monitoring, the load balancer's checks and the owner's pages: none of them is visitor
-    // traffic, so none of them skews p95.
+    // Not visitor traffic, so kept out of p95.
     latencyIgnoredRoutes: [
       HEALTH_PATH,
       LIVENESS_PATH,
@@ -103,8 +98,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     ],
   });
 
-  // Wiring, one module at a time:
-  // DAL (data access) → manager (business rules) → controller (endpoints).
+  // Wiring: DAL (data access) → manager (business rules) → controller (endpoints).
 
   const healthManager = createHealthManager([
     { name: 'postgres', ping: () => pingPostgres(postgres) },

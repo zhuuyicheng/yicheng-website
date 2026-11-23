@@ -8,10 +8,7 @@ import { ScrollFade } from './scroll-fade';
 import { SectionLink } from './section-link';
 import { TrackedLink } from './tracked-link';
 
-/**
- * First screen: name, headline and the ways in (projects, contact, profile links), beside a
- * collage of photos. The content fades as you scroll on.
- */
+/** First screen: name, headline, the ways in, and the photo collage. Fades as you scroll. */
 export function Hero({ profile }: { profile: Profile }) {
   return (
     <section className="relative isolate overflow-hidden">

@@ -105,7 +105,7 @@ describe('formatting', () => {
 });
 
 describe('combining the API replicas', () => {
-  /** api-1's status above, or another replica's with some numbers changed. */
+  /** api-1's status, or another replica's with some numbers changed. */
   function statusOf(
     instance: string,
     numbers: {
@@ -132,7 +132,7 @@ describe('combining the API replicas', () => {
       cache: {
         hits: numbers.hits ?? STATUS.cache.hits,
         misses: numbers.misses ?? STATUS.cache.misses,
-        hitRatio: null, // recomputed from the counts, never read
+        hitRatio: null, // recomputed from the counts
       },
     };
   }
@@ -153,7 +153,7 @@ describe('combining the API replicas', () => {
       silent: [],
       uptimeSeconds: STATUS.uptimeSeconds,
       requestCount: 1,
-      p50: 4, // api-2 answered nothing: its unknown latency is left out
+      p50: 4, // api-2 answered nothing: no latency to count
       p95: 20,
       cacheHits: 12,
       cacheMisses: 4,
@@ -163,9 +163,8 @@ describe('combining the API replicas', () => {
   });
 
   it('totals one poll, so a replica reached less often never drops out of the count', () => {
-    // Regression: each poll reached one replica, and the page added it to the other's last
-    // answer, forgetting that one after 30 s without a turn. 9 requests (4 + 5), then 6 more
-    // (3 each) showed as 12, then 7 (api-2 forgotten), then 15. Each poll now has both.
+    // Regression: each poll reached one replica, added to the other's last answer, which was
+    // forgotten after 30 s: 9 then 6 more showed as 12, 7, 15. Each poll now has both.
     const total = (first: number, second: number) =>
       combineReplicas(
         poll(statusOf('api-1', { requests: first }), statusOf('api-2', { requests: second })),
@@ -246,7 +245,7 @@ describe('chart helpers', () => {
         scale,
       ),
     ).toBe('M0.0,25.0 M20.0,25.0');
-    // 60 ms apart is a gap (the tab was hidden): two separate pieces.
+    // 60 ms apart is a gap (hidden tab): two pieces.
     expect(
       timeLinePath(
         [
@@ -260,8 +259,7 @@ describe('chart helpers', () => {
   });
 
   it('puts the hover marker at the line’s height: zero on the axis, the ceiling at the top', () => {
-    // Regression: the marker was placed in a box that also held the time labels, so a zero sat
-    // below the axis. Both now use this fraction of the plot's height (live-chart.tsx).
+    // Regression: the marker's box also held the time labels, so a zero sat below the axis.
     expect(valueDepth(0, 1)).toBe(1);
     expect(valueDepth(1, 1)).toBe(0);
     expect(valueDepth(5, 20)).toBe(0.75);

@@ -1,6 +1,6 @@
 import type { PortfolioContent } from '../../src/schema/content.schema.js';
 
-/** Small, fixed portfolio used by unit and integration tests (independent of portfolio.json). */
+/** A small fixed portfolio for tests (independent of portfolio.json). */
 export const SAMPLE_CONTENT: PortfolioContent = {
   profile: {
     fullName: 'Ada Lovelace',

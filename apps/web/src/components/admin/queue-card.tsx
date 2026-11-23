@@ -6,19 +6,16 @@ type QueueDepths = NonNullable<SystemStatus['queues']>;
 
 interface QueueInfo {
   name: string;
-  /** The Redis key, to find the same list in the Redis extension or `redis-cli`. */
+  /** To find the same list in the Redis extension or `redis-cli`. */
   key: string;
   description: string;
-  /** Dead letters failed for good: anything above 0 needs the owner (DESIGN.md §8.2, §8.3). */
+  /** Failed for good: anything above 0 needs the owner (DESIGN.md §8.2, §8.3). */
   deadLetter: boolean;
-  /** For dead letters: which retry command brings them back once the cause is fixed. */
+  /** The retry command for dead letters, once the cause is fixed. */
   replay?: 'telemetry' | 'notifications';
 }
 
-/**
- * What each queue holds, in the order the work flows. A `Record` over the contract's fields,
- * so a queue added to the status report without an explanation here fails the typecheck.
- */
+/** In the order work flows. A `Record`, so a queue without an explanation fails the typecheck. */
 const QUEUES: Record<QueueName, QueueInfo> = {
   telemetryBuffer: {
     name: 'Analytics waiting to be saved',
@@ -59,11 +56,7 @@ const QUEUES: Record<QueueName, QueueInfo> = {
   },
 };
 
-/**
- * The Redis queues between the API and the worker, each with what it holds and what a normal
- * number looks like, and "Show items" to see what is in it. `null` queues: Redis did not
- * answer, so the depths are unknown.
- */
+/** The Redis queues: what each holds, what's normal, "Show items". `null`: Redis didn't answer. */
 export function QueueCard({ queues }: { queues: QueueDepths | null }) {
   return (
     <section className="rounded-xl border border-line bg-surface p-4 sm:p-5">

@@ -8,10 +8,7 @@ import {
   timeAgo,
 } from '@/lib/visitors';
 
-/**
- * The newest visits, one row each: when, how they arrived, from where (place, network and IP
- * address), on what, and what they read.
- */
+/** The newest visits, one row each: when, how they came, from where, on what, what they read. */
 export function RecentVisits({ visits, now }: { visits: readonly Visit[]; now: number }) {
   if (visits.length === 0) {
     return <p className="text-sm text-muted">No visits in this period yet.</p>;

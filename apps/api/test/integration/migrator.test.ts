@@ -7,10 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationError, runMigrations } from '../../src/db/migrator.js';
 import { integrationTestEnv } from './test-env.js';
 
-/**
- * Each test gets its own Postgres schema (via search_path) and its own migrations
- * directory, so it never touches the real schema_migrations table.
- */
+/** Each test gets its own schema and migrations folder, never the real schema_migrations. */
 describe('runMigrations', () => {
   const logger = pino({ level: 'silent' });
   let adminPool: pg.Pool;

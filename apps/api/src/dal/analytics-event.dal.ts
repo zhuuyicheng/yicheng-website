@@ -2,15 +2,11 @@ import type { AnalyticsEventRow } from '../dao/analytics-event.dao.js';
 import type { PostgresPool } from '../infra/postgres.js';
 import type { BufferedEvent } from '../schema/analytics-event.schema.js';
 
-/**
- * Postgres DAL for `analytics_events` (DESIGN.md §5.3). The worker's flusher writes through
- * it; the system status endpoint reads a count.
- */
+/** `analytics_events` (DESIGN.md §5.3): the flusher writes, the status report counts. */
 export interface AnalyticsEventDal {
   /**
-   * Inserts the events with ONE statement and returns how many rows were new. Ids already in
-   * the table are skipped (`ON CONFLICT (id) DO NOTHING`), so inserting a batch twice (after a
-   * crash) is harmless. All or nothing: one bad row makes the whole statement fail.
+   * One statement for the batch; returns how many rows were new. Known ids are skipped, so a
+   * batch inserted twice (after a crash) is harmless. One bad row fails the whole statement.
    */
   insertBatch: (events: readonly BufferedEvent[]) => Promise<number>;
   /** Page views received in the last `hours` hours. */
@@ -20,10 +16,7 @@ export interface AnalyticsEventDal {
 /** `inserted_at` is left to its DEFAULT now(). */
 type NewEventRow = Omit<AnalyticsEventRow, 'inserted_at'>;
 
-/**
- * Each column's Postgres type. Typed as a `Record` over the row's keys, so the compiler refuses
- * to build until every column of the DAO is listed here.
- */
+/** A `Record` over the row's keys, so the compiler insists on every column. */
 const COLUMN_TYPES: Record<keyof NewEventRow, string> = {
   id: 'uuid',
   event_type: 'text',
@@ -51,13 +44,8 @@ const COLUMN_TYPES: Record<keyof NewEventRow, string> = {
 const COLUMNS = Object.keys(COLUMN_TYPES) as (keyof NewEventRow)[];
 
 /**
- * One parameter per COLUMN (an array of that column's values, one per event), not one per
- * value. `unnest` turns the arrays back into rows, so a batch of 1 or 1000 events is one
- * statement with 21 parameters. The generated SQL reads:
- *
- *   INSERT INTO analytics_events (id, event_type, event_name, ...)
- *   SELECT * FROM unnest($1::uuid[], $2::text[], $3::text[], ...)
- *   ON CONFLICT (id) DO NOTHING
+ * One array parameter per column, turned back into rows by `unnest`: any batch size is one
+ * statement with 21 parameters.
  */
 const INSERT_EVENTS = `
   INSERT INTO analytics_events (${COLUMNS.join(', ')})
@@ -74,8 +62,7 @@ export function createAnalyticsEventDal(pool: PostgresPool): AnalyticsEventDal {
     },
 
     async countPageViews(hours) {
-      // The BRIN index on received_at makes "the last 24 hours" a cheap scan. count(*) is a
-      // bigint, which pg returns as a string; ::int makes it a JS number.
+      // Cheap thanks to the BRIN index on received_at. ::int, since pg returns bigint as a string.
       const result = await pool.query<{ count: number }>(
         `SELECT count(*)::int AS count FROM analytics_events
           WHERE event_type = 'page_view' AND received_at > now() - make_interval(hours => $1)`,
@@ -86,7 +73,7 @@ export function createAnalyticsEventDal(pool: PostgresPool): AnalyticsEventDal {
   };
 }
 
-/** Schema (camelCase, nested) → row (snake_case, flat): the reverse of a read mapper. */
+/** Schema (camelCase, nested) → row (snake_case, flat). */
 function toRow(event: BufferedEvent): NewEventRow {
   return {
     id: event.id,

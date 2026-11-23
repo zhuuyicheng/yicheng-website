@@ -8,10 +8,7 @@ import {
 } from '../../src/infra/redis.js';
 import { createTestDependencies, type TestDependencies } from '../helpers/test-dependencies.js';
 
-/**
- * Closing the worker's blocking connection (src/worker.ts). The consumer cuts it on stop with
- * `disconnect()`, then a later shutdown step closes it, possibly before the socket has closed.
- */
+/** The worker's blocking connection: cut by the consumer on stop, closed later, maybe mid-close. */
 describe('closing a Redis connection that was just cut', () => {
   let deps: TestDependencies;
 
@@ -30,7 +27,7 @@ describe('closing a Redis connection that was just cut', () => {
       deps.metrics,
     );
     await connectRedis(redis);
-    redis.disconnect(); // what the consumer's interruptWait does
+    redis.disconnect(); // what interruptWait does
     return redis;
   }
 
@@ -42,8 +39,8 @@ describe('closing a Redis connection that was just cut', () => {
   });
 
   it('closes cleanly with closeInterruptedRedis, even when called twice', async () => {
-    // Regression: the worker closed this connection with closeRedis and, when its stop signal
-    // came before the consumer was waiting in BLMOVE, exited with code 1 (CI, 2026-11-22).
+    // Regression: closing it with closeRedis made the worker exit 1 when stopped before BLMOVE
+    // was waiting (CI, 2026-11-22).
     const redis = await cutConnection();
 
     await expect(closeInterruptedRedis(redis)).resolves.toBeUndefined();

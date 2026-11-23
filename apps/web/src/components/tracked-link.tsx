@@ -2,17 +2,14 @@ import type { AnchorHTMLAttributes, ReactNode } from 'react';
 
 interface TrackedLinkProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> {
   href: string;
-  /** Interaction name sent to the API on click, e.g. `click:linkedin-link` (DESIGN.md §7.5). */
+  /** Sent to the API on click, e.g. `click:linkedin-link` (DESIGN.md §7.5). */
   track: string;
   children: ReactNode;
 }
 
 /**
- * A link to another site, opened in a new tab, whose clicks are counted. Works in Server
- * Components: the click itself is caught by the page-view beacon's single listener.
- *
- * `rel="noopener noreferrer"`: the other site gets no handle on this tab (`window.opener`),
- * and no Referer header.
+ * An external link (new tab) whose clicks are counted by the beacon's one listener, so it works
+ * in Server Components. `noopener noreferrer`: no `window.opener`, no Referer.
  */
 export function TrackedLink({ href, track, children, ...rest }: TrackedLinkProps) {
   return (

@@ -1,8 +1,6 @@
 import { z } from 'zod';
 
-/**
- * POST /api/v1/events (DESIGN.md §7.5): what the web app's page-view beacon sends.
- */
+/** POST /api/v1/events (DESIGN.md §7.5): what the page-view beacon sends. */
 
 export const EVENT_TYPES = ['page_view', 'interaction'] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -15,7 +13,7 @@ function emptyStringToNull(value: unknown): unknown {
 /** IANA time zone names: "UTC", "Asia/Singapore", "America/Argentina/Buenos_Aires", "Etc/GMT+8". */
 const TIME_ZONE = /^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+){0,2}$/;
 
-/** Limits the API enforces; the beacon trims to them rather than having an event refused. */
+/** The beacon trims to these rather than have an event refused. */
 export const EVENT_LIMITS = { path: 512, referrer: 1024 } as const;
 
 /** Interaction names: lowercase, e.g. `click:linkedin-link`. */
@@ -24,7 +22,7 @@ export const INTERACTION_NAME = /^[a-z0-9:_-]{1,64}$/;
 export const eventRequestSchema = z
   .object({
     type: z.enum(EVENT_TYPES),
-    /** May include a query string; tagged-link parameters (?ref=, utm_*) are kept from it. */
+    /** May include a query string: tagged-link parameters (?ref=, utm_*) are read from it. */
     path: z.string().max(EVENT_LIMITS.path).startsWith('/', 'must start with "/"'),
     referrer: z
       .preprocess(
@@ -52,8 +50,7 @@ export const eventRequestSchema = z
       .optional(),
   })
   .superRefine((event, context) => {
-    // Mirrors the SQL CHECK `analytics_events_name_iff_interaction`, so a bad event is
-    // rejected with a 400 here instead of failing later in the worker.
+    // Mirrors the SQL CHECK, so a bad event is a 400 here instead of a failure in the worker.
     const hasName = event.name !== null && event.name !== undefined;
     if (event.type === 'interaction' && !hasName) {
       context.addIssue({ code: 'custom', path: ['name'], message: 'is required for interactions' });

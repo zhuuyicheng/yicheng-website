@@ -7,7 +7,7 @@ import { integrationTestEnv } from './test-env.js';
 
 const API_ROOT = path.resolve(import.meta.dirname, '../..');
 
-/** Runs the real `content:seed` CLI (with the real content/portfolio.json) against the test DBs. */
+/** The real `content:seed` CLI, real portfolio.json, test databases. */
 function runSeedCli(): Promise<number | null> {
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/cli/seed-content.ts'], {
     cwd: API_ROOT,
@@ -49,7 +49,7 @@ describe('content:seed CLI', () => {
     expect(await deps.redis.exists(CONTENT_CACHE_KEYS.profile)).toBe(1);
   });
 
-  // Every deploy runs the seed: with an unchanged file, the site's dates must stay put.
+  // Every deploy seeds: an unchanged file must move no date.
   it('moves no "Last updated" date when portfolio.json has not changed', async () => {
     const readDates = async () => {
       const profile = await deps.postgres.query('SELECT content_updated_at FROM profile');

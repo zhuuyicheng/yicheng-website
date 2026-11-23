@@ -2,18 +2,11 @@ import { EVENT_TYPES } from '@portfolio/shared';
 import { z } from 'zod';
 
 /**
- * Telemetry events. See DESIGN.md §7.5 and §8.2.
- *
- * Shapes, in the order an event meets them:
- *   1. `EventRequest`: what a browser sends to POST /api/v1/events (in `@portfolio/shared`).
- *   2. `VisitorDetails`: what the API learns about the visitor (link, browser, IP address).
- *   3. `BufferedEvent`: what the API stores in the Redis buffer. The worker's flusher reads it
- *      back and validates it with the same schema before inserting it into Postgres.
- *   4. `DeadLetteredEvent`: an event the flusher could never insert, kept in the DLQ.
+ * Telemetry events (DESIGN.md §7.5, §8.2), in the order an event meets them: the request
+ * (shared), visitor details, the buffered event (Redis), and the dead letter.
  */
 
-// The request body and the response are the public contract (the web app's beacon builds
-// them), so they live in `@portfolio/shared`.
+// The request and response are the public contract (the beacon builds them).
 export {
   EVENT_TYPES,
   eventRequestSchema,
@@ -22,9 +15,7 @@ export {
   type EventType,
 } from '@portfolio/shared';
 
-// ---------------------------------------------------------------------------------------------
-// 2. Visitor details (services/visitor-details.manager.ts). Every field is null when unknown.
-// ---------------------------------------------------------------------------------------------
+// Visitor details (services/visitor-details.manager.ts); null when unknown.
 
 /** From the link the visitor followed, e.g. `/?ref=acme&utm_source=linkedin`. */
 export const campaignSchema = z.object({
@@ -34,7 +25,7 @@ export const campaignSchema = z.object({
   utmCampaign: z.string().nullable(),
 });
 
-/** From the browser: its user agent, Accept-Language header and time zone. */
+/** From the user agent, Accept-Language and time zone. */
 export const deviceSchema = z.object({
   browser: z.string().nullable(), // "Chrome"
   os: z.string().nullable(), // "macOS"
@@ -43,11 +34,11 @@ export const deviceSchema = z.object({
   timezone: z.string().nullable(), // "Asia/Singapore"
 });
 
-/** From the IP address, looked up in local GeoIP database files (dal/ip-location.dal.ts). */
+/** From the IP address, via the local GeoIP files. */
 export const networkSchema = z.object({
   countryCode: z.string().nullable(), // "SG"
   city: z.string().nullable(), // "Singapore"
-  organization: z.string().nullable(), // "Google LLC": who owns the network
+  organization: z.string().nullable(), // "Google LLC": owner of the network
 });
 
 export type Campaign = z.infer<typeof campaignSchema>;
@@ -79,53 +70,43 @@ export const unknownNetwork = (): Network => ({
   organization: null,
 });
 
-// ---------------------------------------------------------------------------------------------
-// 3. Buffered event (Redis JSON)
-// ---------------------------------------------------------------------------------------------
+// Buffered event (Redis JSON)
 
 export const bufferedEventSchema = z.object({
   id: z.uuid(),
   type: z.enum(EVENT_TYPES),
   name: z.string().nullable(),
-  /** Query string and fragment already stripped. */
+  /** Without query string or fragment. */
   path: z.string(),
-  /** Host only, e.g. `news.ycombinator.com`. Browsers rarely send more (DESIGN.md §8.2). */
+  /** Host only, e.g. `news.ycombinator.com` (browsers rarely send more). */
   referrerHost: z.string().nullable(),
   sessionId: z.string(),
-  /** sha256(daily salt + IP + user agent), hex: counts unique visitors per day. */
+  /** sha256(daily salt + IP + user agent): unique visitors per day. */
   visitorHash: z.string(),
-  /** Server time (ISO 8601). Client clocks are not trusted. */
+  /** Server time (ISO 8601); client clocks aren't trusted. */
   receivedAt: z.iso.datetime(),
-  // Added with migration 0004. Events buffered by the previous version do not have these
-  // groups; the defaults let the flusher still insert them, with NULL details. Queued data
-  // can outlive the code that wrote it, so a new field must be optional when read back.
+  // Migration 0004. Queued data can outlive the code that wrote it, so new fields default when
+  // read back (older events get NULL details).
   campaign: campaignSchema.default(unknownCampaign),
   device: deviceSchema.default(unknownDevice),
   network: networkSchema.default(unknownNetwork),
-  // Added with migration 0007: the visitor's IP address (owner's choice, DESIGN.md §12), or
-  // null when it is not a valid address. Older buffered events have none.
+  // Migration 0007: the visitor's IP (DESIGN.md §12), null if invalid or from older events.
   ipAddress: z.string().nullable().default(null),
 });
 
 export type BufferedEvent = z.infer<typeof bufferedEventSchema>;
 
-// ---------------------------------------------------------------------------------------------
-// 4. Dead-lettered event (Redis JSON, telemetry:events:dlq)
-// ---------------------------------------------------------------------------------------------
+// Dead-lettered event (Redis JSON, telemetry:events:dlq)
 
-/**
- * Why the flusher gave up on an event:
- *   - `invalid_payload`: the buffer entry is not valid JSON or not a valid BufferedEvent;
- *   - `insert_failed`: Postgres rejected the row for its data (e.g. a CHECK constraint).
- */
+/** `invalid_payload`: unreadable entry. `insert_failed`: Postgres refused the data. */
 export const DEAD_LETTER_REASONS = ['invalid_payload', 'insert_failed'] as const;
 export type DeadLetterReason = (typeof DEAD_LETTER_REASONS)[number];
 
 export const deadLetteredEventSchema = z.object({
-  /** The original buffer entry, unchanged, so `npm run dlq:replay` can put it back. */
+  /** The buffer entry, unchanged, so `dlq:replay` can put it back. */
   payload: z.string(),
   reason: z.enum(DEAD_LETTER_REASONS),
-  /** Postgres SQLSTATE for `insert_failed` (e.g. "23514"), otherwise null. */
+  /** SQLSTATE for `insert_failed` (e.g. "23514"), else null. */
   errorCode: z.string().nullable(),
   errorMessage: z.string(),
   failedAt: z.iso.datetime(),

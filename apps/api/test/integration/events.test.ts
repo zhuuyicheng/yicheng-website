@@ -73,8 +73,8 @@ describe('POST /api/v1/events with live Redis', () => {
   });
 
   it('creates the daily salt once, with a 48 h TTL, and hashes a visitor consistently', async () => {
-    // A fresh app: the shared one already holds today's salt in memory from earlier tests
-    // (by design it asks Redis once per day), so it would not recreate the flushed key.
+    // A fresh app: the shared one holds today's salt in memory (it asks Redis once a day), so it
+    // wouldn't recreate the flushed key.
     const freshApp = buildApp(deps);
 
     try {
@@ -161,10 +161,10 @@ describe('POST /api/v1/events with live Redis', () => {
     });
 
     try {
-      // Without a trusted proxy, a client cannot pretend to be someone else.
+      // Without a trusted proxy, a client can't pretend to be someone else.
       await postEvent(app, { 'x-forwarded-for': '198.51.100.1' });
       await postEvent(app, { 'x-forwarded-for': '198.51.100.2' });
-      // Behind a trusted proxy, the header identifies the real visitor.
+      // Behind a trusted proxy, the header names the real visitor.
       await postEvent(behindProxy, { 'x-forwarded-for': '198.51.100.1' });
       await postEvent(behindProxy, { 'x-forwarded-for': '198.51.100.2' });
 
@@ -219,7 +219,7 @@ describe('POST /api/v1/events with live Redis', () => {
   });
 
   it('keeps working after Redis forgets the Lua script (EVALSHA → NOSCRIPT → EVAL)', async () => {
-    // SCRIPT FLUSH clears cached scripts only, not data; it is what a Redis restart does.
+    // Clears cached scripts only, like a Redis restart.
     await deps.redis.script('FLUSH');
 
     expect((await postEvent(app)).statusCode).toBe(202);

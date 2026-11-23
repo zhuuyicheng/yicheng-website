@@ -1,12 +1,8 @@
 import type { ClientContext, Result } from 'ioredis';
 
 /**
- * "Move every retry whose wait is over from `delayed` to `ready`", as ONE atomic step.
- * See DESIGN.md §6.6. The worker's promoter runs it every second.
- *
- * `delayed` is a sorted set scored by the time (ms) a job may run again, so the due jobs are
- * simply the lowest scores up to now. Why a script: as separate commands, a crash between the
- * ZREM and the LPUSH would lose the job.
+ * Moves due retries from `delayed` (scored by run time) to `ready` in one atomic step, so a
+ * crash between ZREM and LPUSH can't lose a job (DESIGN.md §6.6). Runs every second.
  */
 export const PROMOTE_DUE_JOBS_SCRIPT = {
   name: 'notificationsPromoteDue',
@@ -23,7 +19,7 @@ return #due
 `,
 } as const;
 
-// Tells TypeScript about the command that `defineCommand` adds to the client at runtime.
+// Declares the command `defineCommand` adds at runtime.
 declare module 'ioredis' {
   interface RedisCommander<Context extends ClientContext = { type: 'default' }> {
     /** How many jobs moved to the ready list. */

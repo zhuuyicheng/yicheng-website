@@ -1,10 +1,7 @@
 import type { SystemStatus } from '@portfolio/shared';
 import { formatRatio } from '@/lib/status';
 
-/**
- * What the cache hit ratio measures and how to read it (DESIGN.md §8.1): the content
- * cache-aside in Redis, counted by each API replica since it started, added up by the dashboard.
- */
+/** What the cache hit ratio means (DESIGN.md §8.1): Redis content reads, all replicas added up. */
 export function CacheCard({ cache }: { cache: SystemStatus['cache'] }) {
   return (
     <section className="rounded-xl border border-line bg-surface p-4 sm:p-5">

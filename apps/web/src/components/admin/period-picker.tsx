@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { PERIODS } from '@/lib/visitors';
 
-/** Today / 7 / 30 / 90 days, as links (`?days=`), so a period can be bookmarked or reloaded. */
+/** Today / 7 / 30 / 90 days, as `?days=` links, so a period can be bookmarked. */
 export function PeriodPicker({ days }: { days: number }) {
   return (
     <nav aria-label="Period" className="flex flex-wrap gap-2">
@@ -11,7 +11,7 @@ export function PeriodPicker({ days }: { days: number }) {
           <Link
             key={period.days}
             href={`/admin?days=${String(period.days)}`}
-            // The default: /admin's title is fixed, so prefetching it asks the API nothing.
+            // /admin's title is fixed, so prefetching it asks the API nothing.
             prefetch="auto"
             aria-current={active ? 'page' : undefined}
             className={`rounded-full border px-3.5 py-1.5 text-xs transition ${

@@ -1,10 +1,7 @@
--- Phase 3: telemetry. Read-only queries about who visits the site and what they look at.
--- Open this file in VS Code, choose the "portfolio (dev)" connection, put the cursor on one
--- statement and run it. Guide: docs/DATA-TOOLS.md §7
--- The same information, summarised, is on the owner page: http://localhost:3000/admin
--- (password: ADMIN_TOKEN). These queries are for digging deeper.
+-- Telemetry, read-only. In VS Code: pick the "portfolio (dev)" connection, put the cursor on a
+-- statement and run it (docs/DATA-TOOLS.md §7). /admin shows a summary; these dig deeper.
 
--- The latest events, newest first, with everything we know about each visitor.
+-- The latest events, newest first, with everything known about each visitor.
 SELECT received_at, event_type, event_name, path, ref, utm_source, referrer_host,
        ip_address, organization, city, country_code, browser, os, device_type, language, timezone
   FROM analytics_events
@@ -19,23 +16,20 @@ SELECT path, count(*) AS views, count(DISTINCT visitor_hash) AS visitors
  GROUP BY path
  ORDER BY views DESC;
 
--- Unique visitors per day. The visitor hash changes every UTC day, so a visitor counts once
--- per day, but the same person on two days cannot be linked.
+-- Unique visitors per day. The hash changes every UTC day, so days can't be linked.
 SELECT received_at::date AS day, count(DISTINCT visitor_hash) AS visitors, count(*) AS events
   FROM analytics_events
  GROUP BY day
  ORDER BY day DESC;
 
--- Which organisations' networks visitors came from (companies with their own network show up
--- by name; people at home show up as their internet provider).
+-- Organisations whose networks visitors came from (companies by name, home users as their ISP).
 SELECT organization, country_code, count(DISTINCT session_id) AS sessions, max(received_at) AS last_seen
   FROM analytics_events
  WHERE organization IS NOT NULL
  GROUP BY organization, country_code
  ORDER BY last_seen DESC;
 
--- Tagged links: who opened a link like https://<site>/?ref=acme. The ref is only on the first
--- page of a visit, so this follows the session to show every page they viewed afterwards.
+-- Tagged links (/?ref=acme): the ref is on a visit's first page, so follow the session.
 WITH tagged_sessions AS (
   SELECT DISTINCT session_id, ref
     FROM analytics_events
@@ -67,15 +61,15 @@ SELECT event_name, count(*) AS clicks, count(DISTINCT visitor_hash) AS visitors
  GROUP BY event_name
  ORDER BY clicks DESC;
 
--- Pipeline health: how long events waited in Redis before the worker inserted them.
+-- Pipeline health: how long events waited in Redis before being inserted.
 SELECT count(*) AS events,
        round(avg(extract(epoch FROM inserted_at - received_at))::numeric, 2) AS avg_wait_seconds,
        round(max(extract(epoch FROM inserted_at - received_at))::numeric, 2) AS max_wait_seconds
   FROM analytics_events
  WHERE received_at > now() - interval '1 day';
 
--- Visits per IP address (since migration 0007), newest first. One address can be several
--- people (an office, a mobile network) and one person can have several addresses.
+-- Visits per IP address (since migration 0007), newest first. One address can be many
+-- people, and one person many addresses.
 SELECT host(ip_address) AS ip, organization, city, country_code,
        count(DISTINCT session_id) AS visits, max(received_at) AS last_seen
   FROM analytics_events

@@ -1,24 +1,14 @@
 import { z } from 'zod';
 
 /**
- * Notification jobs. See DESIGN.md §6.6 and §8.3.
- *
- * Shapes:
- *   1. `NotificationJob`: "tell the site owner about contact message `messageId`", queued in
- *      Redis (`jobs:notifications:*`) as JSON. The message itself stays in Postgres, so a job
- *      carries ids only, never the visitor's name, email or text.
- *   2. `DeadLetteredJob`: a job the worker gave up on, kept in `jobs:notifications:dlq`.
- *
- * The worker validates each job it takes: queued data can be older than the code reading it,
- * or simply corrupt.
+ * Notification jobs (DESIGN.md §6.6, §8.3). A job holds ids only; the message stays in
+ * Postgres. The worker validates each job: queued data can be old or corrupt.
  */
 
-// ---------------------------------------------------------------------------------------------
-// 1. Job
-// ---------------------------------------------------------------------------------------------
+// Job
 
 export const notificationJobSchema = z.object({
-  /** Identifies the job in logs. A retry keeps it; a re-queue by the reconciler gets a new one. */
+  /** For logs. A retry keeps it; a reconciler re-queue gets a new one. */
   jobId: z.uuid(),
   messageId: z.uuid(),
   /** 1 for the first try; a retry is the same job with `attempt + 1`. */
@@ -29,21 +19,17 @@ export const notificationJobSchema = z.object({
 
 export type NotificationJob = z.infer<typeof notificationJobSchema>;
 
-// ---------------------------------------------------------------------------------------------
-// 2. Dead letter
-// ---------------------------------------------------------------------------------------------
+// Dead letter
 
 /**
- * Why a job was dead-lettered:
- *   - `invalid_payload`: the queue entry is not a valid job (corrupt, or from incompatible code);
- *   - `rejected`: the notifier refused it in a way retrying cannot fix (e.g. HTTP 404);
- *   - `attempts_exhausted`: it failed NOTIFY_MAX_ATTEMPTS times in a row.
+ * `invalid_payload`: not a valid job. `rejected`: the notifier refused it for good (e.g. 404).
+ * `attempts_exhausted`: failed NOTIFY_MAX_ATTEMPTS times.
  */
 export const DEAD_LETTER_REASONS = ['invalid_payload', 'rejected', 'attempts_exhausted'] as const;
 export type JobDeadLetterReason = (typeof DEAD_LETTER_REASONS)[number];
 
 export const deadLetteredJobSchema = z.object({
-  /** The queue entry exactly as it was taken, so nothing is lost even if it is not valid JSON. */
+  /** The entry exactly as taken, so nothing is lost even if it isn't valid JSON. */
   payload: z.string(),
   reason: z.enum(DEAD_LETTER_REASONS),
   error: z.string(),

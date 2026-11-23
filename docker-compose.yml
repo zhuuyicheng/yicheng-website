@@ -1,5 +1,5 @@
-# Local development and integration-test datastores.
-# Ports bind to 127.0.0.1 only, because Redis has no password in local dev.
+# Datastores for local development and integration tests.
+# Ports bind to 127.0.0.1 only: Redis has no password here.
 name: portfolio
 
 services:
@@ -23,9 +23,8 @@ services:
 
   redis:
     image: redis:7-alpine
-    # AOF persistence: the event buffer and job queues are data, not cache.
-    # volatile-lru: under memory pressure, evict only keys that have a TTL (cache,
-    # rate-limit windows) and never queue data. See DESIGN.md §6.3.
+    # AOF: the event buffer and job queues are data, not cache. volatile-lru: under memory
+    # pressure, evict only keys with a TTL, never queued work (DESIGN.md §6.3).
     command:
       - redis-server
       - --appendonly

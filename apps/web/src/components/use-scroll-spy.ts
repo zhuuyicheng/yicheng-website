@@ -4,11 +4,8 @@ import { useEffect, useState } from 'react';
 import { activeSection, updateVisible } from '@/lib/scroll-spy';
 
 /**
- * The id of the section being read (inside the band `rootMargin` leaves across the screen),
- * or `null` when none is, e.g. at the top of the page. See lib/scroll-spy.ts.
- *
- * `ids` must keep its identity between renders (a module constant or a useMemo result), or the
- * observer is rebuilt on every render.
+ * The id of the section in the `rootMargin` band, or `null` (lib/scroll-spy.ts). Keep `ids`
+ * stable between renders, or the observer is rebuilt each time.
  */
 export function useScrollSpy(
   ids: readonly string[],

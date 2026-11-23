@@ -1,9 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Portfolio content as the API returns it (DESIGN.md §7.4): GET /api/v1/profile,
- * /api/v1/projects and /api/v1/projects/:slug. The API also validates entries read back from
- * its Redis cache with these, and the web app validates what it receives.
+ * Portfolio content as the API returns it (DESIGN.md §7.4). Also checks Redis cache entries
+ * (API) and responses (web app).
  */
 
 /** Lowercase words joined by single hyphens, e.g. `telemetry-platform` (mirrors the SQL CHECK). */
@@ -40,11 +39,7 @@ export const profileSchema = z.object({
   links: z.array(linkSchema),
   experiences: z.array(experienceSchema),
   education: z.array(educationSchema),
-  /**
-   * When any published content last changed (this profile, an experience, an education entry
-   * or a project, including removing one), e.g. `2026-11-21T09:30:00.000Z`. The home page's
-   * "Last updated" date. A seed that changes nothing leaves it alone.
-   */
+  /** When any published content last changed: the home page's "Last updated" date. */
   contentUpdatedAt: z.iso.datetime(),
 });
 
@@ -71,7 +66,7 @@ export const projectSectionSchema = z.object({
 export const projectSchema = projectSummarySchema.extend({
   description: z.string(),
   sections: z.array(projectSectionSchema),
-  /** When this project last changed (a new position in the list counts): its page's date. */
+  /** When this project last changed (moving it in the list counts): its page's date. */
   updatedAt: z.iso.datetime(),
 });
 
