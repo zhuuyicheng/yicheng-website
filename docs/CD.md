@@ -72,6 +72,7 @@ nano ~/portfolio/deploy/.env
 | `SITE_HOST`                                                           | `<name>.duckdns.org`                           |
 | `POSTGRES_PASSWORD`, `IP_HASH_SECRET`, `METRICS_TOKEN`, `ADMIN_TOKEN` | a new `openssl rand -hex 32` each              |
 | `NOTIFIER_DRIVER`, `DISCORD_WEBHOOK_URL`                              | `discord` and your webhook, or `log` and empty |
+| `GRAFANA_ADMIN_PASSWORD` (Phase 7)                                    | `openssl rand -hex 24`: Grafana's login        |
 
 - Leave `API_IMAGE` and `WEB_IMAGE` alone: the deploy writes them.
 - Copy the whole file into your password manager. `ADMIN_TOKEN` is your `/admin` password.
@@ -148,8 +149,10 @@ rolling back to ghcr.io/<owner>/portfolio-api:<previous sha>, …
 
 - **Not undone: migrations.** They only add things, so the old code works on the new schema
   (DESIGN.md §14.4). That rule is what makes rollback safe.
-- **Not undone: the deploy files** (compose file, Caddyfile). If they caused it, go back by hand.
-- **Failures before the rollout** (pull, settings, Caddyfile, migration) change nothing: the
+- **Not undone: the deploy files** (compose file, Caddyfile, the monitoring's files). If they
+  caused it, go back by hand.
+- **Failures before the rollout** (settings, pull, Caddyfile, monitoring files, migration)
+  change nothing: the
   current release keeps running.
 
 **By hand**: **Actions** → **Deploy** → **Run workflow** → branch `main` + the full commit SHA
@@ -189,8 +192,9 @@ The `deploy` job → step **Deploy (migrate, seed, rolling update, smoke test; �
 
 ```
 ▶ deploying 3f2a9c…
+▶ checking the settings (before anything changes)
 ▶ pulling the images
-▶ checking the settings and the Caddyfile (before anything changes)
+▶ checking the Caddyfile and the monitoring files (before anything changes)
 ▶ migrating the database
 ▶ publishing the content
 ▶ worker: the old one stops before the new one starts (one worker at a time)
@@ -200,6 +204,10 @@ api-1 is healthy; waiting 6 s for Caddy's next health check to see it
 ▶ web (its pages are unavailable for a few seconds)
 ▶ smoke test
 api-1: GET /health → 200 … GET https://<name>.duckdns.org/ → 200
+▶ monitoring: apply its files, check it answers
+Prometheus and Alertmanager reloaded their files
+prometheus: healthy … grafana: healthy
+GET https://<name>.duckdns.org/grafana/api/health → 200
 ▶ deployed 3f2a9c… in 36 s
 ```
 
@@ -217,24 +225,26 @@ grep _IMAGE ~/portfolio/deploy/.env    # the release the server considers curren
 
 ## 7. Troubleshooting
 
-| Symptom                                                                             | Fix                                                                                            |
-| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Stays at **Waiting**                                                                | Approve it (§3)                                                                                |
-| `The production environment is missing: …`                                          | Add the named secret or variables (§2.3)                                                       |
-| `Not a full commit SHA`                                                             | Use all 40 characters (`git log --format=%H`)                                                  |
-| `Host key verification failed`                                                      | Set `SSH_KNOWN_HOSTS` again (wrong, or the server was rebuilt)                                 |
-| `SSH_PRIVATE_KEY is not a usable private key` (or `Load key …: error in libcrypto`) | The secret was pasted incompletely: set it from the file (§2.3 step 3), **Re-run failed jobs** |
-| `Permission denied (publickey)`                                                     | The key isn't on the server: §2.1, then its test line                                          |
-| `Missing …/deploy/.env`                                                             | §2.2                                                                                           |
-| `Invalid environment configuration`                                                 | A value in `deploy/.env` is missing or invalid; the message names it. Fix, **Re-run jobs**     |
-| `required variable X is missing a value`                                            | The release needs a new setting: add `X` to `deploy/.env` and your password manager            |
-| `could not log in to the registry`                                                  | Re-run the job; if it persists, see the next row                                               |
-| `denied` / `unauthorized` while pulling                                             | Package → Package settings → Manage Actions access → add this repository (Read)                |
-| `Another deploy is running`                                                         | A deploy started by hand on the server; wait                                                   |
-| `ROLLED BACK`                                                                       | The release is broken: the log above says which step                                           |
-| `ROLLBACK FAILED`                                                                   | Both releases fail: `$C ps`, `$C logs` (§6); likely the database or disk                       |
-| "Check from the internet" fails                                                     | The server works but isn't reachable: DNS or Oracle's firewall ([HOSTING.md](HOSTING.md))      |
-| The site shows "Back soon"                                                          | It is paused: `ssh portfolio 'rm ~/portfolio/deploy/caddy/paused'` (§5)                        |
+| Symptom                                                                             | Fix                                                                                                                   |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Stays at **Waiting**                                                                | Approve it (§3)                                                                                                       |
+| `The production environment is missing: …`                                          | Add the named secret or variables (§2.3)                                                                              |
+| `Not a full commit SHA`                                                             | Use all 40 characters (`git log --format=%H`)                                                                         |
+| `Host key verification failed`                                                      | Set `SSH_KNOWN_HOSTS` again (wrong, or the server was rebuilt)                                                        |
+| `SSH_PRIVATE_KEY is not a usable private key` (or `Load key …: error in libcrypto`) | The secret was pasted incompletely: set it from the file (§2.3 step 3), **Re-run failed jobs**                        |
+| `Permission denied (publickey)`                                                     | The key isn't on the server: §2.1, then its test line                                                                 |
+| `Missing …/deploy/.env`                                                             | §2.2                                                                                                                  |
+| `Invalid environment configuration`                                                 | A value in `deploy/.env` is missing or invalid; the message names it. Fix, **Re-run jobs**                            |
+| `required variable X is missing a value`                                            | The release needs a new setting: add `X` to `deploy/.env` and your password manager                                   |
+| `could not log in to the registry`                                                  | Re-run the job; if it persists, see the next row                                                                      |
+| `denied` / `unauthorized` while pulling                                             | Package → Package settings → Manage Actions access → add this repository (Read)                                       |
+| `Another deploy is running`                                                         | A deploy started by hand on the server; wait                                                                          |
+| `ROLLED BACK`                                                                       | The release is broken: the log above says which step                                                                  |
+| `deploy/prometheus/ is invalid` (or `alertmanager/`)                                | The line above names the mistake; `npm run monitoring:check` finds it on your computer                                |
+| `WARNING: …` under `monitoring:`                                                    | The release is live; only the monitoring needs a look ([MONITORING.md §6](MONITORING.md#6-when-something-goes-wrong)) |
+| `ROLLBACK FAILED`                                                                   | Both releases fail: `$C ps`, `$C logs` (§6); likely the database or disk                                              |
+| "Check from the internet" fails                                                     | The server works but isn't reachable: DNS or Oracle's firewall ([HOSTING.md](HOSTING.md))                             |
+| The site shows "Back soon"                                                          | It is paused: `ssh portfolio 'rm ~/portfolio/deploy/caddy/paused'` (§5)                                               |
 
 **A new deploy key**: make one (§2.1), set the secret again (§2.3 step 3), then delete the old
 `github-actions-deploy` line from the server's `~/.ssh/authorized_keys` (`ssh-keygen -l -f`

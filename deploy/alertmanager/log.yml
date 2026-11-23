@@ -1,0 +1,11 @@
+# Alertmanager with NOTIFIER_DRIVER=log, as on your computers' stacks (DESIGN.md §15.3): nothing
+# is sent, as for contact notifications. Alertmanager still holds the alerts; list them with
+# (C as in docs/PRODUCTION-STACK.md §7):
+#   $C exec alertmanager amtool alert query --alertmanager.url=http://localhost:9093
+
+route:
+  receiver: nowhere
+
+receivers:
+  # No integration, so a notification goes nowhere.
+  - name: nowhere

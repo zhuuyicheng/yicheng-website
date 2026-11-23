@@ -1,0 +1,13 @@
+# Loads the dashboards in deploy/grafana/dashboards/ (DESIGN.md §15.4). They can't be saved
+# from the UI: change one there, export its JSON (Share → Export) over the file in Git, deploy.
+apiVersion: 1
+
+providers:
+  - name: portfolio
+    type: file
+    allowUiUpdates: false
+    disableDeletion: true
+    # Picks up a changed file without a restart.
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards

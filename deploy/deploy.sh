@@ -3,12 +3,14 @@
 # commit SHA on the server). Run by the deploy workflow over SSH, by hand to go back to an
 # earlier release, or on your laptop against the local production stack.
 #
-#   1. pull the images this machine lacks, check the Caddyfile
+#   1. check the settings, pull the images this machine lacks (the release's, and the pinned
+#      ones: Postgres, Redis, Caddy, the monitoring), check the Caddyfile and the monitoring files
 #   2. migrate with the new image (backward compatible, DESIGN.md §14.4), publish its content
 #   3. roll out worker → api-1 → api-2 → web, each healthy before the next
 #   4. smoke test each replica, the worker, and the API and home page through Caddy
 #   5. if 3 or 4 fails: roll back the same way (no migrate: migrations only go forward), exit 1
-#   6. on success: delete older downloaded images (this release and the previous stay)
+#   6. on success: the monitoring reloads its files and is checked (a problem there is reported,
+#      never a reason to roll back), then older downloaded images are deleted
 #
 #   bash ~/portfolio/deploy/deploy.sh <full commit SHA>    on the server
 #   npm run stack:deploy -- dev                           laptop: locally built images
@@ -103,6 +105,24 @@ pull_images() {
       docker pull --quiet "$image" >/dev/null
     done
   )
+}
+
+# Every other image is pinned to a version in compose.prod.yml: pulled now when missing (the
+# first deploy, or a new version), so the rollout below never waits on a download.
+pull_pinned_images() {
+  local image images
+  mapfile -t images < <(compose config --images | sort -u)
+  for image in "${images[@]}"; do
+    case "$image" in
+      "$IMAGE_PREFIX"-api:* | "$IMAGE_PREFIX"-web:* | portfolio-api:* | portfolio-web:*) continue ;;
+    esac
+    docker image inspect "$image" >/dev/null 2>&1 && continue
+    log "pulling $image"
+    docker pull --quiet "$image" >/dev/null || {
+      log "FAILED: could not pull $image. Nothing was changed."
+      exit 1
+    }
+  done
 }
 
 # Writes API_IMAGE and WEB_IMAGE into deploy/.env (keeping the rest), so later commands start
@@ -246,6 +266,64 @@ smoke_test() {
   done
 }
 
+# Waits up to WAIT_TIMEOUT for a monitoring service to be healthy (node-exporter, with no check:
+# running), and says so either way. Never fails: the site is already serving.
+report_health() {
+  local service="$1" container state started=$SECONDS
+  container="$(compose ps --quiet "$service")"
+  if [ -z "$container" ]; then
+    log "WARNING: $service is not running: see docker compose ps --all"
+    return 0
+  fi
+  while state="$(container_state "$container")"; do
+    case "$state" in
+      running/healthy/*)
+        log "$service: healthy"
+        return 0
+        ;;
+      running/none/*)
+        log "$service: running (it has no health check)"
+        return 0
+        ;;
+      running/starting/*) ;;
+      *)
+        log "WARNING: $service is $state (status/health/restarts): see docker compose logs $service"
+        return 0
+        ;;
+    esac
+    if [ $((SECONDS - started)) -ge "$WAIT_TIMEOUT" ]; then
+      log "WARNING: $service is still $state after $WAIT_TIMEOUT s: see docker compose logs $service"
+      return 0
+    fi
+    sleep 2
+  done
+  log "WARNING: could not read $service's state: see docker compose ps"
+}
+
+# The monitoring (DESIGN.md §15) never decides whether a release stays: its problems are
+# reported in this log, and its own alerts take over from here.
+check_monitoring() {
+  step "monitoring: apply its files, check it answers"
+  # Mounted folders, so a reload sees the files this deploy copied (checked earlier). A container
+  # created by this deploy has read them already; the signal does no harm.
+  if compose kill -s HUP prometheus alertmanager >/dev/null 2>&1; then
+    log "Prometheus and Alertmanager reloaded their files"
+  else
+    log "WARNING: could not ask Prometheus and Alertmanager to reload: see docker compose ps"
+  fi
+  local service
+  for service in prometheus alertmanager node-exporter grafana; do
+    report_health "$service"
+  done
+  if curl --silent --fail --output /dev/null --max-time 10 --retry 6 --retry-delay 5 \
+    --retry-all-errors "${INSECURE[@]}" --resolve "$SITE_HOST:443:127.0.0.1" \
+    "https://$SITE_HOST/grafana/api/health"; then
+    log "GET https://$SITE_HOST/grafana/api/health → 200"
+  else
+    log "WARNING: Grafana does not answer through Caddy: see docker compose logs grafana caddy"
+  fi
+}
+
 # Registry images only (they can be pulled again). Keeps this release and the previous one, so
 # the disk doesn't fill up. Not "newest N": cached builds can carry older creation times.
 remove_old_images() {
@@ -269,18 +347,35 @@ log "new release:      $new_api, $new_web"
 log "current release:  ${previous_api:-none (first deploy)}${previous_web:+, $previous_web}"
 [ ! -e "$PAUSE_FLAG" ] || log "the site is paused: visitors keep getting the back-soon page"
 
-step "pulling the images"
-pull_images "$new_api" "$new_web"
-
-step "checking the settings and the Caddyfile (before anything changes)"
+step "checking the settings (before anything changes)"
 # A release needing a new deploy/.env value stops here, naming it (`${VAR:?…}`).
 compose config --quiet || {
   log "FAILED: compose.prod.yml or deploy/.env has a problem (above). Nothing was changed."
   exit 1
 }
+log "complete"
+
+step "pulling the images"
+pull_images "$new_api" "$new_web"
+pull_pinned_images
+
+step "checking the Caddyfile and the monitoring files (before anything changes)"
 if ! output="$(compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile 2>&1)"; then
   printf '%s\n' "$output"
   log "FAILED: deploy/caddy/Caddyfile is invalid. Nothing was changed."
+  exit 1
+fi
+# With each image's own checker, as `npm run monitoring:check` does in CI (DESIGN.md §15).
+if ! output="$(compose run --rm --no-deps -T --entrypoint promtool prometheus \
+  check config /etc/prometheus/prometheus.yml 2>&1)"; then
+  printf '%s\n' "$output"
+  log "FAILED: deploy/prometheus/ is invalid. Nothing was changed."
+  exit 1
+fi
+if ! output="$(compose run --rm --no-deps -T --entrypoint amtool alertmanager \
+  check-config /etc/alertmanager/discord.yml /etc/alertmanager/log.yml 2>&1)"; then
+  printf '%s\n' "$output"
+  log "FAILED: deploy/alertmanager/ is invalid. Nothing was changed."
   exit 1
 fi
 log "valid"
@@ -294,6 +389,7 @@ API_IMAGE="$new_api" compose run --rm seed
 
 record_release "$new_api" "$new_web"
 if roll_out "$new_api" "$new_web" && smoke_test; then
+  check_monitoring
   remove_old_images
   step "deployed $tag in ${SECONDS} s"
   exit 0

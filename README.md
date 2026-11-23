@@ -11,19 +11,20 @@ from "I want to…" to the command and the guide.
 page (architecture, code flows with diagrams, using and editing the site, reading the data,
 interview notes).
 
-| Guide                                                                   | For                                   |
-| ----------------------------------------------------------------------- | ------------------------------------- |
-| [Start here](docs/START-HERE.md)                                        | "How do I…?": every task, where to go |
-| [DESIGN.md](DESIGN.md)                                                  | The full specification                |
-| [ROADMAP.md](ROADMAP.md)                                                | Progress, phase by phase              |
-| [Guided tour](docs/GUIDED-TOUR.md)                                      | Hands-on: try every feature locally   |
-| [Editing the site](docs/EDITING-THE-SITE.md)                            | Text, page wording, photos            |
-| [Content & cache](docs/CONTENT-AND-CACHE.md)                            | The content API and its Redis cache   |
-| [Data tools](docs/DATA-TOOLS.md)                                        | Postgres and Redis in VS Code         |
-| [Testing](docs/TESTING.md) · [CI](docs/CI.md)                           | Tests and GitHub Actions              |
-| [Docker](docs/DOCKER.md) · [Production stack](docs/PRODUCTION-STACK.md) | Images; the real stack on your laptop |
-| [Hosting](docs/HOSTING.md) · [Releasing](docs/CD.md)                    | The server; deploying, pausing        |
-| [Backups](docs/BACKUPS.md)                                              | Weekly backups and restoring          |
+| Guide                                                                   | For                                    |
+| ----------------------------------------------------------------------- | -------------------------------------- |
+| [Start here](docs/START-HERE.md)                                        | "How do I…?": every task, where to go  |
+| [DESIGN.md](DESIGN.md)                                                  | The full specification                 |
+| [ROADMAP.md](ROADMAP.md)                                                | Progress, phase by phase               |
+| [Guided tour](docs/GUIDED-TOUR.md)                                      | Hands-on: try every feature locally    |
+| [Editing the site](docs/EDITING-THE-SITE.md)                            | Text, page wording, photos             |
+| [Content & cache](docs/CONTENT-AND-CACHE.md)                            | The content API and its Redis cache    |
+| [Data tools](docs/DATA-TOOLS.md)                                        | Postgres and Redis in VS Code          |
+| [Testing](docs/TESTING.md) · [CI](docs/CI.md)                           | Tests and GitHub Actions               |
+| [Docker](docs/DOCKER.md) · [Production stack](docs/PRODUCTION-STACK.md) | Images; the real stack on your laptop  |
+| [Hosting](docs/HOSTING.md) · [Releasing](docs/CD.md)                    | The server; deploying, pausing         |
+| [Backups](docs/BACKUPS.md)                                              | Weekly backups and restoring           |
+| [Monitoring](docs/MONITORING.md)                                        | Grafana, alerts on Discord, Prometheus |
 
 ## Quick start
 
@@ -33,7 +34,7 @@ Requires Node 24 (via [nvm](https://github.com/nvm-sh/nvm)) and Docker.
 nvm use                  # Node 24 from .nvmrc
 npm install
 cp .env.example .env
-npm run infra:up         # Postgres 16 + Redis 7 in Docker
+npm run infra:up         # Postgres 16, Redis 7 and Prometheus in Docker
 npm run db:migrate       # create the tables
 npm run content:seed     # load apps/api/content/portfolio.json
 npm run geoip:download   # free IP → organisation/location files (~65 MB)

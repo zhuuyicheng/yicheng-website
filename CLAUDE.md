@@ -5,14 +5,15 @@ section before changing behaviour, and update it in the same change when a desig
 
 ## Environment
 
-- Node **24 LTS** (`nvm use` reads `.nvmrc`), npm workspaces, Docker for Postgres 16 + Redis 7.
+- Node **24 LTS** (`nvm use` reads `.nvmrc`), npm workspaces, Docker for Postgres 16 + Redis 7
+  (+ Prometheus for `/admin`).
 - First run: `cp .env.example .env && npm install && npm run infra:up && npm run db:migrate && npm run content:seed && npm run geoip:download`
 
 ## Commands (run from repo root)
 
 | Task                                                 | Command                                                          |
 | ---------------------------------------------------- | ---------------------------------------------------------------- |
-| Start Postgres + Redis (waits for healthchecks)      | `npm run infra:up` / `npm run infra:down`                        |
+| Start Postgres + Redis + Prometheus (waits for them) | `npm run infra:up` / `npm run infra:down`                        |
 | Dev servers                                          | `npm run dev:api` (port 4000), `npm run dev:web` (port 3000)     |
 | Rebuild `packages/shared` (or watch: `dev:shared`)   | `npm run build:shared` (dev/test/typecheck scripts run it first) |
 | Worker (telemetry flusher, contact notifications)    | `npm run dev:worker`                                             |
@@ -24,6 +25,7 @@ section before changing behaviour, and update it in the same change when a desig
 | Production stack on the laptop (PRODUCTION-STACK.md) | `npm run stack:up` / `stack:down` / `stack:failover`             |
 | Deploy a release to the stack, as CD does (CD.md)    | `npm run stack:deploy -- dev` (server: `deploy.sh <sha>`)        |
 | Back up / restore the stack's database (BACKUPS.md)  | `npm run stack:backup` / `npm run stack:restore -- <file.dump>`  |
+| Check monitoring config + alert tests (needs Docker) | `npm run monitoring:check`                                       |
 | Lint / fix                                           | `npm run lint` / `npm run lint:fix`                              |
 | Typecheck                                            | `npm run typecheck`                                              |
 | Format                                               | `npm run format` / `npm run format:check`                        |
@@ -117,6 +119,8 @@ a command, a routine or a guide section it points to changes.
 6. `feat/continuous-delivery`: Docker images, GHCR, deploy workflow with approval gate, rollback,
    pause switch (done: live since 2026-11-20; weekly backups on since 2026-11-22, copied home
    by hand; Oracle's memory metric is watched, ROADMAP.md)
+7. `feat/prometheus-monitoring`: the worker's `/metrics`, Prometheus (30 days), Alertmanager →
+   Discord, Grafana at `/grafana`, `/admin` reads Prometheus (in progress, DESIGN.md §15)
 
 One phase per branch → pull request → CI green → merge. Stop for review between phases.
 Each phase adds a "what to watch" section to `docs/DATA-TOOLS.md` (Postgres/Redis VS Code views).

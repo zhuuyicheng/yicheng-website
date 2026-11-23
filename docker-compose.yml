@@ -1,4 +1,4 @@
-# Datastores for local development and integration tests.
+# Datastores for local development and integration tests, and Prometheus for /admin.
 # Ports bind to 127.0.0.1 only: Redis has no password here.
 name: portfolio
 
@@ -44,6 +44,31 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Reads the API and worker running on this computer (DESIGN.md §15.1), so /admin's tiles and
+  # charts work in development. Its own pages: http://localhost:9090
+  prometheus:
+    image: prom/prometheus:v3.13.5
+    command:
+      - --config.file=/etc/prometheus/prometheus.dev.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - '127.0.0.1:${PROMETHEUS_PORT:-9090}:9090'
+    # Docker Desktop knows this name; Docker Engine on Linux needs it spelled out.
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./deploy/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: [CMD, promtool, check, ready, --url=http://127.0.0.1:9090]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   redis-data:
+  prometheus-data:

@@ -491,21 +491,25 @@ Open http://localhost:3000/admin (API, worker and web running) next to the termi
 browser asks for a login: any username, and `ADMIN_TOKEN` from your `.env` as the password.
 The system dashboard is at the bottom of the page, under the visitor summary.
 
-1. **It polls.** The Network tab shows `GET /admin/system-status` every 5 s: a route on the
-   web server, which asks the API with the token (the browser never sees it). "updated N s
-   ago" counts up between polls. The charts cover the last 30 minutes, with a time label
-   every 5 minutes; hover (or touch) a chart for the exact value at that moment. In the
-   Response tab, `replicas` lists each API replica's own report (one locally).
+1. **It polls.** The Network tab shows `GET /admin/system-status` every 15 s: a route on the
+   web server, which asks the API with the token (the browser never sees it) and Prometheus
+   (`npm run infra:up` starts it). "updated N s ago" counts up between polls. The charts cover
+   the last 30 minutes, with a time label every 5 minutes, and are full at once: Prometheus
+   kept the history. Hover (or touch) a chart for the exact value at that moment. In the
+   Response tab, `status` comes from the API, `metrics` from Prometheus; a `…Problem` says why
+   one is missing.
 2. **Make traffic.** Reload the home page a few times in another tab: "requests · 5 min" and
    the requests chart rise, the cache hit ratio climbs (the first load was a miss), and
    "page views · 24 h" goes up once the worker has flushed your page views.
 3. **It saves work when nobody looks.** Switch to another tab for a minute: the polls stop.
-   Come back: one poll at once, then every 5 s again.
-4. **An outage.** `docker compose stop redis`: within 5 s the banner turns amber
+   Come back: one poll at once, then every 15 s again.
+4. **An outage.** `docker compose stop redis`: within 15 s the banner turns amber
    ("! Degraded: redis is down"), Redis shows "✕ down", and the queues read "unknown". The
    page itself keeps working: that is when you need it most. Start Redis again.
-   Then stop `dev:api`: the banner turns red ("Lost contact… from N s ago") and the last
-   numbers stay on screen. Start it again and the page recovers by itself.
+   Then stop `dev:api`: the banner turns red ("the API is not answering (unreachable)"), and
+   within a scrape the line at the bottom marks `api ✕`; Prometheus's numbers still show.
+   Start it again and the page recovers by itself. `docker compose stop prometheus` does the
+   opposite: the API's half stays, the tiles read "—", the banner says why.
 5. **A dead letter.** `RPUSH telemetry:events:dlq '{"x":1}'` in the Redis CLI panel: the
    telemetry dead-letter row says "needs attention". Press **Show items** under it: the
    entry is listed as one that cannot be read, with its text (`{"x":1}`). Delete the key
@@ -536,11 +540,12 @@ What to watch:
    reads (`GET cache:v3:profile`…) arrive from two different client addresses: api-1 and
    api-2 share one cache, so a hit on one is a hit on both (DESIGN.md §14.5).
 2. **Both replicas, every poll.** On https://localhost/admin, the line at the bottom of the
-   system status names `api-1, api-2`: each poll asks both directly (not through Caddy's round
-   robin) and the page adds up their requests and cache counts (DESIGN.md §8.6).
-3. **A replica stops.** `$C stop api-1`, keep reloading the site: nothing fails, and within 5 s
-   the banner turns amber ("api-1 is not answering (left out of the numbers)") and the bottom
-   line names only `api-2`. `$C up -d --wait api-1` brings it back.
+   system status lists every process Prometheus reads (`api-1 ●, api-2 ●, node-exporter ●,
+worker ●`): Prometheus reads each replica directly, not through Caddy's round robin, and
+   adds their requests up (DESIGN.md §15.5).
+3. **A replica stops.** `$C stop api-1`, keep reloading the site: nothing fails, and within a
+   scrape (15 s) the banner turns amber ("api-1 is not answering") and the bottom line marks
+   `api-1 ✕`. `$C up -d --wait api-1` brings it back.
 4. **Caddy's view.** `$C exec caddy wget -qO- http://127.0.0.1:2019/reverse_proxy/upstreams`
    lists each replica with the requests it is handling right now.
 
@@ -561,11 +566,42 @@ Try it on the laptop with `docker tag portfolio-api:dev portfolio-api:v2` (and t
    then deploy: at "publishing the content" the `cache:*` keys are deleted and written again
    (the seed's log line counts them: `cacheKeysCleared`). Afterwards
    `$C exec redis redis-cli --scan --pattern 'cache:*'` lists them again.
-4. **No API request is lost.** Keep https://localhost/admin open during a deploy: "answered
-   by" shows `api-2` while api-1 is replaced, then `api-1` while api-2 is. Only the `web` step
-   interrupts it, for under a second, and the dashboard keeps its last numbers meanwhile.
-   The worker's queue (`LLEN telemetry:events:buffer`) may grow while the worker is
-   replaced, then drains.
+4. **No API request is lost.** Keep https://localhost/admin open during a deploy: the status
+   keeps coming through whichever replica runs, and since Phase 7 the requests chart has no dip,
+   because Prometheus adds both replicas up. A replica being replaced may show `✕` on the
+   bottom line for one reading. Only the `web` step interrupts the page, for under a second,
+   and the dashboard keeps its last numbers meanwhile. The worker's queue
+   (`LLEN telemetry:events:buffer`) may grow while the worker is replaced, then drains.
+
+### 7.8 Phase 7: the monitoring
+
+Prometheus keeps the numbers the processes count (§7.3), so here you watch them over time. In
+development, `npm run infra:up` starts it at http://localhost:9090 (no login); the laptop's
+stack adds Grafana and Alertmanager ([MONITORING.md](MONITORING.md)).
+
+1. **What Prometheus reads.** With `dev:api` and `dev:worker` running, open
+   http://localhost:9090 → **Status** → **Target health**: `api` and `worker`, each `UP`, last
+   read a few seconds ago. Stop `dev:worker`: within 15 s it turns `DOWN`. The worker's own
+   page, new in Phase 7: `curl -s localhost:4001/metrics | grep flushed`.
+2. **A counter becomes a rate.** In the **Query** tab, graph
+   `sum(rate(http_requests_total{job="api"}[1m]))` and reload the home page a few times in
+   another tab: the line rises, then falls back. The counter only ever grows; `rate()` turns it
+   into "per second", and survives a restart (the counter starting again from 0).
+3. **Rules waiting their turn.** The **Alerts** tab lists every rule. Stop `dev:worker` and
+   watch `TargetDown`: `PENDING` at once, `FIRING` after 2 minutes. Nothing is sent: there is no
+   Alertmanager in development.
+4. **The stack, through Grafana.** `npm run stack:up`, then https://localhost/grafana (user
+   `admin`, `GRAFANA_ADMIN_PASSWORD` from `deploy/.env`). Visit the site in another tab: in
+   "Visits received and saved per minute" both lines rise, "saved" a few seconds later. Then
+   `$C stop worker`: "received" keeps rising, "saved" stays flat, and the "Queues" panel shows
+   `telemetry_buffer` growing. `$C start worker`: it drains within seconds.
+5. **An alert that stays home.** Still on the stack, `$C stop api-1`; after about 2 minutes,
+   `$C exec alertmanager amtool alert query --alertmanager.url=http://localhost:9093` lists
+   `TargetDown`, and your Discord stays quiet (`NOTIFIER_DRIVER=log`). `$C start api-1`: gone
+   within seconds.
+6. **The backup's heartbeat.** `BACKUP_DIR=/tmp/drill-backups npm run stack:backup` (a scratch
+   folder, so your real backups are untouched), then the "Last backup" panel reads seconds
+   instead of "—".
 
 ## 8. Troubleshooting
 

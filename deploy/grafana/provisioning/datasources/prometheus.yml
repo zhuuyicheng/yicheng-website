@@ -1,0 +1,16 @@
+# Grafana's only data source (DESIGN.md §15.4): Prometheus, on the Compose network. Grafana
+# cannot read Postgres, so visitors' details stay in /admin. Applied at every start.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Prometheus's scrape interval, so $__rate_interval spans enough samples.
+      timeInterval: 15s
+      httpMethod: POST

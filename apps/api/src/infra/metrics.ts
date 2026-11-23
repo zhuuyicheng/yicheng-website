@@ -155,8 +155,9 @@ export function createMetrics(options: MetricsOptions = {}): Metrics {
       name: 'http_request_duration_seconds',
       help: 'HTTP request duration, by method, route template and status code.',
       labelNames: ['method', 'route', 'status_code'],
-      // From "served from memory" (5 ms) to "something's wrong" (5 s).
-      buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+      // From "served from memory" (1 ms) to "something's wrong" (5 s). Prometheus estimates a
+      // percentile inside its bucket, so fast sites need small ones (DESIGN.md §15.2).
+      buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
       registers: [registry],
     }),
     httpRequests: new Counter({

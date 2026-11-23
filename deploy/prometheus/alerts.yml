@@ -1,0 +1,89 @@
+# Alert rules (DESIGN.md §15.3). Prometheus checks them every 15 s; Alertmanager turns the firing
+# ones into Discord messages. Each waits (`for`) longer than a deploy's restart, so a release
+# alerts nobody. Unit tests: alerts.test.yml (npm run monitoring:check).
+#
+# "Visitor" requests leave out the monitors (§15.2):
+#   {job="api", route!~"/health|/health/live|/metrics|/api/v1/admin/.*"}
+# The descriptions' commands are for the server, where C="docker compose -f
+# $HOME/portfolio/deploy/compose.prod.yml" (docs/PRODUCTION-STACK.md §7). Alertmanager shows one
+# description per message, under one summary line per instance, so descriptions name none.
+
+groups:
+  - name: portfolio
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        annotations:
+          summary: '{{ $labels.instance }} has not answered Prometheus for 2 minutes.'
+          description: 'Stopped, restarting, or refusing the metrics token: $C ps shows which, $C logs <name> says why.'
+
+      - alert: ApiErrors
+        expr: |
+          sum(rate(http_requests_total{job="api", route!~"/health|/health/live|/metrics|/api/v1/admin/.*", status_code=~"5.."}[5m]))
+            / sum(rate(http_requests_total{job="api", route!~"/health|/health/live|/metrics|/api/v1/admin/.*"}[5m]))
+            > 0.05
+        for: 10m
+        annotations:
+          summary: '{{ $value | humanizePercentage }} of visitor requests failed (5xx) over the last 5 minutes.'
+          description: "Each one is in the API's log with its cause: $C logs api-1 api-2 | grep 'request failed'."
+
+      - alert: ApiSlow
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="api", route!~"/health|/health/live|/metrics|/api/v1/admin/.*"}[5m])))
+            > 0.5
+        for: 10m
+        annotations:
+          summary: 'Visitor requests are slow: p95 {{ $value | humanizeDuration }} over the last 5 minutes.'
+          description: 'Usually a slow database or a busy server: /admin shows the dependencies, docker stats --no-stream the load.'
+
+      # Both replicas report the same Redis lists: one alert per queue.
+      - alert: DeadLetters
+        expr: max by (queue) (queue_depth{queue=~"telemetry_dlq|notifications_dlq"}) > 0
+        for: 5m
+        annotations:
+          summary: '{{ $labels.queue }} holds {{ $value }} item(s) that failed for good.'
+          description: '/admin, Queues, Show items says why. Fix that, then retry them: $C run --rm replay-dlq telemetry (or notifications).'
+
+      # Events are waiting, yet the worker saved none: it runs but cannot flush. A stopped worker
+      # is TargetDown (its counter is then missing, so this stays quiet).
+      - alert: TelemetryStuck
+        expr: |
+          max(queue_depth{queue="telemetry_buffer"}) > 0
+            and sum(increase(telemetry_events_flushed_total[10m])) == 0
+        for: 10m
+        annotations:
+          summary: '{{ $value }} visit event(s) wait in Redis, and the worker has saved none for 20 minutes.'
+          description: 'The worker runs but cannot save them: $C logs worker shows why.'
+
+      # Counters that never failed have no series yet, hence `or vector(0)`.
+      - alert: WorkerFailing
+        expr: |
+          (sum(increase(worker_loop_failures_total[10m])) or vector(0))
+            + (sum(increase(telemetry_flush_failures_total[10m])) or vector(0))
+            >= 3
+        for: 5m
+        annotations:
+          summary: 'The worker''s loops failed {{ printf "%.0f" $value }} times in 10 minutes.'
+          description: 'A datastore not answering, or a bug: $C logs worker shows each failure.'
+
+      - alert: DiskFilling
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.2
+        for: 10m
+        annotations:
+          summary: "The server's disk has {{ $value | humanizePercentage }} free."
+          description: 'docker system df shows what Docker uses (images, logs); du -sh ~/backups the backups.'
+
+      - alert: MemoryHigh
+        expr: 1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes > 0.85
+        for: 10m
+        annotations:
+          summary: "The server's memory is {{ $value | humanizePercentage }} used."
+          description: 'docker stats --no-stream shows which container uses it.'
+
+      # backup.sh records each success (record-backup-time in compose.prod.yml).
+      - alert: BackupStale
+        expr: time() - max(portfolio_backup_last_success_timestamp_seconds) > 8 * 24 * 3600
+        annotations:
+          summary: 'The last good backup is {{ $value | humanizeDuration }} old; one a week is expected.'
+          description: 'Is the cron job still there (crontab -l)? Its log: ~/backups/backup.log. Or run one by hand: bash ~/portfolio/deploy/backup.sh'

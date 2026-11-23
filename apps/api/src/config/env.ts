@@ -18,6 +18,8 @@ export interface AppConfig {
   redis: { url: string };
   cache: { ttlSeconds: number };
   telemetry: { bufferMaxLength: number; batchSize: number; flushIntervalMs: number };
+  /** The worker's GET /metrics listens on `server.host` and this port (DESIGN.md §15.2). */
+  worker: { metricsPort: number };
   /** GeoIP database files; `null` turns that lookup off. */
   ipLookup: { asnDbPath: string | null; locationDbPath: string | null };
   /** HMAC key for hashing IPs (rate-limit keys, `contact_messages.ip_hash`). */
@@ -67,6 +69,7 @@ const envSchema = z.object({
   TELEMETRY_BUFFER_MAX_LENGTH: z.coerce.number().int().min(1).max(10_000_000).default(100_000),
   TELEMETRY_BATCH_SIZE: z.coerce.number().int().min(1).max(1_000).default(50),
   TELEMETRY_FLUSH_INTERVAL_MS: z.coerce.number().int().min(100).max(300_000).default(5_000),
+  WORKER_METRICS_PORT: z.coerce.number().int().min(0).max(65_535).default(4001),
   GEOIP_ASN_DB_PATH: z.string().optional(),
   GEOIP_LOCATION_DB_PATH: z.string().optional(),
   // A secret, so no default: every environment picks its own.
@@ -138,6 +141,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       batchSize: vars.TELEMETRY_BATCH_SIZE,
       flushIntervalMs: vars.TELEMETRY_FLUSH_INTERVAL_MS,
     },
+    worker: { metricsPort: vars.WORKER_METRICS_PORT },
     ipLookup: {
       asnDbPath: vars.GEOIP_ASN_DB_PATH ?? null,
       locationDbPath: vars.GEOIP_LOCATION_DB_PATH ?? null,

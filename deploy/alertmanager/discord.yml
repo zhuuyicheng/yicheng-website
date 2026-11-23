@@ -1,0 +1,32 @@
+# Alertmanager with NOTIFIER_DRIVER=discord, as on the server (DESIGN.md §15.3): firing alerts
+# go to the Discord channel the contact notifications use. compose.prod.yml picks this file or
+# log.yml, as the API picks its notifier. Check both: npm run monitoring:check
+#
+# Silence an alert, e.g. during planned work (C as in docs/PRODUCTION-STACK.md §7):
+#   $C exec alertmanager amtool silence add alertname=TargetDown --duration=2h \
+#     --comment="planned work" --alertmanager.url=http://localhost:9093
+
+route:
+  receiver: discord
+  # One message per alert name: two replicas down is one message, not two.
+  group_by: [alertname]
+  # Wait this long for more of the same before the first message,
+  group_wait: 30s
+  # then report changes in that group at most this often,
+  group_interval: 5m
+  # and repeat what still fires twice a day.
+  repeat_interval: 12h
+
+receivers:
+  - name: discord
+    discord_configs:
+      # deploy/.env's DISCORD_WEBHOOK_URL, as a file (a Compose secret), never in Git.
+      - webhook_url_file: /run/secrets/discord_webhook_url
+        # "Firing: TargetDown", one line per instance, then what to do. Discord colours it red,
+        # or green once resolved.
+        title: '{{ if eq .Status "firing" }}Firing{{ else }}Resolved{{ end }}: {{ .CommonLabels.alertname }}'
+        message: |-
+          {{ range .Alerts.Firing }}- {{ .Annotations.summary }}
+          {{ end }}{{ range .Alerts.Resolved }}- Resolved: {{ .Annotations.summary }}
+          {{ end }}{{ if .Alerts.Firing }}
+          {{ (index .Alerts.Firing 0).Annotations.description }}{{ end }}

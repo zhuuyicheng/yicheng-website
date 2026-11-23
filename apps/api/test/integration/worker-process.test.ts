@@ -14,6 +14,7 @@ const API_ROOT = path.resolve(import.meta.dirname, '../..');
 
 interface LogLine {
   msg?: string;
+  metricsAddress?: string;
 }
 
 /**
@@ -97,6 +98,27 @@ describe('worker process lifecycle', () => {
     expect(messages).toEqual(
       expect.arrayContaining(['shutdown started', 'telemetry buffer drained', 'shutdown complete']),
     );
+  });
+
+  it('serves /metrics for Prometheus while it runs', async () => {
+    const worker = startWorkerProcess('worker started');
+    child = worker.child;
+    await worker.idle;
+    const address = worker.logs.find((entry) => entry.msg === 'worker started')?.metricsAddress;
+    expect(address, worker.log()).toMatch(/^http:\/\//);
+
+    // Any free port (test-env.ts), so read it from the log.
+    const { port } = new URL(String(address));
+    const response = await fetch(`http://127.0.0.1:${port}/metrics`);
+
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    // Counted only in the worker, so unreadable before it served them.
+    expect(body).toContain('# TYPE telemetry_events_flushed_total counter');
+    expect(body).toContain('# TYPE worker_loop_failures_total counter');
+    expect(body).toContain('process_resident_memory_bytes'); // a real process's own numbers
+    worker.child.kill('SIGTERM');
+    expect(await worker.exited, worker.log()).toBe(0);
   });
 
   it('sends a queued contact notification (log notifier), and stops without waiting on BLMOVE', async () => {

@@ -11,6 +11,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | 4     | `feat/contact-rate-limiter`  | C      | ✅ Done                     |
 | 5     | `feat/metrics-and-dashboard` | D      | ✅ Done                     |
 | 6     | `feat/continuous-delivery`   | —      | ✅ Live (backups to set up) |
+| 7     | `feat/prometheus-monitoring` | D      | 🚧 In progress              |
 
 ---
 
@@ -198,7 +199,7 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
 - [x] Protect `main` (2026-11-20, ruleset "Protect main"): pull request required, checks
       `check`, `image (api)` and `image (web)` required, no force push or deletion, no bypass
       ([CI.md §4](docs/CI.md#4-protecting-main))
-- [ ] Per-replica metrics in a Prometheus server (each replica already reports its `instance`)
+- [ ] Per-replica metrics in a Prometheus server: Phase 7, below
 - [ ] Switch to `<name>.is-a.dev`, possible now that the site is live (you write the request by
       hand: their terms forbid AI-written pull requests)
 - [ ] Later: remove the approval gate (continuous **deployment**) once releases are routine
@@ -317,3 +318,50 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
       other after 30 s without a turn. The web server now asks every replica directly each poll
       (`API_REPLICA_URLS`, DESIGN.md §8.6); a replica that does not answer is named in the
       banner instead of silently leaving the total
+
+## Phase 7: Monitoring (`feat/prometheus-monitoring`)
+
+Design: [DESIGN.md §15](DESIGN.md#15-monitoring-prometheus-alertmanager-grafana-phase-7).
+Decided by the owner (2026-11-23): `/admin`'s tiles and charts read from Prometheus instead of
+asking each replica, with the custom code that fed them removed; Grafana at
+`https://<host>/grafana`; alerts to the Discord channel the contact notifications already use;
+30 days of history.
+
+- [x] 7a The worker serves `/metrics` (port 4001, same `METRICS_TOKEN`): its counts (events
+      saved, dead letters, notifications, loop failures) were never readable. `/metrics` logs
+      quietly, like `/health` (a scrape every 15 s would add two log lines each time). Latency
+      buckets from 1 ms, so the percentiles Prometheus estimates stay close at this site's speed
+- [x] 7b Prometheus (every 15 s, 30 days, 2 GB cap) and node-exporter in the production stack;
+      Prometheus in `npm run infra:up` for development; configuration checked in CI (`promtool`).
+      Tried on the desktop's stack: api-1, api-2, worker and node-exporter all answer, with the
+      token; Prometheus about 30 MB and node-exporter 8 MB at start; no `/metrics` log lines
+- [x] 7c Alerts: rules with unit tests (`promtool test rules`), Alertmanager → the Discord
+      channel; backups record their time for the "backup too old" alert; drill on the laptop stack.
+      Nine rules, each test checked by breaking its rule on purpose. `NOTIFIER_DRIVER` picks
+      Alertmanager's file, so your computers' stacks never post. Drilled on the desktop's stack:
+      api-1 stopped → `TargetDown` in Alertmanager after 137 s (site served by api-2), cleared
+      9 s after its restart; a backup's time reached Prometheus; the Discord messages checked
+      against a stand-in (firing, partly and fully resolved)
+- [x] 7d Grafana at `/grafana` (its own login, open while the site is paused), data source and
+      dashboard provisioned from files in Git. Grafana 13.2.6 (the slim image cannot query
+      Prometheus). The "Portfolio" dashboard: 21 panels, each explained; all 27 queries run.
+      Drilled on the desktop's stack: guests and wrong passwords get 401, sign-up 401, `/grafana`
+      open while paused, 5 wrong passwords lock the account for about 5 minutes. Grafana uses
+      about 260 MB, the four monitoring containers about 320 MB together
+- [x] 7e `/admin` reads Prometheus: tiles and charts from PromQL (the charts start full), `up`
+      names a replica or worker that stopped answering. Removed: asking each replica
+      (`API_REPLICA_URLS`) and the chart history kept by the browser. Each source fails alone,
+      with the reason ("unreachable", "HTTP 503"). Drilled in development and on the desktop's
+      stack: requests across both replicas added up by Prometheus, a stopped worker or api-1
+      named within one scrape, a stopped Prometheus leaves the API's half in place
+- [x] 7f Deploy: `deploy.sh` checks the settings first, pulls any missing pinned image (Grafana's
+      is 1.9 GB) before anything changes, validates the Caddyfile, Prometheus's and
+      Alertmanager's files, and after a good rollout reloads the monitoring and reports each
+      part (a problem there is a warning, never a rollback). Tried on the desktop's stack: a
+      deploy in 46 s; a broken Alertmanager file stopped the next one before any change. Guides:
+      [MONITORING.md](docs/MONITORING.md) (new), CD, START-HERE, PROJECT-GUIDE, DATA-TOOLS §7.8
+- [ ] PR merged and deployed ([MONITORING.md §5](docs/MONITORING.md#5-switching-it-on-the-phase-7-deploy-once)):
+      `GRAFANA_ADMIN_PASSWORD` in the server's `deploy/.env` first, one backup by hand, the
+      server's memory measured
+- [ ] Follow-up release (the contract step, DESIGN.md §15.6): the API drops the status report's
+      per-replica numbers and its rolling latency window

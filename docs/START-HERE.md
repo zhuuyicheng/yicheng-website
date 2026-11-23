@@ -134,8 +134,13 @@ Then GitHub emails you: **Actions** → the **Deploy** run → **Review deployme
 
 - **Log in**: `ssh portfolio` (it asks for your key's passphrase); `exit` to leave.
 - **What runs, and its logs**: `$C ps`, then `$C logs --tail 50 api-1`. The services are
-  `caddy`, `api-1`, `api-2`, `worker`, `web`, `postgres` and `redis`
-  ([CD.md §6](CD.md#6-reading-a-deploys-log)).
+  `caddy`, `api-1`, `api-2`, `worker`, `web`, `postgres`, `redis` and the monitoring's
+  `prometheus`, `alertmanager`, `node-exporter`, `grafana` ([CD.md §6](CD.md#6-reading-a-deploys-log)).
+- **How the site did over hours or days**: Grafana at `https://<your site>/grafana`, user
+  `admin`, password `GRAFANA_ADMIN_PASSWORD` ([MONITORING.md §2](MONITORING.md#2-grafana)).
+- **An alert in Discord** ("Firing: …"): its message says what to try first; every alert,
+  explained: [MONITORING.md §3](MONITORING.md#3-alerts). Planned work that will stop
+  something? Silence it first (same section).
 - **Change a secret or setting** (the Discord webhook, your `/admin` password `ADMIN_TOKEN`, …):
   `nano ~/portfolio/deploy/.env` on the server, update your password manager, then deploy the
   current release again: **Actions** → **Deploy** → **Run workflow** with the SHA left empty →
@@ -199,6 +204,8 @@ Then GitHub emails you: **Actions** → the **Deploy** run → **Review deployme
 | The site shows an error or doesn't load     | `ssh portfolio`, `$C ps`, `$C logs --tail 50 <service>`; [CD.md §7](CD.md#7-troubleshooting)                                      |
 | A deploy failed or says `ROLLED BACK`       | Its log: [CD.md §6–7](CD.md#6-reading-a-deploys-log)                                                                              |
 | No "Portfolio backup OK" on a Sunday        | [BACKUPS.md §5](BACKUPS.md#5-when-something-goes-wrong)                                                                           |
+| "Firing: …" in Discord                      | The message's last line; then [MONITORING.md §3](MONITORING.md#3-alerts)                                                          |
+| Grafana won't log you in, or shows no data  | [MONITORING.md §6](MONITORING.md#6-when-something-goes-wrong)                                                                     |
 | The copy command says `PROBLEM` or `FAILED` | [BACKUPS.md §5](BACKUPS.md#5-when-something-goes-wrong)                                                                           |
 | CI is red                                   | [CI.md §3](CI.md#3-when-ci-fails)                                                                                                 |
 | Tests fail on your computer                 | [TESTING.md §6](TESTING.md#6-troubleshooting)                                                                                     |
@@ -219,6 +226,7 @@ Then GitHub emails you: **Actions** → the **Deploy** run → **Review deployme
 | The server's settings and secrets    | `~/portfolio/deploy/.env` on the server, and your password manager                   |
 | Deploy key, server address, hostname | GitHub → **Settings** → **Environments** → `production`                              |
 | Backups                              | Server: `~/backups/portfolio` (newest 4). Desktop: Documents\portfolio-backups       |
+| Alert rules, the dashboard           | `deploy/prometheus/alerts.yml`, `deploy/grafana/dashboards/portfolio.json`           |
 | Your hostname's IP                   | DuckDNS (keep its token private)                                                     |
 | What's done and what's open          | [ROADMAP.md](../ROADMAP.md)                                                          |
 | Every design decision                | [DESIGN.md](../DESIGN.md)                                                            |

@@ -21,20 +21,20 @@ processing, observability, and disciplined testing.
 - Horizontally scaled workers (we design for **one worker process**; see §8.4).
 - A CMS. Portfolio content lives in a version-controlled JSON file; the only owner page is
   the read-only `/admin` (§8.7).
-- User accounts. The owner's token (`ADMIN_TOKEN`) and the metrics token are the only
-  credentials.
+- User accounts. The owner's token (`ADMIN_TOKEN`), the metrics token and Grafana's admin
+  password (§15.4) are the only credentials.
 
 **Tech stack**
 
-| Concern       | Choice                                                                        |
-| ------------- | ----------------------------------------------------------------------------- |
-| Runtime       | Node.js 24 LTS, TypeScript 6 (strict), ESM                                    |
-| Monorepo      | npm workspaces (`packages/shared`, `apps/api`, `apps/web`)                    |
-| API           | Fastify 5, Zod 4 validation, Pino logging                                     |
-| Web           | Next.js 16 (App Router), React 19, Tailwind CSS 4                             |
-| Datastores    | PostgreSQL 16 (`pg`, plain SQL migrations), Redis 7 (`ioredis`)               |
-| Observability | `prom-client` (Prometheus), JSON status endpoint                              |
-| Quality       | Vitest 5 (unit + real-datastore integration), ESLint 10, Prettier, GH Actions |
+| Concern       | Choice                                                                         |
+| ------------- | ------------------------------------------------------------------------------ |
+| Runtime       | Node.js 24 LTS, TypeScript 6 (strict), ESM                                     |
+| Monorepo      | npm workspaces (`packages/shared`, `apps/api`, `apps/web`)                     |
+| API           | Fastify 5, Zod 4 validation, Pino logging                                      |
+| Web           | Next.js 16 (App Router), React 19, Tailwind CSS 4                              |
+| Datastores    | PostgreSQL 16 (`pg`, plain SQL migrations), Redis 7 (`ioredis`)                |
+| Observability | `prom-client`, Prometheus + Alertmanager + Grafana (§15), JSON status endpoint |
+| Quality       | Vitest 5 (unit + real-datastore integration), ESLint 10, Prettier, GH Actions  |
 
 ---
 
@@ -134,8 +134,12 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 ├── deploy/                               (P6) the production stack (docs/PRODUCTION-STACK.md):
 │                                         compose.prod.yml, caddy/ (Caddyfile, back-soon.html),
 │                                         .env.example (→ gitignored .env), deploy.sh,
-│                                         backup.sh, restore.sh, pull-backups.sh, failover-test.sh
-├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests
+│                                         backup.sh, restore.sh, pull-backups.sh, failover-test.sh,
+│                                         (P7) prometheus/ (prometheus.yml, prometheus.dev.yml,
+│                                         alerts.yml + alerts.test.yml, check.sh: npm run
+│                                         monitoring:check), alertmanager/ (discord.yml, log.yml),
+│                                         grafana/ (provisioning/, dashboards/portfolio.json)
+├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests, (P7) Prometheus
 ├── eslint.config.mjs                     one flat config for the whole repo
 ├── package.json                          npm workspaces + repo-wide scripts
 ├── tsconfig.base.json                    strict compiler options shared by all packages
@@ -160,6 +164,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   ├── src/
 │   │   │   ├── main.ts                   API composition root + process lifecycle
 │   │   │   ├── worker.ts                 (P3) worker composition root + process lifecycle
+│   │   │   ├── worker-app.ts             (P7) buildWorkerApp(): the worker's GET /metrics
 │   │   │   ├── app.ts                    buildApp(): wires DAL → managers → controllers
 │   │   │   ├── controllers/              endpoints (method + path) + input validation
 │   │   │   │   ├── health.controller.ts          GET /health, (P6) GET /health/live
@@ -168,7 +173,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── content.controller.ts         (P2) profile, projects
 │   │   │   │   ├── events.controller.ts          (P3) telemetry ingestion
 │   │   │   │   ├── contact.controller.ts         (P4)
-│   │   │   │   ├── system.controller.ts          (P5) /metrics
+│   │   │   │   ├── system.controller.ts          (P5) /metrics (API; P7 also the worker)
 │   │   │   │   └── admin.controller.ts           (P6) owner routes: system status, visitors, queue items
 │   │   │   ├── services/                 business rules ("managers")
 │   │   │   │   ├── health.manager.ts
@@ -183,6 +188,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── notification.manager.ts       (P4) one job: send → sent / retry / DLQ; promote; reconcile
 │   │   │   │   ├── notification-dlq.manager.ts   (P4) dead-letter replay: reopen FAILED messages
 │   │   │   │   ├── system-status.manager.ts      (P5) status JSON (5 s cache) + Prometheus text
+│   │   │   │   ├── metrics-text.manager.ts       (P7) renders a registry for /metrics
 │   │   │   │   ├── visitor-insights.manager.ts   (P6) ranks visits for the owner's summary
 │   │   │   │   └── queue-items.manager.ts        (after launch) what waits in each queue, readable
 │   │   │   ├── dal/                      the only datastore code
@@ -332,7 +338,8 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side, read at request time).                        |
 | `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API. Baked in at `next build`. Empty = same origin (§14.5).     |
 | `ADMIN_TOKEN`                       | 6     | unset                   | ≥ 32 chars. Owner area (§8.7): API bearer token and /admin password.      |
-| `API_REPLICA_URLS`                  | 6     | `API_BASE_URL`          | Comma-separated `http://` addresses: the dashboard asks each (§8.6).      |
+| `PROMETHEUS_URL`                    | 7     | `http://localhost:9090` | Web server → Prometheus, for `/admin`'s numbers and charts (§15.5).       |
+| `WORKER_METRICS_PORT`               | 7     | `4001`                  | The worker's `GET /metrics`, on `API_HOST` (§15.2). `0` = ephemeral.      |
 
 The web variables are read by Next.js from the environment or from `apps/web/.env*` files
 (not the root `.env`); the defaults suit local development. `ADMIN_TOKEN` is set in both apps
@@ -342,7 +349,7 @@ The web variables are read by Next.js from the environment or from `apps/web/.en
 built, so changing one means rebuilding.
 
 Docker Compose additionally reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
-`POSTGRES_PORT`, `REDIS_PORT` (all with local-dev defaults).
+`POSTGRES_PORT`, `REDIS_PORT`, `PROMETHEUS_PORT` (all with local-dev defaults).
 
 ---
 
@@ -971,8 +978,12 @@ of request durations (Prometheus histograms are cumulative, not rolling). Reques
 `/health`, `/health/live` (the load balancer's check), `/metrics` and the owner endpoints are
 left out of it (Prometheus still counts them), or a dashboard polling every few seconds would
 mostly measure itself. `cache` counts content-cache lookups since the process started. Values
-are per API instance; `instance` (the container hostname) says which one answered. With two
-replicas (§14.5) the dashboard asks each one directly and combines their numbers (§8.6).
+are per API instance; `instance` (the container hostname) says which one answered. Since
+Phase 7 the dashboard reads these per-process numbers from Prometheus instead (§15.5); they
+leave this report in the release after (§15.6).
+
+`/metrics` logs at `warn` only (Prometheus reads it every 15 s, §15.2). The worker serves the
+same endpoint, with the same token rule, on its own port (§15.2).
 
 ### 7.8 Owner endpoints (Phase 6)
 
@@ -1252,6 +1263,11 @@ one gauge per queue because prom-client reports a label-less gauge as `0` even a
 when Redis is down, the samples are removed, so Prometheus shows a gap ("unknown") instead of
 a false "empty".
 
+**Each process reports what it counted.** The API's `/metrics` holds the request, cache,
+ingestion and rate-limit numbers; the flush, dead-letter, notification and worker-loop counters
+are updated only in the worker and served on its own port (`worker:4001/metrics`, Phase 7,
+§15.2). Before that, nothing could read them.
+
 ### 8.6 The website (Phase 5)
 
 **Contract.** `packages/shared` holds the Zod schemas of every public request and response.
@@ -1369,33 +1385,29 @@ Singapore, where the owner edits (`formatDay` in `lib/format.ts`), inside a `<ti
 with the exact moment. The not-found and error pages have no content of their own, so no date.
 
 **Live system dashboard** (on `/admin`, §8.7; `components/status-dashboard.tsx`, logic in
-`lib/status.ts`). The browser polls `/admin/system-status` every 5 s (the API's own cache
-period), a web-server route that asks every API replica with the admin token; each replica's
-report is validated with the shared schema. Polling pauses while the tab is hidden and resumes at once when it is
-shown. If the API stops answering, the last numbers stay on screen under a "lost contact"
-banner instead of disappearing. It shows a health banner (icon + words, never colour alone),
-stat tiles (uptime, requests, p50/p95, cache hit ratio, page views), two charts and
-dependencies and queue lengths (a non-empty dead-letter queue is flagged "needs attention").
-**Replicas combined**: each API replica reports only what it answered, so the whole API's
-numbers need all of them. The web server's route asks each replica at its own address
-(`API_REPLICA_URLS`, `http://api-1:4000,http://api-2:4000` in production; unset, the one API
-of `API_BASE_URL`), in parallel with a 3 s limit each, and answers
-`{ data: { replicas: [{ name, status | null }] } }` (`getReplicaStatuses` in
-`lib/admin-api.ts`, schema in `lib/status.ts`: web-internal, not the API's contract). Through
-Caddy each poll would reach one replica: showing each answer as it came made every number
-flip between the two (a quiet site's request chart jumped 0, 1, 0, 1), and keeping each
-replica's last answer instead (forgetting one after 30 s without a turn) still made the
-total dip whenever the turns skipped a replica. The page shows requests and cache counts
-added up, uptime from the most recently started replica, and p50/p95 from the slower one: not
-the exact percentile of all requests, but a safe upper bound. Dependencies, queues and page
-views are shared, so they come from the first replica that answered. A replica that does not
-answer turns the banner amber ("api-2 is not answering (left out of the numbers)") and the
-totals cover the others: while one is down Caddy sends every visitor to the rest, so they hold
-nearly all recent requests. No replica answering is "lost contact". The web server logs
-nothing for a silent replica (it has no logger); the banner is the signal, while it lasts.
-The charts (p95 latency and request count, one measure each) cover the last 30 minutes the
-page was open, placed by time: a labelled tick every 5 minutes on the viewer's clock, a 2 px
-line that breaks where polling paused (a hidden tab), crosshair and tooltip on hover or touch.
+`lib/status.ts`; since Phase 7, §15.5). The browser polls `/admin/system-status` every 15 s
+(Prometheus's own pace), a web-server route that asks two sources side by side: the API's
+status once, through Caddy like every owner read (dependencies, queues and page views live in
+the datastores, so any replica answers the same), and Prometheus for the per-process numbers of
+both replicas at once (`lib/system-metrics.ts`). It answers
+`{ data: { status, statusProblem, metrics, metricsProblem } }` (web-internal, not the API's
+contract): a source that fails is `null` with a reason in a few words ("unreachable", "no answer
+within 3 s", "HTTP 503"), and the other still shows. Polling pauses while the tab is hidden and
+resumes at once when it is shown; if this site itself stops answering, the last poll stays on
+screen under a red "No answer from this site" banner. The health banner (icon + words, never
+colour alone) is green when the API answers with every dependency up and every process answers
+Prometheus; amber with a dependency down, a process silent ("api-2 is not answering", from
+`up`), or Prometheus not answering (its tiles and charts then show "—"); red when the API does
+not answer. Stat tiles: uptime, requests and p50/p95 over the last 5 minutes, the cache hit
+ratio over 24 hours (Prometheus), page views (the API). Two charts (p95 latency, requests in the
+last 5 minutes) cover the last 30 minutes with a point every 15 s, read from Prometheus, so they
+are full when the page opens and carry on across deploys: a labelled tick every 5 minutes on the
+viewer's clock, a 2 px line that breaks where data is missing, crosshair and tooltip on hover or
+touch. Below: dependencies, the content cache card and queue lengths (a non-empty dead-letter
+queue is flagged "needs attention"), and a line listing every process Prometheus reads, each
+marked answering or not. Until Phase 7 the route asked each replica at its own address and the
+page added their numbers up, and the charts only covered the time the page had been open
+(ROADMAP.md, "two chart fixes").
 Nothing on the public site links to it.
 
 ### 8.7 The owner area (`/admin`, Phase 6)
@@ -1560,7 +1572,9 @@ matters most for deploys: the old worker empties the buffer before the new one s
 - Web (`apps/web/test/lib`, Vitest, no browser). (P5) Beacon session ids, referrer filtering,
   path trimming, time zone fallback, interaction names; contact validation and every API
   answer (202/400/429/503/garbage); date formatting; dashboard fetching/validation, health
-  summary, uptime and "—" formatting, chart path (gaps break the line) and scale. (P6) The
+  summary, uptime and "—" formatting, chart path (gaps break the line) and scale. (P7) The
+  Prometheus client (queries, NaN as unknown, refusals, its time limit), the dashboard's
+  numbers from its answers, each source failing alone with a reason, `PROMETHEUS_URL`. (P6) The
   owner's login check, the visitor summary, `shouldRecord`, the photo carousel, scrollspy,
   section scrolling, project-page anchors, chart time ticks, the hover marker's height. (After
   launch) Queue items: fetching/validation, what each dead-letter reason says to fix, visit
@@ -1599,8 +1613,10 @@ compose, run serially):
 
 **CI** (from Phase 2): GitHub Actions runs `format:check`, `lint`, `typecheck` and the full
 test suite (API unit + integration, web unit) against Postgres and Redis service containers,
-then (P5) `next build` for the website, which must succeed without the API running, and (P6)
-builds both Docker images for `linux/arm64`. It runs on every pull request, and on every
+then (P5) `next build` for the website, which must succeed without the API running, (P6)
+builds both Docker images for `linux/arm64`, and (P7) checks the monitoring configuration with
+the images' own `promtool` and `amtool`, alert-rule unit tests included
+(`npm run monitoring:check`). It runs on every pull request, and on every
 commit to `main` inside the Deploy workflow (§14.3); `main` only accepts pull requests that
 passed it. See [docs/CI.md](docs/CI.md).
 
@@ -1663,6 +1679,7 @@ Other measures:
 | 4     | `feat/contact-rate-limiter`  | Module C: Lua sliding-window limiter, contact endpoint, notification worker + backoff                                                                                   |
 | 5     | `feat/metrics-and-dashboard` | Module D: `/metrics`, system status API, Next.js portfolio + live dashboard                                                                                             |
 | 6     | `feat/continuous-delivery`   | Docker images, GHCR, deploy with approval gate, two API replicas behind Caddy, rolling update, smoke test, rollback, backups, pause switch (§14); the owner area (§8.7) |
+| 7     | `feat/prometheus-monitoring` | Prometheus (30 days), Alertmanager → Discord, Grafana at `/grafana`, the worker's `/metrics`; `/admin` reads Prometheus (§15)                                           |
 
 Detailed checklists and current status: [ROADMAP.md](ROADMAP.md).
 
@@ -1737,8 +1754,10 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
    deploy job  [environment: production → waits for your approval]
      copy deploy/ to ~/portfolio/deploy (rsync; deploy/.env, caddy/paused excluded), then over SSH
      deploy/deploy.sh <sha>:
-       0. pull + check    pull the images (the job's own token, not stored); `compose config`
-                          (a missing .env value) and `caddy validate`: nothing has changed yet
+       0. check + pull    `compose config` (a missing .env value); pull the images (the job's
+                          own token, not stored) and any missing pinned one (Postgres, Redis,
+                          Caddy, the monitoring); `caddy validate`, `promtool check config`,
+                          `amtool check-config` (Phase 7): nothing has changed yet
        1. migrate         node dist/cli/migrate.js   (backward compatible, §14.4)
        2. seed content    node dist/cli/seed-content.js (idempotent)
        3. roll out        worker → api-1 → api-2 → web, one at a time (§14.5)
@@ -1748,6 +1767,9 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
                           through Caddy, §14.5)
        5. on failure      (3 or 4) roll out the previous release the same way, seed its
                           content again, smoke test, fail the job
+       6. monitoring      (on success, Phase 7) Prometheus and Alertmanager reload their
+                          files; each monitoring service and /grafana reported, never failing
+                          the job: the site is already serving, and its alerts take over
      then from GitHub's machine: GET https://<host>/api/v1/projects and / (DNS, firewalls;
      paused: / must answer 503, the back-soon page)
 ```
@@ -1786,6 +1808,7 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
   must not drop or rename anything the running version reads. A rename becomes: add the new
   column → backfill → release code using it → drop the old column in a later release.
 - **No secrets in images or Git.** Production values (`IP_HASH_SECRET`, `METRICS_TOKEN`,
+  `GRAFANA_ADMIN_PASSWORD` (Phase 7),
   `ADMIN_TOKEN`, `DISCORD_WEBHOOK_URL`, database passwords) live only in an env file on the
   host (`deploy/.env`, owner-only), with a copy of that file in a password manager. GitHub
   holds just what the deploy job needs to reach the server (§14.3), so a leaked workflow log
@@ -1800,8 +1823,8 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
   `NOTIFIER_DRIVER=discord` with `DISCORD_WEBHOOK_URL`, `ADMIN_TOKEN` (the same value in the
   API and web containers, §8.7), and for the web container
   `API_BASE_URL=http://caddy:8080` (Caddy's internal listener, §14.5) and
-  `API_REPLICA_URLS=http://api-1:4000,http://api-2:4000` (the dashboard, §8.6), built with an
-  empty `NEXT_PUBLIC_API_BASE_URL` (§14.2).
+  `PROMETHEUS_URL=http://prometheus:9090` (the dashboard, §15.5), built with an empty
+  `NEXT_PUBLIC_API_BASE_URL` (§14.2).
 - **Memory**: each API replica holds ~140 MB of GeoIP data (§8.2); the VM is sized for two
   replicas (§14.5), or the country-only file would halve that.
 
@@ -1809,7 +1832,8 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
 
 **Server: one Oracle Cloud Always Free Arm VM** (`VM.Standard.A1.Flex`, Ubuntu 24.04 LTS, in the
 account's home region) running `deploy/compose.prod.yml`: Postgres, Redis, **two API
-replicas**, worker, web, and Caddy for automatic HTTPS and load balancing. It is an ordinary
+replicas**, worker, web, Caddy for automatic HTTPS and load balancing, and (Phase 7) the
+monitoring of §15. It is an ordinary
 Linux server, so it mirrors local development, keeps Redis configuration under our control (§14.4),
 and costs nothing. The deploy job connects over SSH (key stored as an Environment secret),
 copies `deploy/` and runs `deploy/deploy.sh`, which pulls the new tag and does the rolling
@@ -1822,7 +1846,9 @@ What the free tier implies:
   failed with "out of host capacity" (2026-11-20), and one core is enough: images are built by
   GitHub, not on the server, and a quiet portfolio needs little CPU. Measured on the server
   (`docker stats`, 2026-11-20, idle): about 600 MB for all seven containers (each API replica
-  and web ~170 MB, worker 45 MB, Postgres 30 MB, Caddy 15 MB, Redis 5 MB).
+  and web ~170 MB, worker 45 MB, Postgres 30 MB, Caddy 15 MB, Redis 5 MB). Phase 7's
+  monitoring adds about 320 MB (§15.7), which also lifts the memory reading Oracle's idle rule
+  looks at.
 - **Idle reclamation**: Oracle may reclaim an Always Free VM whose CPU (95th percentile),
   network and memory use all stay below 20 % for 7 days. A quiet portfolio has low CPU and
   network use (CPU ~5 %), so memory has to stay above the line. 6 GB was chosen for an
@@ -1854,8 +1880,7 @@ https://<host>/*       →  web
   needs no hostname (§14.2).
 - Only `/api/*` reaches the API from outside. `/health`, `/health/live` and `/metrics` are not
   routed publicly: Caddy calls `/health/live` on each replica directly, the deploy job checks
-  `/health` from the host, and a Prometheus server (not set up yet) would scrape each replica
-  directly.
+  `/health` from the host, and Prometheus (§15) scrapes each replica directly.
 - One certificate and one DNS record to manage.
 
 **Pause switch** ([docs/CD.md §5](docs/CD.md#5-pausing-the-site)). While the file
@@ -1903,7 +1928,7 @@ pages from inside the web container and expects the back-soon page at the public
 			root /etc/caddy
 			try_files /paused
 		}
-		not path /admin /admin/* /_next/*
+		not path /admin /admin/* /_next/* /grafana /grafana/*
 	}
 	handle @paused {
 		header Retry-After 3600
@@ -1922,6 +1947,10 @@ pages from inside the web container and expects the back-soon page at the public
 		handle /api/* {
 			import api_replicas
 		}
+		@grafana path /grafana /grafana/*   # Phase 7 (§15.4); the prefix stays
+		handle @grafana {
+			reverse_proxy grafana:3000
+		}
 		handle {
 			reverse_proxy web:3000
 		}
@@ -1936,7 +1965,9 @@ pages from inside the web container and expects the back-soon page at the public
 
 `API_BASE_URL` (the web server's calls) is `http://caddy:8080`, so those calls are balanced too
 without leaving the server or paying for TLS. The one exception is the `/admin` dashboard's
-status poll, which must reach every replica, not one: it uses `API_REPLICA_URLS` (§8.6). The worker and web stay single instances.
+status poll did not fit, since each replica counted only its own traffic: until Phase 7 it asked
+each replica at its own address; now Prometheus does that (§15.5). The worker and web stay single
+instances.
 
 Two settings come from the failover test (`deploy/failover-test.sh`, which fails if a single
 request fails while one replica is stopped and while both are replaced in turn):
@@ -1959,7 +1990,8 @@ so `caddy reload` would silently reload old rules. With the folder, a change is 
 ports (80, 443, 443/udp); Postgres and Redis are reachable only on the Compose network.
 Variables come from `deploy/.env` on the host (gitignored, template `deploy/.env.example`) and
 are passed per container (least privilege: the web server gets `API_BASE_URL`,
-`API_REPLICA_URLS` and `ADMIN_TOKEN` only); a missing required one stops Compose with its name (`${VAR:?…}`). The
+`PROMETHEUS_URL` and `ADMIN_TOKEN` only, Prometheus `METRICS_TOKEN` only, as a file); a
+missing required one stops Compose with its name (`${VAR:?…}`). The
 replicas' Docker health check is `GET /health` (readiness), so `up --wait` means "ready to
 serve"; the web's is a static file. `migrate`, `seed` and `replay-dlq` are services in the
 `tools` profile (`docker compose run --rm migrate`), so `up` never starts them. Every
@@ -1977,10 +2009,9 @@ long-running service restarts `unless-stopped` and keeps at most 3 × 10 MB of l
 | Single-flight (§8.1)                      | Per process                  | At most one Postgres query per key **per replica**: harmless      |
 | Metrics, rolling percentiles, status (P5) | Per process                  | Each replica reports its own numbers (see below)                  |
 
-Per-process numbers: a Prometheus server (an open item in ROADMAP.md) must scrape each replica
-directly (`api-1:4000`, `api-2:4000`), never through Caddy, which would hand it a random
-replica each time. The system status includes `instance` (§7.7), so the dashboard can tell the
-replicas apart and combine their numbers (§8.6).
+Per-process numbers: Prometheus scrapes each replica directly (`api-1:4000`, `api-2:4000`), never
+through Caddy, which would hand it a random replica each time (§15.2), and the dashboard reads
+them from Prometheus (§15.5).
 
 **The load balancer must not use `/health`.** `/health` returns `503` when Redis is down, on
 both replicas at once. Caddy would then remove both and answer every request with an error, even
@@ -2042,6 +2073,9 @@ a day makes a 2–4 MB backup.
    API's webhook from `deploy/.env`. The weekly success message doubles as a heartbeat: its
    absence means the job did not run.
 
+(Phase 7) Each success also records its time for Prometheus, whose `BackupStale` alert (§15.3)
+posts when the newest is over 8 days old: the missing heartbeat no longer has to be noticed.
+
 **On the owner's desktop** (Windows + WSL), `deploy/pull-backups.sh`, run by hand whenever
 the owner likes (no schedule: the owner's choice). The desktop copy is what survives losing
 the VM, so its age is the most that a lost server costs; the server keeps 4 weeks, so copying
@@ -2070,3 +2104,219 @@ one transaction: only missing ids are added, a rerun adds nothing (BACKUPS.md §
 a refused confirmation or a failed load change nothing; a failure after the services stopped
 starts them again. Both scripts give `docker compose exec` an empty input except for
 `pg_restore` (exec otherwise consumes the script's input, e.g. the confirmation).
+
+---
+
+## 15. Monitoring: Prometheus, Alertmanager, Grafana (Phase 7)
+
+Until Phase 7 the numbers of §8.5 lived only in each process's memory: `/metrics` showed the
+present, a deploy reset it, and nothing watched it while `/admin` was closed. Phase 7 adds a
+monitoring server that keeps them for 30 days, alerts on Discord and draws them in Grafana;
+`/admin` reads its tiles and charts from it (§15.5).
+
+### 15.1 What runs where
+
+```
+              every 15 s: GET /metrics (bearer METRICS_TOKEN)
+prometheus ────────────────► api-1:4000, api-2:4000, worker:4001, node-exporter:9100
+  │ 30 days on a volume
+  ├─ alert rules ─► alertmanager ─► Discord (the contact notifications' webhook)
+  ├─◄ grafana ◄─ Caddy /grafana/* ◄─ the owner (Grafana's own login)
+  └─◄ web: /admin's tiles and charts (PromQL over HTTP)
+```
+
+| Container       | Does                                                                    | Reachable from                    |
+| --------------- | ----------------------------------------------------------------------- | --------------------------------- |
+| `prometheus`    | Scrapes every 15 s, keeps 30 days (2 GB at most), evaluates alert rules | The compose network only          |
+| `alertmanager`  | Groups alerts, posts them to Discord, repeats every 12 h, says resolved | The compose network only          |
+| `node-exporter` | The VM's CPU, memory and disk, and the last backup's time (§15.3)       | The compose network only          |
+| `grafana`       | Dashboards                                                              | `https://<host>/grafana`, a login |
+| `worker`        | Also serves `/metrics`, on port 4001 (§15.2)                            | The compose network only          |
+
+In development, `npm run infra:up` also starts Prometheus (on `127.0.0.1:9090`, scraping the
+API and worker running on the host through `host.docker.internal`), so `/admin` works locally.
+Alertmanager and Grafana run in the production stack: on the server, and on the laptop with
+`npm run stack:up`.
+
+Images: `prom/prometheus:v3.13.5`, from the line Prometheus keeps patching alongside newer
+releases (long-term support, like 3.5 before it), `prom/node-exporter:v1.13.1` and
+`prom/alertmanager:v0.34.2` (the patched release of a line out for three months).
+Development runs the same Prometheus image: `npm run monitoring:check` fails otherwise.
+
+### 15.2 Scraping
+
+- Jobs `api` (`api-1:4000`, `api-2:4000`), `worker` (`worker:4001`) and `node`
+  (`node-exporter:9100`), each scraped **directly**, never through Caddy, which would hand over
+  a random replica each time (§14.5). `instance` is the container name without the port
+  (`api-1`).
+- `METRICS_TOKEN` reaches Prometheus as a file (a Compose secret from `deploy/.env`), never in
+  Git or an image.
+- **The worker had no HTTP server**, so the counts only it updates
+  (`telemetry_events_flushed_total`, `telemetry_flush_failures_total`,
+  `telemetry_events_dead_lettered_total`, `notification_jobs_total`,
+  `notification_jobs_requeued_total`, `worker_loop_failures_total`) could never be read. It now
+  serves `GET /metrics` on `WORKER_METRICS_PORT` (default 4001) with the API's token rule, and
+  nothing else. Failing to listen stops it at startup, like a datastore that does not answer.
+- `/metrics` logs at `warn`, like `/health` (§7.3): a scrape every 15 s would otherwise add two
+  log lines each time, per process.
+- Kept 30 days or 2 GB, whichever comes first (expected well under 1 GB: a few thousand series
+  every 15 s). Not backed up: losing old graphs costs nothing, and the configuration is in Git.
+- **node-exporter** sees the host, not its container: `pid: host` (so `/proc` is the host's)
+  and `/` mounted read-only at `/host`. Only the collectors the dashboard and alerts use (CPU,
+  memory, load, filesystems, kernel version), and Docker Desktop's doubled mounts left out (on
+  your computers they logged an error on every scrape). On Docker Desktop the root disk is a type
+  node-exporter skips, so the disk panel stays empty there; the server's ext4 root is counted.
+- **Checked before it runs**: `npm run monitoring:check` (CI, and `npm run check`) runs both
+  files through the image's own `promtool`, with a placeholder token file (promtool insists
+  the file exists). From a terminal, ask the live one:
+  `docker compose -f deploy/compose.prod.yml exec prometheus promtool query instant http://localhost:9090 up`
+  (1 = answers, 0 = down), or open http://localhost:9090 in development.
+- Latency buckets start at 1 ms (`0.001, 0.0025, 0.005, …, 5`). Prometheus estimates a
+  percentile inside the bucket it falls in, so with a first bucket of 5 ms every fast response
+  read as "about 2.5 ms".
+
+Visitor traffic in PromQL leaves out the monitors, the routes the rolling window ignores
+(§7.7): `{job="api", route!~"/health|/health/live|/metrics|/api/v1/admin/.*"}`.
+
+### 15.3 Alerts
+
+Rules in `deploy/prometheus/alerts.yml`, unit-tested with `promtool test rules` in CI. Each
+waits (`for`) longer than a deploy's restart, so a release alerts nobody.
+
+| Alert            | Fires when                                                                       |
+| ---------------- | -------------------------------------------------------------------------------- |
+| `TargetDown`     | api-1, api-2, the worker or node-exporter has not answered a scrape for 2 min    |
+| `ApiErrors`      | Over 5 % of visitor requests got a 5xx (over 5 min), for 10 min                  |
+| `ApiSlow`        | Visitor p95 over 0.5 s (over 5 min), for 10 min                                  |
+| `DeadLetters`    | `telemetry_dlq` or `notifications_dlq` is not empty, for 5 min                   |
+| `TelemetryStuck` | Events wait in the buffer while the worker saved none, for 10 min                |
+| `WorkerFailing`  | Worker loops failed 3 or more times in 10 min, for 5 min (a datastore, or a bug) |
+| `DiskFilling`    | The VM's disk has under 20 % free, for 10 min                                    |
+| `MemoryHigh`     | The VM's memory is over 85 % used, for 10 min                                    |
+| `BackupStale`    | The last successful backup is over 8 days old                                    |
+
+**Tests.** `deploy/prometheus/alerts.test.yml` feeds made-up samples to each rule and checks
+what fires, when, and the exact text: cases that must fire and cases that must not (an outage as
+short as a restart, a failing health check, a busy buffer that is being saved, one failed flush,
+a weekly backup). Each test was checked by breaking its rule on purpose; an `on ()` that no test
+could tell apart from its absence was removed as dead weight.
+
+**The backup time.** `backup.sh` already reports each run on Discord; `BackupStale` catches the
+run that never happens (cron edited, server off). Its last step runs `record-backup-time` (a
+`tools` service with node-exporter's image, for its shell), which writes
+`portfolio_backup_last_success_timestamp_seconds` into the volume `backup-metrics`, where
+node-exporter's textfile collector reads it. A volume, not a folder in the home directory:
+node-exporter runs as `nobody`, which cannot enter `/home/ubuntu`, and Docker would create a
+missing host folder as root. Failing to record is logged and named in the success message, not
+fatal: the backup is safe by then.
+
+**Alertmanager** posts to the **same Discord webhook as the contact notifications**
+(`DISCORD_WEBHOOK_URL` as a Compose secret file; the owner's choice: one place to look).
+`NOTIFIER_DRIVER` picks its file as it picks the API's notifier: `alertmanager/discord.yml` on
+the server, `alertmanager/log.yml` (sends nothing) on the owner's computers, so a local drill
+never posts. Grouped by alert name, so two replicas down is one message: "Firing: TargetDown"
+(red) or "Resolved: TargetDown" (green), one line per instance (a summary, "Resolved: …" once
+one recovers), then the description, what to do, once (so descriptions name no instance).
+Repeated every 12 h while still firing. Silences (`amtool silence add`) and what was already
+sent survive a restart (volume `alertmanager-data`).
+
+**Drilled** (2026-11-24): the message format against a stand-in for Discord (firing, one
+replica recovered, all resolved); on the desktop's stack with `NOTIFIER_DRIVER=log`, stopping
+api-1 put `TargetDown` in Alertmanager after 137 s while the site kept answering through
+api-2, and starting it cleared the alert 9 s later. A real backup run recorded its time, and
+Prometheus read it within 15 s.
+
+### 15.4 Grafana at `/grafana`
+
+- Caddy sends `/grafana` and `/grafana/*` to `grafana:3000` with the prefix kept (Grafana
+  serves from the sub-path; its root URL is built from `SITE_HOST`). It stays reachable while
+  the site is paused, like `/admin`.
+- **Image**: `grafana/grafana:13.2.6`, the newest patch of a line out for two months.
+  Not `grafana-oss` (no longer updated since June 2026) and not `-slim` (1.3 GB instead of
+  1.9 GB, but it cannot query Prometheus: its data-source check answered 404).
+- **A public login page**, so: one admin account (`admin`) with `GRAFANA_ADMIN_PASSWORD` from
+  `deploy/.env`, read only when Grafana first creates its database (changing it later:
+  `grafana cli admin reset-admin-password`, docs/PRODUCTION-STACK.md §7); sign-up and anonymous
+  access off; secure cookies; no Gravatar, usage reports, update checks, news feed or plugin
+  preinstalls (no calls to outside services). Grafana's lockout per account stays on: after 5
+  wrong passwords within 5 minutes even the right one is refused, with the same message, until
+  5 minutes after the first. Its lockout per IP address stays off: behind Caddy every visitor
+  would share one address, so an attacker could lock the owner out.
+- Its only data source is Prometheus. Grafana cannot read Postgres, so visitors' details stay
+  in `/admin`.
+- Data source and dashboard are **provisioned from Git** (`deploy/grafana/`): the data source
+  on every start, the dashboard from its file every 30 s. Saving from the UI is refused
+  ("Cannot save provisioned dashboard"): export the JSON over
+  `deploy/grafana/dashboards/portfolio.json` instead. Only the provisioning folders in use are
+  mounted, as Grafana logs errors for missing ones.
+- **The dashboard** ("Portfolio", also Grafana's home page) explains every panel in its
+  description, like `/admin`: right now (requests, errors and p95 over 5 minutes, cache hit
+  ratio over 24 hours, alerts firing, the last backup's age), visitor requests (per replica,
+  by status, p50/p95/p99, p95 per route), the content cache, queues, visits received and saved,
+  worker problems, which process answers, memory and event-loop delay per process, the VM's
+  CPU, memory and disk, and the alerts firing now. `npm run monitoring:check` parses it and
+  checks every query goes to the Prometheus data source.
+- **Drilled** (2026-11-24) on the desktop's stack: login page 200, the API refuses a guest or a
+  wrong password (401) and sign-up (401); all 27 queries run through Grafana without an error;
+  paused, the site answers 503 and `/grafana` 200; the lockout refused the right password after
+  5 wrong ones and lifted after about 5 minutes.
+
+### 15.5 `/admin` reads Prometheus
+
+The web route `/admin/system-status` makes one status request through Caddy (dependencies,
+queues and page views, the same on every replica) and asks Prometheus (`PROMETHEUS_URL`,
+`http://prometheus:9090` in production) for the per-process numbers, all replicas at once
+(`V` is the visitor selector of §15.2):
+
+| On `/admin`                    | PromQL                                                                           |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| Requests · 5 min               | `sum(increase(http_requests_total{V}[5m]))`                                      |
+| Latency p50, p95               | `histogram_quantile(0.95, sum by (le) (rate(…_duration_seconds_bucket{V}[5m])))` |
+| Cache hit ratio (24 h)         | hits ÷ all, `sum(increase(cache_requests_total{job="api"}[24h]))`                |
+| Uptime                         | `time() - max(process_start_time_seconds{job="api"})`                            |
+| A replica or the worker silent | `up == 0`, named in the banner                                                   |
+| The two charts (last 30 min)   | The requests and p95 queries as a range, a point every 15 s                      |
+
+The browser polls every 15 s, Prometheus's own pace. The charts are full as soon as the page
+opens and survive deploys. If Prometheus does not answer, those tiles and charts show "—" under
+an amber banner while dependencies and queues still work; if the API does not answer, the
+banner turns red and the Prometheus half still shows. p50 and p95 now cover every request of
+both replicas (before: the slower replica's own). Code: `lib/prometheus.ts` (the HTTP API,
+3 s limit), `lib/system-metrics.ts` (the questions above, `or vector(0)` so a fresh start reads
+0, not unknown), `lib/dashboard-data.ts` (both sources side by side, failures in a few words).
+
+**What the numbers can't know.** Prometheus counts a counter's growth between its readings, so
+what happened before the first reading of a series is not counted: after a restart (up to 15 s
+of requests), or the first request of a new route and status. `increase()` also extrapolates
+across its 5-minute window. The requests tile is an estimate and says so; at this site's traffic
+it can be a few requests off.
+
+**Drilled** (2026-11-24): in development (the dev API and worker, `next dev`) and on the
+desktop's stack with the new web image: 60 requests through Caddy, split 30/30 across the
+replicas, read as about 59; a stopped worker or api-1 named within one scrape (10–14 s) while
+the status kept coming through Caddy; a stopped Prometheus left the status in place with
+"unreachable"; a malformed `PROMETHEUS_URL` is named in the reason. An `/admin` tab left open
+across this release keeps the old page's code, which reads the new answer as "No answer from
+this site" until reloaded.
+
+### 15.6 What goes away
+
+Prometheus already reads every replica and adds them up, so `/admin` stops doing it itself:
+
+- **In Phase 7** (the web server only, done in 7e): asking each replica (`API_REPLICA_URLS`,
+  `getReplicaStatuses`, `combineReplicas`) and the chart history kept by the browser.
+- **In the next release** (the API's contract): the status report's per-process numbers
+  (`instance`, `uptimeSeconds`, `http`, `cache`) and the rolling latency window
+  (`infra/rolling-latency.ts`). Expand → contract, as for migrations (§14.4): in Phase 7 the web
+  reads the status with those fields omitted (`dashboardStatusSchema` in `lib/status.ts`), so it
+  neither needs nor uses them; the release after removes them from the shared schema and the
+  API. Removing them at once would break the old web server during the rolling update, which
+  replaces the API first.
+
+### 15.7 Cost
+
+Measured on the desktop's stack (2026-11-24, a few minutes after start): Grafana 261 MB,
+Prometheus 33 MB (it grows with the 30 days kept), Alertmanager 12 MB, node-exporter 10 MB:
+about 320 MB more, the whole stack about 800 MB of the VM's 6 GB. Grafana's image takes
+1.9 GB of disk, Prometheus's data at most 2 GB. CPU: next to none (a few small pages every 15 s).
+The server's own numbers are taken in 7f.
