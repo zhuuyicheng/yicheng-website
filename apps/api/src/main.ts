@@ -1,7 +1,4 @@
-/**
- * API process entrypoint (composition root): load config, create infrastructure, start the
- * HTTP server, and own the process lifecycle.
- */
+/** API entrypoint (composition root): config, infra clients, HTTP server, shutdown. */
 import { buildApp } from './app.js';
 import { loadConfigOrExit } from './config/env.js';
 import type { IpDatabases } from './dal/ip-location.dal.js';
@@ -16,7 +13,7 @@ const config = loadConfigOrExit();
 const logger = createLogger(config);
 const metrics = createMetrics({ collectProcessMetrics: true });
 
-// Before any connection is opened, so a missing file can simply exit (like invalid config).
+// Before any connection opens, so a missing file can just exit (like bad config).
 let ipDatabases: IpDatabases;
 try {
   ipDatabases = await openIpDatabases(config.ipLookup, logger);
@@ -37,7 +34,7 @@ const redis = createRedisClient(
 );
 const app = buildApp({ config, logger, metrics, postgres, redis, ipDatabases });
 
-// Order matters: stop taking requests first, then release what those requests were using.
+// Stop taking requests first, then close what they were using.
 const gracefulShutdown = createGracefulShutdown({
   logger,
   timeoutMs: config.shutdown.timeoutMs,
@@ -50,7 +47,7 @@ const gracefulShutdown = createGracefulShutdown({
 registerProcessHandlers(gracefulShutdown, logger);
 
 try {
-  // Fail fast: refuse to serve traffic until both datastores answer.
+  // Don't serve traffic until both datastores answer.
   await Promise.all([connectRedis(redis), pingPostgres(postgres)]);
   const address = await app.listen({ host: config.server.host, port: config.server.port });
   logger.info({ address, nodeEnv: config.nodeEnv }, 'api started');

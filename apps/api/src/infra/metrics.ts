@@ -1,10 +1,8 @@
 import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from 'prom-client';
 
 /**
- * Every Prometheus metric the API records, on one registry. See DESIGN.md §8.5.
- *
- * Created by the composition root and passed down (no global registry), so each test gets a
- * fresh set of counters. `GET /metrics` exposes `registry` (Phase 5).
+ * Every Prometheus metric (DESIGN.md §8.5), on one registry. Passed down, not global, so each
+ * test gets fresh counters.
  */
 export interface Metrics {
   registry: Registry;
@@ -29,18 +27,15 @@ export interface Metrics {
   observabilityReadErrors: Counter<'source'>;
 }
 
-/** What the system status endpoint and GET /metrics could not read (the rest is still served). */
+/** What the status report or /metrics couldn't read (the rest is still served). */
 export type ObservabilitySource = 'queue_depths' | 'page_views';
 
-/** Why POST /api/v1/events refused an event (every refusal is a 503). */
+/** Why POST /api/v1/events refused an event (always a 503). */
 export type TelemetryRejectReason = 'buffer_full' | 'redis_unavailable';
 
 /**
- * Why a flush did not go cleanly (DESIGN.md §8.2):
- *   - `transient`: Postgres or Redis was unavailable; the batch is retried after a backoff;
- *   - `permanent`: Postgres rejected the batch for its data; rows were retried one by one
- *     and the bad ones dead-lettered;
- *   - `unexpected`: any other error (a bug); logged as an error, retried after a backoff.
+ * Why a flush failed (DESIGN.md §8.2). `transient`: a datastore was down, retried later.
+ * `permanent`: Postgres refused the data, bad rows dead-lettered. `unexpected`: a bug.
  */
 export type TelemetryFlushFailureKind = 'transient' | 'permanent' | 'unexpected';
 
@@ -51,14 +46,13 @@ export type RateLimitDecision = 'allowed' | 'denied';
 export type NotificationJobOutcome = 'sent' | 'retried' | 'dead_lettered' | 'skipped';
 
 /**
- * Why a job went back into the ready list without being processed:
- *   - `stranded`: a previous run left it in `processing` (crash, outage mid-job);
- *   - `reconciled`: its message was PENDING with no job in sight (enqueue failed, data lost).
+ * Why a job went back to the ready list: `stranded` (left in `processing` by a crash) or
+ * `reconciled` (its message was PENDING with no job).
  */
 export type NotificationRequeueReason = 'stranded' | 'reconciled';
 
 export interface MetricsOptions {
-  /** CPU, memory, event-loop lag, ... Only worth collecting in a real process. */
+  /** CPU, memory, event-loop lag… only worth it in a real process. */
   collectProcessMetrics?: boolean;
 }
 
@@ -161,7 +155,7 @@ export function createMetrics(options: MetricsOptions = {}): Metrics {
       name: 'http_request_duration_seconds',
       help: 'HTTP request duration, by method, route template and status code.',
       labelNames: ['method', 'route', 'status_code'],
-      // From "served from memory" (5 ms) to "something is wrong" (5 s).
+      // From "served from memory" (5 ms) to "something's wrong" (5 s).
       buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
       registers: [registry],
     }),
@@ -171,9 +165,8 @@ export function createMetrics(options: MetricsOptions = {}): Metrics {
       labelNames: ['method', 'route', 'status_code'],
       registers: [registry],
     }),
-    // A gauge: a current value, refreshed from Redis each time /metrics is read. One metric
-    // with a `queue` label (not one metric per queue), so that resetting it removes every
-    // sample: prom-client reports a label-less gauge as 0 even after a reset.
+    // One gauge with a `queue` label, refreshed on each read: a reset then removes every sample
+    // (a label-less gauge would still report 0).
     queueDepth: new Gauge({
       name: 'queue_depth',
       help: 'Items waiting per Redis queue (telemetry_buffer, telemetry_dlq, notifications_*).',

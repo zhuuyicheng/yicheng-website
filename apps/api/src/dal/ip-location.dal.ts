@@ -1,35 +1,30 @@
 import type { AsnResponse, CityResponse, Reader } from 'maxmind';
 import type { Network } from '../schema/analytics-event.schema.js';
 
-/**
- * The two local GeoIP database files, opened at startup by `infra/ip-databases.ts`. Either can
- * be `null` (not configured), which only means its fields stay null.
- */
+/** The two GeoIP files (infra/ip-databases.ts). `null` = not configured: those fields stay null. */
 export interface IpDatabases {
-  /** IP → autonomous system: the organisation that owns the network (an ISP or a company). */
+  /** IP → the organisation owning the network (an ISP or a company). */
   asn: Reader<AsnResponse> | null;
-  /** IP → country and city. A country-only database also works (city then stays null). */
+  /** IP → country and city (a country-only file works too). */
   location: Reader<CityResponse> | null;
 }
 
 export const NO_IP_DATABASES: IpDatabases = { asn: null, location: null };
 
 /**
- * Data access for the local GeoIP files (MaxMind DB format, `.mmdb`): IP address → network
- * owner and location. See DESIGN.md §8.2. No network calls: the files are loaded into memory
- * and a lookup is a tree search taking microseconds, so it is safe on the ingestion path.
+ * IP → network owner and place, from the local GeoIP files (DESIGN.md §8.2). In memory, a
+ * lookup takes microseconds, so it's safe on the ingestion path.
  */
 export interface IpLocationDal {
-  /** Every field is null when unknown: private or loopback addresses, or no database. */
+  /** Fields are null when unknown: private addresses, or no database. */
   lookup: (ip: string) => Network;
 }
 
 export function createIpLocationDal(databases: IpDatabases): IpLocationDal {
   return {
     lookup(ip) {
-      // `get` returns null for addresses the database does not cover (10.x, 127.0.0.1, ...)
-      // and for strings that are not IP addresses. Record fields can be missing too: the
-      // library's types promise more than the free databases always contain.
+      // null for uncovered addresses (10.x, 127.0.0.1) and non-IPs. Fields can be missing too:
+      // the free databases don't always fill what the types promise.
       const asn = databases.asn?.get(ip) ?? null;
       const location = databases.location?.get(ip) ?? null;
       return {

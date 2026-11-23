@@ -16,7 +16,7 @@ function setup(answer: Response | Error | 'hang', timeoutMs = 5_000) {
     const body = typeof init.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined;
     requests.push({ url, body, method: init.method });
     if (answer === 'hang') {
-      // Never answers; only the abort signal (our timeout) ends it, like a dead server.
+      // Never answers; only our timeout ends it, like a dead server.
       return new Promise<Response>((_resolve, reject) => {
         const { signal } = init;
         signal?.addEventListener('abort', () => {

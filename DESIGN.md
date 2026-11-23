@@ -332,6 +332,7 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side, read at request time).                        |
 | `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API. Baked in at `next build`. Empty = same origin (§14.5).     |
 | `ADMIN_TOKEN`                       | 6     | unset                   | ≥ 32 chars. Owner area (§8.7): API bearer token and /admin password.      |
+| `API_REPLICA_URLS`                  | 6     | `API_BASE_URL`          | Comma-separated `http://` addresses: the dashboard asks each (§8.6).      |
 
 The web variables are read by Next.js from the environment or from `apps/web/.env*` files
 (not the root `.env`); the defaults suit local development. `ADMIN_TOKEN` is set in both apps
@@ -970,9 +971,8 @@ of request durations (Prometheus histograms are cumulative, not rolling). Reques
 `/health`, `/health/live` (the load balancer's check), `/metrics` and the owner endpoints are
 left out of it (Prometheus still counts them), or a dashboard polling every few seconds would
 mostly measure itself. `cache` counts content-cache lookups since the process started. Values
-are per API instance; `instance` (the container hostname) says which one answered, because
-with two replicas (§14.5) consecutive polls can reach different instances. The dashboard
-keeps each instance's latest numbers and combines them (§8.6).
+are per API instance; `instance` (the container hostname) says which one answered. With two
+replicas (§14.5) the dashboard asks each one directly and combines their numbers (§8.6).
 
 ### 7.8 Owner endpoints (Phase 6)
 
@@ -1370,20 +1370,29 @@ with the exact moment. The not-found and error pages have no content of their ow
 
 **Live system dashboard** (on `/admin`, §8.7; `components/status-dashboard.tsx`, logic in
 `lib/status.ts`). The browser polls `/admin/system-status` every 5 s (the API's own cache
-period), a web-server route that asks the API with the admin token; the result is validated
-with the shared schema. Polling pauses while the tab is hidden and resumes at once when it is
+period), a web-server route that asks every API replica with the admin token; each replica's
+report is validated with the shared schema. Polling pauses while the tab is hidden and resumes at once when it is
 shown. If the API stops answering, the last numbers stay on screen under a "lost contact"
 banner instead of disappearing. It shows a health banner (icon + words, never colour alone),
 stat tiles (uptime, requests, p50/p95, cache hit ratio, page views), two charts and
 dependencies and queue lengths (a non-empty dead-letter queue is flagged "needs attention").
-**Replicas combined**: each API replica reports only what it answered, and polls reach them in
-turn, so showing each answer as it came made every number flip between the two (a quiet
-site's request chart jumped 0, 1, 0, 1). The page keeps each replica's latest reading (by
-`instance`, forgotten after 30 s of silence) and shows requests and cache counts added up,
-uptime from the most recently started replica, and p50/p95 from the slower one: not the exact
-percentile of all requests, but a safe upper bound. The second poll comes 1 s after the first
-(on page load, and again on returning to a hidden tab), so both replicas are known from the
-start; the charts begin with it.
+**Replicas combined**: each API replica reports only what it answered, so the whole API's
+numbers need all of them. The web server's route asks each replica at its own address
+(`API_REPLICA_URLS`, `http://api-1:4000,http://api-2:4000` in production; unset, the one API
+of `API_BASE_URL`), in parallel with a 3 s limit each, and answers
+`{ data: { replicas: [{ name, status | null }] } }` (`getReplicaStatuses` in
+`lib/admin-api.ts`, schema in `lib/status.ts`: web-internal, not the API's contract). Through
+Caddy each poll would reach one replica: showing each answer as it came made every number
+flip between the two (a quiet site's request chart jumped 0, 1, 0, 1), and keeping each
+replica's last answer instead (forgetting one after 30 s without a turn) still made the
+total dip whenever the turns skipped a replica. The page shows requests and cache counts
+added up, uptime from the most recently started replica, and p50/p95 from the slower one: not
+the exact percentile of all requests, but a safe upper bound. Dependencies, queues and page
+views are shared, so they come from the first replica that answered. A replica that does not
+answer turns the banner amber ("api-2 is not answering (left out of the numbers)") and the
+totals cover the others: while one is down Caddy sends every visitor to the rest, so they hold
+nearly all recent requests. No replica answering is "lost contact". The web server logs
+nothing for a silent replica (it has no logger); the banner is the signal, while it lasts.
 The charts (p95 latency and request count, one measure each) cover the last 30 minutes the
 page was open, placed by time: a labelled tick every 5 minutes on the viewer's clock, a 2 px
 line that breaks where polling paused (a hidden tab), crosshair and tooltip on hover or touch.
@@ -1790,8 +1799,9 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
   `METRICS_TOKEN` set, `GEOIP_ASN_DB_PATH` / `GEOIP_LOCATION_DB_PATH` pointing into the image,
   `NOTIFIER_DRIVER=discord` with `DISCORD_WEBHOOK_URL`, `ADMIN_TOKEN` (the same value in the
   API and web containers, §8.7), and for the web container
-  `API_BASE_URL=http://caddy:8080` (Caddy's internal listener, §14.5), built with an empty
-  `NEXT_PUBLIC_API_BASE_URL` (§14.2).
+  `API_BASE_URL=http://caddy:8080` (Caddy's internal listener, §14.5) and
+  `API_REPLICA_URLS=http://api-1:4000,http://api-2:4000` (the dashboard, §8.6), built with an
+  empty `NEXT_PUBLIC_API_BASE_URL` (§14.2).
 - **Memory**: each API replica holds ~140 MB of GeoIP data (§8.2); the VM is sized for two
   replicas (§14.5), or the country-only file would halve that.
 
@@ -1925,7 +1935,8 @@ pages from inside the web container and expects the back-soon page at the public
 ```
 
 `API_BASE_URL` (the web server's calls) is `http://caddy:8080`, so those calls are balanced too
-without leaving the server or paying for TLS. The worker and web stay single instances.
+without leaving the server or paying for TLS. The one exception is the `/admin` dashboard's
+status poll, which must reach every replica, not one: it uses `API_REPLICA_URLS` (§8.6). The worker and web stay single instances.
 
 Two settings come from the failover test (`deploy/failover-test.sh`, which fails if a single
 request fails while one replica is stopped and while both are replaced in turn):
@@ -1947,8 +1958,8 @@ so `caddy reload` would silently reload old rules. With the folder, a change is 
 **The compose file** (`deploy/compose.prod.yml`, project `portfolio-prod`): only Caddy publishes
 ports (80, 443, 443/udp); Postgres and Redis are reachable only on the Compose network.
 Variables come from `deploy/.env` on the host (gitignored, template `deploy/.env.example`) and
-are passed per container (least privilege: the web server gets `API_BASE_URL` and
-`ADMIN_TOKEN` only); a missing required one stops Compose with its name (`${VAR:?…}`). The
+are passed per container (least privilege: the web server gets `API_BASE_URL`,
+`API_REPLICA_URLS` and `ADMIN_TOKEN` only); a missing required one stops Compose with its name (`${VAR:?…}`). The
 replicas' Docker health check is `GET /health` (readiness), so `up --wait` means "ready to
 serve"; the web's is a static file. `migrate`, `seed` and `replay-dlq` are services in the
 `tools` profile (`docker compose run --rm migrate`), so `up` never starts them. Every

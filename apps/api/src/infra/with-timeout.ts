@@ -5,10 +5,7 @@ export class TimeoutError extends Error {
   }
 }
 
-/**
- * Rejects with a TimeoutError if `operation` has not settled within `timeoutMs`.
- * The underlying operation is not cancelled; this only bounds how long the caller waits.
- */
+/** Rejects with a TimeoutError after `timeoutMs`. Stops waiting; doesn't cancel `operation`. */
 export async function withTimeout<T>(
   operation: Promise<T>,
   timeoutMs: number,

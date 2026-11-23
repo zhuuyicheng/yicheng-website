@@ -1,9 +1,6 @@
 import { z } from 'zod';
 
-/**
- * The two response shapes every `/api/v1` endpoint uses (DESIGN.md §7.1):
- *   `{ "data": … }` on success, `{ "error": { code, message, requestId, details? } }` otherwise.
- */
+/** Every `/api/v1` response is `{ data }` or `{ error: { code, message, requestId } }`. */
 
 /** Every error code the API can return, with its HTTP status in DESIGN.md §7.2. */
 export const ERROR_CODES = [

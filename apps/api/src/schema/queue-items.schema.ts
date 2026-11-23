@@ -1,10 +1,7 @@
 import { queueNameSchema } from '@portfolio/shared';
 import { z } from 'zod';
 
-/**
- * GET /api/v1/admin/queues/:queue (DESIGN.md §7.8). The response is the public contract (the
- * web app's /admin queue card parses it), so its schema lives in `@portfolio/shared`.
- */
+/** GET /api/v1/admin/queues/:queue (DESIGN.md §7.8); the response schema is shared. */
 export {
   queueItemsQuerySchema,
   type DeadLetter,
@@ -17,16 +14,13 @@ export {
 
 export const queueItemsParamsSchema = z.object({ queue: queueNameSchema });
 
-/**
- * A look into a queue without taking anything out (the DALs' `peek…` methods): how many
- * entries it holds, and up to the requested number of them, as stored.
- */
+/** A queue's count and up to `limit` entries as stored, taken out of nothing. */
 export interface QueuePeek<Entry = string> {
   total: number;
   entries: Entry[];
 }
 
-/** A retry waiting in `jobs:notifications:delayed`, with its score: when it is due (ms). */
+/** A delayed retry and its score: when it's due (ms). */
 export interface DelayedEntry {
   entry: string;
   dueAtMs: number;

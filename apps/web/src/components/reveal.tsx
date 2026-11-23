@@ -5,19 +5,14 @@ import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 interface RevealProps {
   children: ReactNode;
   className?: string;
-  /** Stagger siblings: each one starts a little later (ms). */
+  /** Stagger siblings: each starts a little later (ms). */
   delayMs?: number;
 }
 
 /**
- * Fades and slides its content in when it scrolls into view.
- *
- * Content is visible in the server-rendered HTML. Only after the page loads does this hide
- * what is still below the screen, then reveal it on arrival. So without JavaScript, for
- * search engines, or with "reduce motion" switched on, everything is simply there.
- *
- * It writes a `data-reveal` attribute instead of using React state: the animation is pure CSS
- * (globals.css), and scrolling never re-renders anything.
+ * Fades its content in when it scrolls into view. It's visible in the server HTML and only
+ * hidden after load, so without JavaScript or with reduced motion everything is just there.
+ * Uses a `data-reveal` attribute and CSS, so scrolling never re-renders.
  */
 export function Reveal({ children, className, delayMs = 0 }: RevealProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -28,7 +23,7 @@ export function Reveal({ children, className, delayMs = 0 }: RevealProps) {
       return undefined;
     }
     if (element.getBoundingClientRect().top < window.innerHeight * 0.9) {
-      return undefined; // already on screen at load: leave it alone, no flash
+      return undefined; // already on screen: leave it, no flash
     }
 
     element.dataset.reveal = 'hidden';

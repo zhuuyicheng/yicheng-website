@@ -494,8 +494,8 @@ The system dashboard is at the bottom of the page, under the visitor summary.
 1. **It polls.** The Network tab shows `GET /admin/system-status` every 5 s: a route on the
    web server, which asks the API with the token (the browser never sees it). "updated N s
    ago" counts up between polls. The charts cover the last 30 minutes, with a time label
-   every 5 minutes; the line starts after the second sample; hover (or touch) a chart for the
-   exact value at that moment.
+   every 5 minutes; hover (or touch) a chart for the exact value at that moment. In the
+   Response tab, `replicas` lists each API replica's own report (one locally).
 2. **Make traffic.** Reload the home page a few times in another tab: "requests · 5 min" and
    the requests chart rise, the cache hit ratio climbs (the first load was a miss), and
    "page views · 24 h" goes up once the worker has flushed your page views.
@@ -535,11 +535,12 @@ What to watch:
 1. **Two replicas, one Redis.** Run `MONITOR`, then load https://localhost twice. The content
    reads (`GET cache:v3:profile`…) arrive from two different client addresses: api-1 and
    api-2 share one cache, so a hit on one is a hit on both (DESIGN.md §14.5).
-2. **The round robin.** On https://localhost/admin, the line at the bottom of the system status
-   names `api-1, api-2`: polls reach the two in turn, and the page adds up their requests and
-   cache counts (DESIGN.md §8.6).
-3. **A replica stops.** `$C stop api-1`, keep reloading the site: nothing fails, and 30 s later
-   the bottom line names only `api-2`. `$C up -d --wait api-1` brings it back.
+2. **Both replicas, every poll.** On https://localhost/admin, the line at the bottom of the
+   system status names `api-1, api-2`: each poll asks both directly (not through Caddy's round
+   robin) and the page adds up their requests and cache counts (DESIGN.md §8.6).
+3. **A replica stops.** `$C stop api-1`, keep reloading the site: nothing fails, and within 5 s
+   the banner turns amber ("api-1 is not answering (left out of the numbers)") and the bottom
+   line names only `api-2`. `$C up -d --wait api-1` brings it back.
 4. **Caddy's view.** `$C exec caddy wget -qO- http://127.0.0.1:2019/reverse_proxy/upstreams`
    lists each replica with the requests it is handling right now.
 

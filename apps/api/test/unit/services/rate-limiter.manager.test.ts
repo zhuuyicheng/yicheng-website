@@ -10,7 +10,7 @@ const log = pino({ level: 'silent' });
 const NOW_MS = 1_763_456_000_000;
 const OUTAGE = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
 
-/** A rate limiter whose Redis DAL answers with `result` (or fails), recording every call. */
+/** A limiter whose DAL answers `result` (or fails), recording every call. */
 function setup(result: SlidingWindowResult | Error) {
   const calls: { key: string; request: SlidingWindowRequest }[] = [];
   const metrics = createMetrics();
@@ -73,7 +73,7 @@ describe('RateLimiterManager.consume', () => {
 
     const outcome = await limiter.consume('203.0.113.7', log);
 
-    // 1.001 s rounded down would tell the client to come back a millisecond too early.
+    // Rounded down, 1.001 s would send the client back a millisecond too early.
     expect(outcome).toEqual({
       allowed: false,
       limit: 3,

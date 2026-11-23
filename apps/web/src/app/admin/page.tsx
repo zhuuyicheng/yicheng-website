@@ -27,15 +27,14 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-/** Written out instead of Next's generated `PageProps` (see app/[slug]/page.tsx). */
+/** Not Next's generated `PageProps` (see app/[slug]/page.tsx). */
 interface AdminPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 /**
- * The owner's private dashboard (DESIGN.md §8.7): who visited and how they found the site,
- * then the live system status. proxy.ts asks for the password; this page checks it again, so
- * it never renders for anyone else even if the proxy's matcher missed it.
+ * The owner's dashboard (DESIGN.md §8.7): visitors, then live system status. proxy.ts asks for
+ * the password; this page checks it again in case the proxy's matcher missed it.
  */
 export default async function AdminPage(props: AdminPageProps) {
   const owner = await checkOwner((await headers()).get('authorization'), adminToken());
@@ -215,7 +214,7 @@ export default async function AdminPage(props: AdminPageProps) {
   );
 }
 
-/** The fine print behind Visits, Page views, Link clicks and the daily chart (DESIGN.md §8.7). */
+/** The fine print behind the visitor numbers (DESIGN.md §8.7). */
 function VisitorCountingExplainer() {
   return (
     <Explainer summary="How visits, page views and clicks are counted">
@@ -258,7 +257,7 @@ function Section({
   children,
 }: {
   title: string;
-  /** One line under the title saying what the section's numbers are. */
+  /** One line under the title saying what the numbers are. */
   note?: string;
   children: ReactNode;
 }) {

@@ -7,7 +7,7 @@ export type { Pool as PostgresPool } from 'pg';
 export interface PostgresOptions {
   url: string;
   poolMax: number;
-  /** Shows up in pg_stat_activity, which makes it easy to tell connections apart. */
+  /** Shown in pg_stat_activity, to tell connections apart. */
   applicationName: string;
 }
 
@@ -25,8 +25,8 @@ export function createPostgresPool(
     statement_timeout: 10_000,
   });
 
-  // An idle client can lose its connection at any time (e.g. Postgres restarts).
-  // pg emits that as an 'error' event on the pool, which crashes the process if unhandled.
+  // An idle client can lose its connection (e.g. a Postgres restart); unhandled, pg's 'error'
+  // event would crash the process.
   pool.on('error', (err) => {
     logger.error({ err }, 'postgres idle client error');
     metrics.postgresPoolErrors.inc();

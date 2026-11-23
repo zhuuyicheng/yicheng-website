@@ -8,9 +8,8 @@ import { counterValue } from '../../helpers/metrics.js';
 const OUTAGE = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
 
 /**
- * Runs the real loop against a scripted `processNext`. When the script runs out, processNext
- * "waits for a job" like BLMOVE does, until interruptWait() makes it fail like a closed
- * connection would; `waiting` resolves at that point.
+ * The real loop against a scripted `processNext`. When the script runs out it "waits for a
+ * job" like BLMOVE, until interruptWait() fails it; `waiting` resolves then.
  */
 function setup() {
   const script: (ProcessOutcome | Error)[] = [];

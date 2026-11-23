@@ -1,18 +1,17 @@
-# Runs exactly what `npm run check` runs locally. Guide: docs/CI.md
+# What `npm run check` runs locally (docs/CI.md).
 name: CI
 
 on:
   pull_request: # every PR, whatever the target branch
-  # Every commit that lands on main: the deploy workflow (deploy.yml) runs this first and
-  # publishes only commits that pass (Phase 6c).
+  # deploy.yml runs this first on every commit to main and publishes only those that pass.
   workflow_call:
 
-# A new push to the same branch cancels the previous, now outdated, run.
+# A new push to the branch cancels the outdated run.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Least privilege: the job only needs to read the repository.
+# Least privilege: read the repository only.
 permissions:
   contents: read
 
@@ -21,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    # Disposable Postgres + Redis containers, the CI equivalent of docker-compose.yml.
+    # Throwaway Postgres + Redis, like docker-compose.yml.
     services:
       postgres:
         image: postgres:16-alpine
@@ -51,18 +50,17 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test # unit + integration (uses the service containers)
-      # The site's production build (Phase 5): catches what typecheck cannot, such as a page
-      # that would need the API while building. NEXT_TELEMETRY_DISABLED: no usage pings.
+      # Catches what typecheck can't, like a page needing the API at build time.
+      # NEXT_TELEMETRY_DISABLED: no usage pings.
       - run: npm run build -w @portfolio/web
         env:
           NEXT_TELEMETRY_DISABLED: '1'
 
-  # Phase 6a: build both Docker images for the production server's Arm CPU (DESIGN.md §14.2),
-  # so a broken Dockerfile fails the PR instead of the deploy. Nothing is pushed here: on main,
-  # deploy.yml's publish job pushes them once this whole workflow has passed (6c).
+  # Build both images for the server's Arm CPU (DESIGN.md §14.2), so a broken Dockerfile fails
+  # the PR, not the deploy. Nothing is pushed here: deploy.yml does that after CI passes.
   images:
     name: image (${{ matrix.image }})
-    # GitHub's Arm machines (free for public repositories): native arm64 builds, no emulation.
+    # GitHub's Arm runners: native arm64 builds, no emulation.
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     strategy:
@@ -73,7 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4 # BuildKit, which the cache below needs
-      # The API image downloads this month's GeoIP files; the month is part of the cache key.
+      # The API image downloads this month's GeoIP files; the month is in the cache key.
       - id: month
         run: echo "value=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v7
@@ -82,9 +80,8 @@ jobs:
           file: apps/${{ matrix.image }}/Dockerfile
           platforms: linux/arm64
           push: false
-          # Only the API image has this argument (the web image would warn about an unused one).
+          # API only (the web image would warn about an unused argument).
           build-args: ${{ matrix.image == 'api' && format('GEOIP_MONTH={0}', steps.month.outputs.value) || '' }}
-          # Layers are kept in GitHub's Actions cache between runs (one scope per image);
-          # mode=max keeps the intermediate stages too (dependencies, GeoIP download).
+          # Layers cached in GitHub Actions per image; mode=max keeps intermediate stages too.
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}

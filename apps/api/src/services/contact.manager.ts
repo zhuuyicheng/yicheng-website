@@ -13,8 +13,8 @@ export interface ContactSender {
 }
 
 /**
- * The contact form (DESIGN.md §8.3): store the message, then queue a job that tells the site
- * owner about it. The worker sends the notification, so a slow webhook never slows the visitor.
+ * The contact form (DESIGN.md §8.3): store the message, then queue the notification. The
+ * worker sends it, so a slow webhook never slows the visitor.
  */
 export interface ContactManager {
   submit: (request: ContactRequest, sender: ContactSender, log: Logger) => Promise<ContactAccepted>;
@@ -25,7 +25,7 @@ export interface ContactManagerDependencies {
   notificationQueueDal: Pick<NotificationQueueDal, 'enqueue'>;
   hashIp: IpHasher;
   metrics: Metrics;
-  /** Injectable for tests. */
+  /** For tests. */
   now?: () => Date;
   newJobId?: () => string;
 }
@@ -36,13 +36,11 @@ export function createContactManager(deps: ContactManagerDependencies): ContactM
 
   return {
     async submit(request, sender, log) {
-      // 1. Postgres first: once this succeeds, the message is safe, whatever happens next.
-      //    If Postgres is down this throws, and the error handler answers 503.
+      // 1. Postgres first: once stored, the message is safe. If Postgres is down, this is a 503.
       const stored = await contactMessageDal.insert({ ...request, ipHash: hashIp(sender.ip) });
 
-      // 2. Then the job. Two datastores cannot be written atomically, so a failure here is
-      //    expected now and then. The visitor still gets 202 (their message IS saved), and the
-      //    reconciler in the worker queues every message left PENDING for too long.
+      // 2. The job. Two datastores can't be written atomically, so this may fail now and then: the
+      //    visitor still gets 202, and the reconciler queues messages left PENDING too long.
       const job: NotificationJob = {
         jobId: newJobId(),
         messageId: stored.id,

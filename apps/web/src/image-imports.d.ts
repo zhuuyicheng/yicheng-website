@@ -1,5 +1,2 @@
-// Types for imported images (`import photo from './photo.jpg'` is a StaticImageData).
-// Next.js references them from next-env.d.ts too, but that file is generated and gitignored:
-// on a fresh checkout (CI) it does not exist until `next typegen` or `next build` runs, and
-// lint runs before either, so every photo import would be an unknown, "error" type.
+// Types for image imports. next-env.d.ts has them too, but it's generated, and CI lints first.
 /// <reference types="next/image-types/global" />

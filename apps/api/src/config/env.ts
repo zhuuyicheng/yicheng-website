@@ -8,29 +8,29 @@ export type NodeEnv = 'development' | 'test' | 'production';
 /** Where the worker sends "you have a new contact message" notifications. */
 export type NotifierConfig = { driver: 'log' } | { driver: 'discord'; webhookUrl: string };
 
-/** Typed, structured configuration consumed by the rest of the application. */
+/** Typed configuration for the rest of the app. */
 export interface AppConfig {
   nodeEnv: NodeEnv;
-  /** `trustProxy`: honour X-Forwarded-For, so `request.ip` is the visitor behind a proxy. */
+  /** `trustProxy`: take the visitor's IP from X-Forwarded-For. */
   server: { host: string; port: number; trustProxy: boolean };
   log: { level: LogLevel; pretty: boolean };
   postgres: { url: string; poolMax: number };
   redis: { url: string };
   cache: { ttlSeconds: number };
   telemetry: { bufferMaxLength: number; batchSize: number; flushIntervalMs: number };
-  /** GeoIP database files; `null` = that lookup is disabled (its fields stay null). */
+  /** GeoIP database files; `null` turns that lookup off. */
   ipLookup: { asnDbPath: string | null; locationDbPath: string | null };
-  /** Key for HMAC-hashing IPs (rate-limit keys, `contact_messages.ip_hash`). */
+  /** HMAC key for hashing IPs (rate-limit keys, `contact_messages.ip_hash`). */
   ipHash: { secret: string };
-  /** POST /api/v1/contact accepts `rateLimitMax` messages per sender per window. */
+  /** At most `rateLimitMax` contact messages per sender per window. */
   contact: { rateLimitMax: number; rateLimitWindowSeconds: number };
-  /** Worker: how to notify, and how hard to try. `maxAttempts` includes the first attempt. */
+  /** `maxAttempts` includes the first attempt. */
   notifications: { notifier: NotifierConfig; maxAttempts: number; backoffBaseMs: number };
-  /** Browser origins allowed to call the API (the web app), e.g. `https://example.com`. */
+  /** Browser origins allowed to call the API, e.g. `https://example.com`. */
   cors: { origins: string[] };
-  /** `token`: if set, GET /metrics requires `Authorization: Bearer <token>`. */
+  /** If set, GET /metrics needs `Authorization: Bearer <token>`. */
   metrics: { token: string | null };
-  /** `token`: required by /api/v1/admin/*; `null` = the owner's endpoints are not registered. */
+  /** Required by /api/v1/admin/*; `null` = those endpoints don't exist. */
   admin: { token: string | null };
   shutdown: { timeoutMs: number };
 }
@@ -62,25 +62,25 @@ const envSchema = z.object({
   REDIS_URL: requiredUrl(/^rediss?$/, 'redis://'),
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(10_000),
   CACHE_TTL_SECONDS: z.coerce.number().int().min(1).max(86_400).default(300),
-  // Only "true"/"false" (and 1/0, yes/no, on/off): a typo must fail, not silently mean false.
+  // Strict on purpose: a typo must fail, not quietly mean false.
   TRUST_PROXY: z.stringbool().default(false),
   TELEMETRY_BUFFER_MAX_LENGTH: z.coerce.number().int().min(1).max(10_000_000).default(100_000),
   TELEMETRY_BATCH_SIZE: z.coerce.number().int().min(1).max(1_000).default(50),
   TELEMETRY_FLUSH_INTERVAL_MS: z.coerce.number().int().min(100).max(300_000).default(5_000),
   GEOIP_ASN_DB_PATH: z.string().optional(),
   GEOIP_LOCATION_DB_PATH: z.string().optional(),
-  // A secret, so it has no default: every environment must choose its own.
+  // A secret, so no default: every environment picks its own.
   IP_HASH_SECRET: z
     .string({ error: 'is required' })
     .min(32, 'must be at least 32 characters (try: openssl rand -hex 32)'),
   CONTACT_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1_000).default(3),
   CONTACT_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().min(1).max(86_400).default(600),
   NOTIFIER_DRIVER: z.enum(['log', 'discord']).default('log'),
-  // A secret too: the URL contains the token that lets anyone post to your channel.
+  // A secret: the URL holds the token that lets anyone post to the channel.
   DISCORD_WEBHOOK_URL: z.url({ protocol: /^https$/, error: 'must be an https:// URL' }).optional(),
   NOTIFY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
   NOTIFY_BACKOFF_BASE_MS: z.coerce.number().int().min(10).max(60_000).default(5_000),
-  // Comma-separated. A browser sends its origin exactly like this: scheme, host, port; no path.
+  // Comma-separated origins: scheme, host, port; no path.
   CORS_ORIGINS: z
     .string()
     .default('http://localhost:3000')
@@ -89,8 +89,7 @@ const envSchema = z.object({
       message: 'must be comma-separated origins such as https://example.com (no path, no "/")',
     }),
   METRICS_TOKEN: z.string().min(16, 'must be at least 16 characters').optional(),
-  // A secret: the owner's password for the web app's /admin page, and the bearer token the
-  // web server sends to /api/v1/admin/*. Unset = those endpoints do not exist.
+  // A secret: the /admin password and the web server's bearer token for /api/v1/admin/*.
   ADMIN_TOKEN: z
     .string()
     .min(32, 'must be at least 32 characters (try: openssl rand -hex 32)')
@@ -108,10 +107,7 @@ export class ConfigError extends Error {
   }
 }
 
-/**
- * Validates environment variables and returns typed config.
- * Throws a ConfigError listing every problem at once (names and reasons, never values).
- */
+/** Validates the environment. Throws a ConfigError listing every problem (never values). */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const values = withoutEmptyValues(env);
   const result = envSchema.safeParse(values);
@@ -119,8 +115,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ? []
     : result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
 
-  // Rules that involve two variables. Checked here rather than with a Zod refinement, which
-  // only runs once every field is valid: this way all problems are still reported at once.
+  // Two-variable rules, checked here because a Zod refinement only runs once every field is
+  // valid, and all problems should be reported at once.
   if (values.NOTIFIER_DRIVER === 'discord' && values.DISCORD_WEBHOOK_URL === undefined) {
     problems.push('DISCORD_WEBHOOK_URL: is required when NOTIFIER_DRIVER=discord');
   }
@@ -152,7 +148,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       rateLimitWindowSeconds: vars.CONTACT_RATE_LIMIT_WINDOW_SECONDS,
     },
     notifications: {
-      // The URL is always set for discord (checked above); the `!==` just tells TypeScript.
+      // Always set for discord (checked above); the check is for TypeScript.
       notifier:
         vars.NOTIFIER_DRIVER === 'discord' && vars.DISCORD_WEBHOOK_URL !== undefined
           ? { driver: 'discord', webhookUrl: vars.DISCORD_WEBHOOK_URL }
@@ -167,10 +163,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   };
 }
 
-/**
- * For process entrypoints: load config, or print the problems and exit with code 1.
- * Runs before a logger exists, so it writes straight to stderr.
- */
+/** For entrypoints: load config, or print the problems to stderr and exit 1 (no logger yet). */
 export function loadConfigOrExit(): AppConfig {
   try {
     return loadConfig();
@@ -183,10 +176,7 @@ export function loadConfigOrExit(): AppConfig {
   }
 }
 
-/**
- * Treats `FOO=` (empty or whitespace) as unset, so it falls back to the default or fails
- * as missing. Without this, `API_PORT=` would silently coerce to port 0.
- */
+/** `FOO=` counts as unset; otherwise `API_PORT=` would quietly become port 0. */
 function withoutEmptyValues(env: NodeJS.ProcessEnv): Record<string, string> {
   const entries = Object.entries(env).filter(
     (entry): entry is [string, string] => entry[1] !== undefined && entry[1].trim() !== '',

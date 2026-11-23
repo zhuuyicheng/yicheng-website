@@ -2,14 +2,8 @@ import { z } from 'zod';
 import { projectSlugSchema } from '@portfolio/shared';
 
 /**
- * Portfolio content: the profile (with experience and education) and projects. DESIGN.md §7.4.
- *
- * Two families of schemas:
- *   1. API shapes: what the endpoints return. They are the public contract, so they live in
- *      `@portfolio/shared` (re-exported here). Also used to validate entries read back from
- *      the Redis cache, so a corrupt or outdated entry is detected instead of served.
- *   2. The content file: what `content/portfolio.json` must contain. Stricter, because it
- *      is hand-edited and is the only way content gets into the database. API-only.
+ * Portfolio content (DESIGN.md §7.4): the API shapes (shared; also check cache entries) and
+ * the stricter, API-only shape of the hand-edited content/portfolio.json.
  */
 
 export {
@@ -32,9 +26,7 @@ export {
 
 export const projectParamsSchema = z.object({ slug: projectSlugSchema });
 
-// ---------------------------------------------------------------------------------------------
-// 2. Content file (content/portfolio.json)
-// ---------------------------------------------------------------------------------------------
+// Content file (content/portfolio.json)
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const webUrl = z.url({ protocol: /^https?$/ });
@@ -42,7 +34,7 @@ const isoDate = z.iso.date(); // YYYY-MM-DD
 
 const contentLinkSchema = z.object({ label: text(50), url: webUrl });
 
-/** Shared rule for anything with a date range (mirrors the SQL `*_dates_ordered` CHECKs). */
+/** For anything with a date range (mirrors the SQL `*_dates_ordered` CHECKs). */
 const datesInOrder = {
   check: (entry: { startDate: string; endDate: string | null }) =>
     entry.endDate === null || entry.endDate >= entry.startDate,
@@ -77,7 +69,7 @@ const contentEducationSchema = z
   })
   .refine(datesInOrder.check, datesInOrder.params);
 
-/** A project page section needs something under its heading: a paragraph, points, or both. */
+/** A section needs something under its heading: a paragraph, points, or both. */
 const contentProjectSectionSchema = z
   .object({
     heading: text(120),
@@ -89,10 +81,7 @@ const contentProjectSectionSchema = z
     path: ['points'],
   });
 
-/**
- * Projects live at `/<slug>` on the website, beside its own pages, so a slug must not take one
- * of their addresses (`/projects` and `/privacy` redirect old links, `/admin` is the owner's).
- */
+/** Projects live at `/<slug>`, so a slug can't take one of the site's own addresses. */
 export const RESERVED_PROJECT_SLUGS = ['admin', 'projects', 'privacy'] as const;
 
 const contentProjectSchema = z.object({
@@ -112,7 +101,7 @@ const contentProjectSchema = z.object({
 
 export const portfolioContentSchema = z.object({
   profile: contentProfileSchema,
-  // Array order is display order: it becomes `sort_order` in the database.
+  // Array order is display order (`sort_order`).
   experiences: z.array(contentExperienceSchema),
   education: z.array(contentEducationSchema).default([]),
   projects: z.array(contentProjectSchema).superRefine((projects, context) => {

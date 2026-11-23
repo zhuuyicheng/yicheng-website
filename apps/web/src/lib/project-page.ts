@@ -1,9 +1,6 @@
 import type { ProjectSummary } from '@portfolio/shared';
 
-/**
- * URL-safe ids for a project page's section headings (`#how-it-works`), so the contents list
- * can link to them. Repeated headings get a number (`tools`, `tools-2`), so every id is unique.
- */
+/** URL-safe, unique ids for section headings (`#how-it-works`, `tools`, `tools-2`). */
 export function sectionAnchors(headings: readonly string[]): string[] {
   const used = new Map<string, number>();
   return headings.map((heading) => {
@@ -18,10 +15,7 @@ export function sectionAnchors(headings: readonly string[]): string[] {
   });
 }
 
-/**
- * The project after `slug` in display order. `null` after the last one (the list ends there:
- * only "Back to projects" is offered, not a jump back to the first) or for an unknown slug.
- */
+/** The project after `slug`; `null` after the last (the list ends) or for an unknown slug. */
 export function nextProject(
   projects: readonly ProjectSummary[],
   slug: string,

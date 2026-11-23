@@ -1,16 +1,9 @@
 import type { ClientContext, Result } from 'ioredis';
 
 /**
- * "Take the next batch off the buffer, but keep a copy until it is safely in Postgres", as ONE
- * atomic step. See DESIGN.md §6.5.
- *
- * The batch moves from `telemetry:events:buffer` to `telemetry:events:inflight`. Only after
- * the Postgres insert commits does the flusher delete the in-flight list (the acknowledgement).
- * If the worker crashes or the insert fails in between, the batch is still in the in-flight
- * list, and the next claim returns it again instead of a new one: nothing is lost.
- *
- * Why a script: as separate commands, a crash between "remove from buffer" and "add to
- * in-flight" would lose the batch. Redis runs a script without interleaving other commands.
+ * Moves the next batch from the buffer to the in-flight list in one atomic step (DESIGN.md
+ * §6.5). The flusher deletes it only once Postgres has it; until then each claim returns the
+ * same batch, so a crash loses nothing.
  */
 export const CLAIM_BATCH_SCRIPT = {
   name: 'telemetryClaimBatch',
@@ -31,10 +24,10 @@ return batch
 `,
 } as const;
 
-// Tells TypeScript about the command that `defineCommand` adds to the client at runtime.
+// Declares the command `defineCommand` adds at runtime.
 declare module 'ioredis' {
   interface RedisCommander<Context extends ClientContext = { type: 'default' }> {
-    /** The in-flight batch if one exists, else up to `batchSize` events from the buffer. */
+    /** The in-flight batch if any, else up to `batchSize` events from the buffer. */
     telemetryClaimBatch(
       bufferKey: string,
       inflightKey: string,

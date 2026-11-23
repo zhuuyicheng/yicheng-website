@@ -4,35 +4,34 @@ import { BOUNDED_ENQUEUE_SCRIPT } from './lua/bounded-enqueue.lua.js';
 import { CLAIM_BATCH_SCRIPT } from './lua/claim-batch.lua.js';
 import { execOrThrow, stringList } from './redis-exec.js';
 
-/** Redis keys of the telemetry pipeline (DESIGN.md §6.2). Data, not cache: none has a TTL. */
+/** Telemetry keys (DESIGN.md §6.2). Data, not cache: no TTLs. */
 export const TELEMETRY_BUFFER_KEYS = {
-  /** LIST of event JSON: the API appends on the right, the flusher claims from the left. */
+  /** LIST of event JSON: the API appends right, the flusher takes left. */
   buffer: 'telemetry:events:buffer',
-  /** LIST: the batch the flusher is working on, until Postgres has it. */
+  /** LIST: the flusher's batch, until Postgres has it. */
   inflight: 'telemetry:events:inflight',
   /** LIST of dead-letter JSON: events that can never be inserted as they are. */
   deadLetter: 'telemetry:events:dlq',
 } as const;
 
 /**
- * Redis DAL for the telemetry buffer: the lists between the API (producer) and the worker's
- * flusher (consumer). Every event id is unique and Postgres skips ids it already has, so the
- * consumer side may safely process an event twice ("at least once"), never zero times.
+ * Redis DAL for the telemetry buffer between the API and the flusher. Event ids are unique and
+ * Postgres skips known ones, so an event may be processed twice, never zero times.
  */
 export interface EventBufferDal {
-  /** API: appends one event unless the buffer already holds `maxLength`. `false` = full. */
+  /** API: appends unless the buffer holds `maxLength`; `false` = full. */
   enqueue: (eventJson: string, maxLength: number) => Promise<boolean>;
-  /** Flusher: the unacknowledged in-flight batch if any, else up to `batchSize` new events. */
+  /** Flusher: the unacknowledged batch if any, else up to `batchSize` new events. */
   claimBatch: (batchSize: number) => Promise<string[]>;
   /** Flusher: the batch is in Postgres; store its dead letters and release it. */
   acknowledge: (deadLetters: readonly string[]) => Promise<void>;
-  /** `npm run dlq:replay`: every dead-letter entry, oldest first. */
+  /** `dlq:replay`: every dead letter, oldest first. */
   listDeadLetters: () => Promise<string[]>;
-  /** `npm run dlq:replay`: puts `payload` back in the buffer and removes its DLQ `entry`. */
+  /** `dlq:replay`: puts `payload` back in the buffer and removes its DLQ `entry`. */
   replayDeadLetter: (entry: string, payload: string) => Promise<void>;
-  /** Owner's queue card: how many events wait, and the newest `limit`, newest first. */
+  /** Queue card: the count, and the newest `limit` first. */
   peekBuffer: (limit: number) => Promise<QueuePeek>;
-  /** Owner's queue card: how many dead letters there are, and the newest `limit`, newest first. */
+  /** Queue card: the count, and the newest `limit` first. */
   peekDeadLetters: (limit: number) => Promise<QueuePeek>;
 }
 
@@ -41,9 +40,9 @@ export function createEventBufferDal(redis: Redis): EventBufferDal {
     redis.defineCommand(script.name, { numberOfKeys: script.numberOfKeys, lua: script.lua });
   }
 
-  /** Reads without removing anything. Both lists grow on the right, so the newest are last. */
+  /** Removes nothing. Both lists grow on the right, so the newest are last. */
   async function peekNewest(key: string, limit: number): Promise<QueuePeek> {
-    // MULTI: the count and the entries describe the same moment.
+    // MULTI, so the count and the entries are from the same moment.
     const [total, newestLast] = await execOrThrow(redis.multi().llen(key).lrange(key, -limit, -1));
     return { total: Number(total), entries: stringList(newestLast).reverse() };
   }
@@ -67,9 +66,8 @@ export function createEventBufferDal(redis: Redis): EventBufferDal {
     },
 
     async acknowledge(deadLetters) {
-      // Order matters: dead letters are saved before the batch is released. If the worker
-      // crashes in between, the batch is claimed again: its good events are re-inserted as
-      // no-ops, and its bad ones are dead-lettered a second time. A duplicate, never a loss.
+      // Dead letters are saved before the batch is released: a crash in between means the batch is
+      // claimed again and processed twice. A duplicate, never a loss.
       if (deadLetters.length > 0) {
         await redis.rpush(TELEMETRY_BUFFER_KEYS.deadLetter, ...deadLetters);
       }
@@ -81,8 +79,7 @@ export function createEventBufferDal(redis: Redis): EventBufferDal {
     },
 
     async replayDeadLetter(entry, payload) {
-      // Push first, then remove: a crash in between leaves a duplicate, which is harmless
-      // because the insert skips ids it already has.
+      // Push, then remove: a crash in between leaves a harmless duplicate (known ids are skipped).
       await redis.rpush(TELEMETRY_BUFFER_KEYS.buffer, payload);
       await redis.lrem(TELEMETRY_BUFFER_KEYS.deadLetter, 1, entry);
     },

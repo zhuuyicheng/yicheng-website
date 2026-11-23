@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# Copies new backups from the server to this computer (DESIGN.md §14.6). Run it on your
-# desktop, in WSL, whenever you want a fresh copy there. Guide: docs/BACKUPS.md §3.4
+# Copies new backups from the server to this computer (DESIGN.md §14.6, docs/BACKUPS.md §3.4).
+# Run it on the desktop, in WSL.
 #
 #   bash deploy/pull-backups.sh
 #
-#   SOURCE  where to copy from. Default `portfolio-backups:`, an SSH alias whose key the server
-#           allows to do one thing only: read the backups folder (docs/BACKUPS.md §3).
-#   DEST    where to keep them. Default ~/portfolio-backups (a link to a Windows folder, §3).
+#   SOURCE  default `portfolio-backups:`, an SSH alias whose key may only read the backups
+#   DEST    default ~/portfolio-backups (a link to a Windows folder)
 #
-# Copies are never overwritten or deleted here: a backup the server deletes (it keeps 4) or a
-# server that misbehaves cannot touch what this computer already has. Exit codes: 0 fine,
-# 1 the copy failed, 2 a checksum did not match, 3 the newest backup is more than 8 days old.
+# Never overwrites or deletes a copy, so the server can't touch what's already here.
+# Exit codes: 0 fine, 1 copy failed, 2 checksum mismatch, 3 newest backup over 8 days old.
 set -Eeuo pipefail
 umask 077
 
@@ -19,7 +17,7 @@ DEST="${DEST:-$HOME/portfolio-backups}"
 MAX_AGE_DAYS="${MAX_AGE_DAYS:-8}"
 
 mkdir -p "$DEST"
-# Everything below is shown and also appended to pull.log, to read later.
+# Shown, and appended to pull.log.
 exec > >(tee -a "$DEST/pull.log") 2>&1
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 trap 'log "FAILED: the copy did not finish (exit code $?)"' ERR
@@ -36,8 +34,8 @@ if ! (cd "$DEST" && sha256sum --check --quiet portfolio-*.dump.sha256); then
   exit 2
 fi
 
-# -H: DEST is usually a link to a Windows folder (docs/BACKUPS.md §3.2), and find does not look
-# inside a link it is given unless told to: it would find no backups at all.
+# -H: DEST is usually a link (to a Windows folder), and find doesn't look inside a link it's
+# given unless told to.
 newest="$(find -H "$DEST" -maxdepth 1 -name 'portfolio-*.dump' | sort | tail -n 1)"
 if [ -z "$newest" ] || [ -z "$(find "$newest" -mtime -"$MAX_AGE_DAYS")" ]; then
   log "PROBLEM: no backup newer than $MAX_AGE_DAYS days. Is the server's weekly job running?"

@@ -1,13 +1,11 @@
 import { z } from 'zod';
 
 /**
- * The owner's visitor summary: GET /api/v1/admin/visitors (DESIGN.md §7.8). Private: only the
- * site's owner sees it, on the password-protected /admin page. A "visit" is one browser tab's
- * session (`sessionId`); its referrer, tagged-link fields, place and device are the first
- * known values in that session.
+ * GET /api/v1/admin/visitors (DESIGN.md §7.8). A visit is one browser tab's session; its
+ * referrer, tags, place and device are the first values seen in it.
  */
 
-/** How many days back to summarise (today, in UTC, counts as the first). */
+/** Days back to summarise; today (UTC) is the first. */
 export const visitorSummaryQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).default(7),
 });
@@ -22,7 +20,7 @@ export const visitSchema = z.object({
   clicks: count,
   /** Pages in the order viewed (at most 20). */
   paths: z.array(z.string()),
-  /** The site the visitor came from (host only); `null` = typed in, bookmark or app. */
+  /** Referring site (host only); `null` = typed in, bookmark or app. */
   referrer: text,
   ref: text,
   utmSource: text,
@@ -34,7 +32,7 @@ export const visitSchema = z.object({
   deviceType: text,
   browser: text,
   os: text,
-  /** The visitor's IP address (the first one seen in the visit), or null for older events. */
+  /** The first IP address seen in the visit; null for older events. */
   ipAddress: text,
 });
 

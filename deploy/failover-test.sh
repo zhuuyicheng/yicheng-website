@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# Proves the load balancing (DESIGN.md §14.5): requests through Caddy keep succeeding while
-#   1. api-1 is stopped (as in a crash, or a deploy taking it down), then started again, and
-#   2. each replica is replaced in turn by a new container (a rolling update, as the deploy
-#      will do).
-# Exits 1 if a single request failed. Guide: docs/PRODUCTION-STACK.md §6.
+# Proves the load balancing (DESIGN.md §14.5, docs/PRODUCTION-STACK.md §6): requests through
+# Caddy keep succeeding while api-1 is stopped and started, and while each replica is replaced
+# in turn. Exits 1 if a single request failed.
 #
 #   npm run stack:failover                                             (laptop, stack running)
 #   URL=https://<host>/api/v1/projects bash deploy/failover-test.sh    (on the server)
@@ -16,9 +14,8 @@ case "$URL" in https://localhost*) INSECURE=(--insecure) ;; esac # Caddy's local
 compose() { docker compose -f "$(dirname "$0")/compose.prod.yml" "$@"; }
 step() { printf '\n▶ %s\n' "$1"; }
 
-# Start (or replace) one replica and wait until Caddy uses it. Docker's "healthy" is not enough:
-# Caddy checks each replica every 5 s, and until its next check it still treats the replica
-# as down. Taking the other replica down in that gap would leave Caddy with none.
+# Start (or replace) a replica and wait until Caddy uses it: Caddy sees it only at its next
+# 5 s check, and taking the other down before that would leave none.
 start_replica() {
   compose up -d --no-deps --wait "$@"
   echo "  healthy; waiting 6 s for Caddy's next health check to see it"
@@ -29,8 +26,7 @@ results="$(mktemp)"
 stop_file="$(mktemp -u)"
 trap 'touch "$stop_file"; rm -f "$results"' EXIT
 
-# In the background: one request every 50 ms, writing its status code (000 = no answer) and
-# how long it took.
+# In the background: a request every 50 ms, logging its status (000 = no answer) and time.
 (
   while [ ! -e "$stop_file" ]; do
     curl --silent "${INSECURE[@]}" --output /dev/null --max-time 10 \

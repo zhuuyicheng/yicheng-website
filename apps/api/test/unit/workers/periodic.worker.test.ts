@@ -7,10 +7,7 @@ import { counterValue } from '../../helpers/metrics.js';
 const INTERVAL_MS = 1_000;
 const OUTAGE = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
 
-/**
- * Runs the real loop with a scripted task and a fake `sleep` that records every wait. While
- * the script has entries, sleeps return at once; then the next sleep blocks until stop().
- */
+/** The real loop, a scripted task and a recording `sleep` that blocks once the script is done. */
 function setup(runImmediately: boolean) {
   const script: (Error | null)[] = []; // null = the task succeeds
   const sleeps: number[] = [];

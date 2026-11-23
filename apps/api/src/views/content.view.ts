@@ -7,8 +7,8 @@ import type {
 } from '../schema/content.schema.js';
 import type { DataResponseBody } from './data.view.js';
 
-// Fields are copied one by one on purpose: a property added to a model (or present in an old
-// cache entry) only reaches clients once it is added here.
+// Copied field by field on purpose: a new model property (or an old cache entry's extra one)
+// only reaches clients once it's added here.
 
 export function renderProfile(profile: Profile): DataResponseBody<Profile> {
   return {

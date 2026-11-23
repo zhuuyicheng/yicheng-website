@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Weekly database backup (DESIGN.md §14.6). Runs on the server from cron; also works on your
-# laptop against the local production stack. Guide: docs/BACKUPS.md
+# Weekly database backup (DESIGN.md §14.6, docs/BACKUPS.md), from cron on the server; also
+# works against the laptop's production stack.
 #
-#   1. pg_dump the database to $BACKUP_DIR/portfolio-<UTC time>.dump, plus a .sha256 checksum
-#   2. prove it restores: load it into a scratch database, count the rows, drop the scratch one
-#   3. keep the newest $KEEP backups, delete older ones (your desktop keeps its own copies)
-#   4. tell you on Discord, success or failure (when deploy/.env has NOTIFIER_DRIVER=discord)
+#   1. pg_dump to $BACKUP_DIR/portfolio-<UTC time>.dump, plus a .sha256 checksum
+#   2. prove it restores into a scratch database, count the rows, drop it
+#   3. keep the newest $KEEP backups
+#   4. report on Discord, success or failure (when NOTIFIER_DRIVER=discord)
 #
 #   bash deploy/backup.sh          defaults: BACKUP_DIR=~/backups/portfolio KEEP=4
 set -Eeuo pipefail
@@ -17,20 +17,16 @@ KEEP="${KEEP:-4}"
 CHECK_DB=portfolio_restore_check
 
 compose() { docker compose -f "$DEPLOY_DIR/compose.prod.yml" "$@"; }
-# Runs a shell command inside the Postgres container, where $POSTGRES_USER and $POSTGRES_DB
-# are set (single quotes in the callers keep the host's shell from expanding them).
-# PGOPTIONS hides Postgres's notices ("does not exist, skipping"); warnings and errors remain.
-# `docker compose exec` reads this script's input unless told otherwise, which would swallow
-# whatever the input holds (in restore.sh: your answer to its question). So only
-# `in_postgres_reading` passes it on, for pg_restore reading a backup file.
+# A command inside the Postgres container (single quotes keep $POSTGRES_* for its shell).
+# PGOPTIONS hides notices. `exec` would swallow this script's input, so only
+# `in_postgres_reading` passes it on (pg_restore reading a backup file).
 in_postgres() { in_postgres_reading "$1" </dev/null; }
 in_postgres_reading() { compose exec -T -e PGOPTIONS='-c client_min_messages=warning' postgres sh -c "$1"; }
-# Logs go to file descriptor 3, a copy of the script's own output made below. A failure while
-# pg_dump writes to the backup file runs on_failure with its output still going into that
-# file; writing to 3 keeps the "FAILED" line visible.
+# Logs go to fd 3, a copy of the script's output: a failure while pg_dump writes to the
+# backup file would otherwise send the "FAILED" line into that file.
 exec 3>&1
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&3; }
-# One value from deploy/.env. Read as data, not `source`d: the file is not a script.
+# One value from deploy/.env, read as data (not `source`d: it isn't a script).
 setting() { sed -n "s/^$1=//p" "$DEPLOY_DIR/.env" 2>/dev/null | tail -n 1; }
 
 notify() {
@@ -40,7 +36,7 @@ notify() {
     log "(not sent: Discord is not configured in deploy/.env) $message"
     return
   fi
-  # The message never contains quotes or backslashes, so it is valid JSON as it is.
+  # No quotes or backslashes in the message, so it's valid JSON as is.
   curl --silent --show-error --fail --max-time 10 -H 'content-type: application/json' \
     --data "{\"content\": \"$message\"}" "$webhook" >/dev/null ||
     log "could not send the Discord message: $message"
@@ -64,7 +60,7 @@ partial="$BACKUP_DIR/.$name.partial" # renamed only once complete and test-resto
 
 step="dumping the database"
 log "$step to $BACKUP_DIR/$name"
-# --format=custom: compressed, and pg_restore can restore all of it or single tables.
+# Custom format: compressed, and pg_restore can restore all or single tables.
 in_postgres 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' >"$partial"
 
 step="test-restoring the backup"
@@ -85,7 +81,7 @@ partial=""
 size="$(du -h "$BACKUP_DIR/$name" | cut -f1)"
 
 step="removing old backups"
-# File names sort by date, so all but the newest $KEEP are the oldest.
+# Names sort by date, so all but the newest $KEEP are the oldest.
 find "$BACKUP_DIR" -maxdepth 1 -name 'portfolio-*.dump' | sort | head -n -"$KEEP" |
   while read -r old; do
     rm -f "$old" "$old.sha256"

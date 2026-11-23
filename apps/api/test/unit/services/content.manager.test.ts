@@ -12,7 +12,7 @@ import { SAMPLE_CONTENT } from '../../helpers/sample-content.js';
 const log = pino({ level: 'silent' });
 const UPDATED_AT = '2026-11-21T09:30:00.000Z';
 
-/** An in-memory DAL that behaves like the SQL one for the given content. */
+/** An in-memory DAL that behaves like the SQL one. */
 function createFakeDal(): ContentDal & { content: PortfolioContent | null } {
   const fake = {
     content: null as PortfolioContent | null,
@@ -105,7 +105,7 @@ describe('ContentManager', () => {
 
   it('publish saves the content, replaces stale cache entries, and warms every key', async () => {
     const { manager, dal, cacheDal } = setup();
-    cacheDal.entries.set(CONTENT_CACHE_KEYS.projects, '[]'); // stale: published before the seed
+    cacheDal.entries.set(CONTENT_CACHE_KEYS.projects, '[]'); // stale: from before the seed
     cacheDal.entries.set(CONTENT_CACHE_KEYS.project('removed-project'), '{}');
 
     const summary = await manager.publish(SAMPLE_CONTENT, log);

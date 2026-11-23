@@ -111,8 +111,7 @@ describe('GET /health with an unreachable dependency', () => {
     }
   });
 
-  // The reason /health/live exists (DESIGN.md §14.5): a shared dependency failing must not make
-  // the load balancer drop every replica.
+  // Why /health/live exists (DESIGN.md §14.5): a shared outage mustn't drop every replica.
   it('GET /health/live still returns 200 with Postgres and Redis both unreachable', async () => {
     const deadRedis = createRedisClient(
       { url: UNREACHABLE_REDIS_URL, connectionName: 'dead-redis' },

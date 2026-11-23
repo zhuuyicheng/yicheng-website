@@ -3,15 +3,9 @@ import { AppError, ErrorCode } from '../errors/app-error.js';
 import type { RateLimiterManager } from '../services/rate-limiter.manager.js';
 
 /**
- * A route hook that rate-limits by client IP (DESIGN.md §6.4, §7.6). Attach it to a route
- * with `{ onRequest: rateLimit(limiter) }`.
- *
- * Why `onRequest`: it is the first hook Fastify runs, before the body is read and parsed.
- * A blocked client costs one Redis call and nothing else, and the request is counted before
- * validation, so a bot cannot probe the validator for free.
- *
- * The headers are set before anything can fail, so they are on every response from the route,
- * including a 400 from validation later on.
+ * Rate-limits by client IP (DESIGN.md §6.4): `{ onRequest: rateLimit(limiter) }`. onRequest
+ * runs before the body is parsed, so a blocked client costs one Redis call and can't probe the
+ * validator. Headers are set first, so even a later 400 carries them.
  */
 export function rateLimit(limiter: RateLimiterManager): onRequestAsyncHookHandler {
   return async (request, reply) => {

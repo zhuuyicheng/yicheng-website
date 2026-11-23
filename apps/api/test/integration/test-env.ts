@@ -1,7 +1,6 @@
 /**
- * Environment for integration tests. They run against the docker-compose services but never
- * against development data: a dedicated database and Redis logical DB 1.
- * Override with TEST_DATABASE_URL / TEST_REDIS_URL if your local ports or credentials differ.
+ * Integration tests use the docker-compose services but never dev data: their own database
+ * and Redis DB 1. Override with TEST_DATABASE_URL / TEST_REDIS_URL.
  */
 export const integrationTestEnv = {
   NODE_ENV: 'test',

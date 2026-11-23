@@ -1,13 +1,7 @@
 /**
- * `npm run geoip:download` — downloads the free DB-IP Lite databases into apps/api/data/geoip/
- * (gitignored). DESIGN.md §8.2.
- *
- *   dbip-asn-lite.mmdb   IP → organisation that owns the network    (GEOIP_ASN_DB_PATH)
- *   dbip-city-lite.mmdb  IP → country and city                      (GEOIP_LOCATION_DB_PATH)
- *
- * DB-IP publishes new files monthly; re-run to refresh, then restart the API. License: CC BY 4.0,
- * which asks for the attribution "IP Geolocation by DB-IP" (https://db-ip.com) wherever the data
- * is shown publicly.
+ * `npm run geoip:download`: the free DB-IP Lite files into apps/api/data/geoip/ (DESIGN.md
+ * §8.2). New files monthly: re-run, then restart the API. CC BY 4.0: credit "IP Geolocation by
+ * DB-IP" wherever the data is shown publicly.
  */
 import { createWriteStream } from 'node:fs';
 import { mkdir, rename, rm } from 'node:fs/promises';
@@ -23,7 +17,7 @@ const DATABASES = ['dbip-asn-lite', 'dbip-city-lite'] as const;
 
 const logger = createLogger({ log: { level: 'info', pretty: process.stdout.isTTY } });
 
-/** "2026-11" and "2026-10": early in a month, this month's file may not be published yet. */
+/** This month and last: early in a month, this month's file may not be out yet. */
 function recentMonths(today: Date): string[] {
   const lastMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1));
   return [today, lastMonth].map((date) => date.toISOString().slice(0, 7));
@@ -46,7 +40,7 @@ async function download(database: string): Promise<void> {
     try {
       await pipeline(Readable.fromWeb(response.body), createGunzip(), createWriteStream(partial));
       await open(partial); // throws unless the file is a valid database
-      // Atomic replace: a running API keeps using its in-memory copy until it restarts.
+      // Atomic: a running API keeps its in-memory copy until it restarts.
       await rename(partial, target);
     } catch (error) {
       await rm(partial, { force: true });

@@ -1,14 +1,10 @@
 import { EVENT_LIMITS, eventRequestSchema, type EventRequest } from '@portfolio/shared';
 
-/**
- * The page-view beacon's logic (DESIGN.md §7.5, §8.2): build the events the browser sends to
- * POST /api/v1/events. Kept free of React and of global browser objects (they are passed in),
- * so it can be unit-tested.
- */
+/** The page-view beacon's logic (DESIGN.md §7.5): builds events. Browser objects are passed in. */
 
 export const SESSION_STORAGE_KEY = 'portfolio.sessionId';
 
-/** 16 URL-safe characters from 12 random bytes: unguessable, and matches the API's rule. */
+/** 16 URL-safe characters from 12 random bytes: unguessable, and the API accepts it. */
 export function newSessionId(randomBytes: (bytes: Uint8Array) => Uint8Array): string {
   const bytes = randomBytes(new Uint8Array(12));
   return btoa(String.fromCharCode(...bytes))
@@ -17,9 +13,8 @@ export function newSessionId(randomBytes: (bytes: Uint8Array) => Uint8Array): st
 }
 
 /**
- * One id per browser tab: sessionStorage survives reloads and navigation but not closing the
- * tab, and it is never sent to any server by itself (unlike a cookie). Storage can be
- * unavailable (strict privacy modes), so failures fall back to an id for this page load.
+ * One id per tab: sessionStorage survives reloads but not closing the tab, and is never sent by
+ * itself (unlike a cookie). Without storage (strict privacy), an id for this page load.
  */
 export function getSessionId(
   storage: Pick<Storage, 'getItem' | 'setItem'> | null,
@@ -39,9 +34,8 @@ export function getSessionId(
 }
 
 /**
- * The site the visitor came from, or `null` for none, our own site, or anything odd. Browsers
- * keep `document.referrer` at the original value during in-app navigation, so the beacon sends
- * it with the first page view only (see page-view-beacon.tsx).
+ * The referring site, or `null` (none, our own, odd). `document.referrer` stays the same during
+ * in-app navigation, so the beacon sends it with the first page view only.
  */
 export function externalReferrer(referrer: string, ownOrigin: string): string | null {
   try {
@@ -57,20 +51,17 @@ export function externalReferrer(referrer: string, ownOrigin: string): string | 
 }
 
 interface PageViewInput {
-  /** Pathname plus query string, e.g. `/?ref=acme`: the API keeps `ref` and `utm_*` from it. */
+  /** Path plus query string (`/?ref=acme`): the API reads `ref` and `utm_*` from it. */
   path: string;
   referrer: string | null;
   sessionId: string;
   timezone: string | null;
 }
 
-/** localStorage key that marks a browser as the owner's (set from the /admin page). */
+/** Marks a browser as the owner's (set from /admin). */
 export const OWNER_BROWSER_KEY = 'portfolio.ownerBrowser';
 
-/**
- * Whether a visit should be recorded. The owner's own browsing is not: the /admin pages,
- * and every page in a browser the owner marked as theirs (`OWNER_BROWSER_KEY` = `"1"`).
- */
+/** Not the owner's browsing: /admin, or any page in a browser marked as theirs. */
 export function shouldRecord(path: string, storage: Pick<Storage, 'getItem'> | null): boolean {
   if (path === '/admin' || path.startsWith('/admin/') || path.startsWith('/admin?')) {
     return false;
@@ -82,10 +73,7 @@ export function shouldRecord(path: string, storage: Pick<Storage, 'getItem'> | n
   }
 }
 
-/**
- * A page view the API will accept, or `null`. Validated with the API's own schema first: an
- * event the API would refuse is better fixed (or dropped) here than sent for nothing.
- */
+/** A page view the API will accept, or `null`: checked with the API's schema before sending. */
 export function buildPageView(input: PageViewInput): EventRequest | null {
   const event = {
     type: 'page_view' as const,
@@ -97,7 +85,7 @@ export function buildPageView(input: PageViewInput): EventRequest | null {
   return validOrWithoutTimezone(event);
 }
 
-/** `LinkedIn` → `click:linkedin-link`: an interaction name the API accepts (lowercase, ≤ 64). */
+/** `LinkedIn` → `click:linkedin-link` (lowercase, ≤ 64). */
 export function trackName(label: string, kind = 'link'): string {
   const slug = label
     .toLowerCase()
@@ -107,7 +95,7 @@ export function trackName(label: string, kind = 'link'): string {
   return `click:${slug || 'external'}-${kind}`;
 }
 
-/** A click worth knowing about, e.g. `click:linkedin-link`. `null` if the name is not allowed. */
+/** A tracked click, or `null` if the name isn't allowed. */
 export function buildInteraction(
   name: string,
   input: Omit<PageViewInput, 'referrer'>,
@@ -122,7 +110,7 @@ export function buildInteraction(
   return validOrWithoutTimezone(event);
 }
 
-/** An unusual time zone name should cost the time zone, not the whole event. */
+/** An odd time zone name should cost the time zone, not the event. */
 function validOrWithoutTimezone(event: Record<string, unknown>): EventRequest | null {
   const parsed = eventRequestSchema.safeParse(event);
   if (parsed.success) {
@@ -133,17 +121,9 @@ function validOrWithoutTimezone(event: Record<string, unknown>): EventRequest | 
 }
 
 /**
- * Sends an event without waiting for, or caring about, the answer.
- *
- *   - `text/plain`, though the body is JSON: for the browser that makes this a "simple"
- *     cross-origin request, sent straight away. `application/json` would first need a CORS
- *     preflight (an extra OPTIONS round trip), which some browsers do not combine with
- *     `keepalive`. The API reads either (apps/api/src/controllers/events.controller.ts).
- *   - `keepalive`: the request finishes even if the visitor is already leaving the page
- *     (e.g. clicking an external link).
- *
- * Analytics must never break the site, so failures are ignored here on purpose: the API counts
- * what arrives, and its own metrics show refusals (DESIGN.md §8.5).
+ * Fire and forget. `text/plain` (though JSON) avoids a CORS preflight, which some browsers
+ * won't combine with `keepalive`; `keepalive` lets it finish as the visitor leaves. Failures
+ * are ignored: analytics must never break the site.
  */
 export function sendEvent(
   event: EventRequest,
@@ -156,5 +136,5 @@ export function sendEvent(
       body: JSON.stringify(event),
       keepalive: true,
     })
-    .catch(() => undefined); // offline, blocked by an extension, API down: nothing to do
+    .catch(() => undefined); // offline, blocked, API down: nothing to do
 }

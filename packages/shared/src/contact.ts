@@ -1,9 +1,8 @@
 import { z } from 'zod';
 
 /**
- * POST /api/v1/contact (DESIGN.md §7.6). The web app's form validates with the very same
- * schema before sending, so a visitor sees "must be a valid email address" instantly, and the
- * API can never disagree with the form about what is valid.
+ * POST /api/v1/contact (DESIGN.md §7.6). The form validates with this same schema, so the
+ * visitor sees errors at once and the API never disagrees with the form.
  */
 
 export const CONTACT_MESSAGE_STATUSES = ['PENDING', 'SENT', 'FAILED'] as const;

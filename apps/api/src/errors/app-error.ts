@@ -4,10 +4,7 @@ import {
   type ValidationIssue,
 } from '@portfolio/shared';
 
-/**
- * Every error code the API can return (DESIGN.md §7.2), as `ErrorCode.NOT_FOUND` etc. The list
- * itself is part of the shared contract, so the web app knows every code it may receive.
- */
+/** Every error code (DESIGN.md §7.2), as `ErrorCode.NOT_FOUND` etc.; shared with the web app. */
 export const ErrorCode = errorCodeSchema.enum;
 export type ErrorCode = SharedErrorCode;
 
@@ -30,10 +27,7 @@ export interface AppErrorOptions extends ErrorOptions {
   details?: ValidationIssue[];
 }
 
-/**
- * An expected, client-facing failure. Its message is returned to the caller verbatim,
- * so it must never contain internal details.
- */
+/** An expected failure. Its message goes to the caller as is, so no internal details. */
 export class AppError extends Error {
   readonly code: ErrorCode;
   readonly statusCode: number;

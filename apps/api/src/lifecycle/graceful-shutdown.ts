@@ -1,23 +1,20 @@
 import type { Logger } from '../infra/logger.js';
 
-/** One resource to release on shutdown. Steps run in the order they are given. */
+/** One resource to release on shutdown; steps run in order. */
 export interface ShutdownStep {
   name: string;
-  /**
-   * `timeLeftMs`: time until the forced exit. Most steps ignore it; one that can use as much
-   * time as it gets (the worker draining its buffer) takes it as its budget.
-   */
+  /** `timeLeftMs` until the forced exit: a step like the worker's drain uses it as its budget. */
   close: (timeLeftMs: number) => Promise<void>;
 }
 
 export interface GracefulShutdownOptions {
   logger: Logger;
-  /** Hard deadline; after it the process exits with code 1 even if steps are still running. */
+  /** After this the process exits with code 1, even with steps still running. */
   timeoutMs: number;
   steps: readonly ShutdownStep[];
-  /** Injectable for tests. Defaults to process.exit. */
+  /** For tests. Defaults to process.exit. */
   exit?: (code: number) => void;
-  /** Injectable for tests. */
+  /** For tests. */
   now?: () => number;
 }
 
@@ -33,8 +30,8 @@ export function createGracefulShutdown(options: GracefulShutdownOptions): Gracef
 
   async function shutdown(reason: string, exitCode = 0): Promise<void> {
     if (inProgress) {
-      // Duplicate signals are normal (e.g. `tsx watch` and the terminal both forward Ctrl+C).
-      // Ignore them; the deadline timer still guarantees the process exits.
+      // Repeated signals are normal (`tsx watch` and the terminal both forward Ctrl+C); the
+      // deadline still guarantees an exit.
       logger.warn({ reason }, 'shutdown already in progress, ignoring repeated request');
       return;
     }
@@ -54,7 +51,7 @@ export function createGracefulShutdown(options: GracefulShutdownOptions): Gracef
         await step.close(Math.max(0, deadline - now()));
         logger.info({ step: step.name }, 'shutdown step completed');
       } catch (err) {
-        // Keep going: one failing resource must not leave the others open.
+        // Keep going: one failure must not leave the other resources open.
         finalExitCode = 1;
         logger.error({ err, step: step.name }, 'shutdown step failed');
       }
@@ -68,7 +65,7 @@ export function createGracefulShutdown(options: GracefulShutdownOptions): Gracef
   return { shutdown };
 }
 
-/** Routes OS signals and fatal process errors into the graceful shutdown sequence. */
+/** Sends OS signals and fatal errors into the graceful shutdown. */
 export function registerProcessHandlers(shutdown: GracefulShutdown, logger: Logger): void {
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.on(signal, () => {

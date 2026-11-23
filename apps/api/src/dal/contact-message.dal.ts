@@ -2,43 +2,39 @@ import type { ContactMessageRow } from '../dao/contact-message.dao.js';
 import type { PostgresPool } from '../infra/postgres.js';
 import type { ContactMessage, NewContactMessage } from '../schema/contact-message.schema.js';
 
-/** A PENDING message the reconciler picked up, with the attempts it has had so far. */
+/** A PENDING message the reconciler picked up, with its attempts so far. */
 export interface StalePendingMessage {
   id: string;
   attempts: number;
 }
 
 /**
- * Postgres DAL for `contact_messages` (DESIGN.md §5.4). The API inserts; the worker reads
- * messages and records how notifying went.
- *
- * Every status update only touches a message that is still `PENDING`. A job can run twice
- * (delivery is at least once), and the second run must never undo the first one's result.
+ * Postgres DAL for `contact_messages` (DESIGN.md §5.4). Status updates only touch PENDING
+ * messages: a job can run twice, and the second run must not undo the first.
  */
 export interface ContactMessageDal {
-  /** API: stores a new message as `PENDING` and returns it with its generated id. */
+  /** API: stores a new message as PENDING. */
   insert: (message: NewContactMessage) => Promise<ContactMessage>;
-  /** Worker: the message a job points to, or `null` if it no longer exists. */
+  /** Worker: the message a job points to, or `null` if it's gone. */
   findById: (id: string) => Promise<ContactMessage | null>;
   /** Worker: the notification was delivered on attempt `attempt`. */
   markSent: (id: string, attempt: number) => Promise<void>;
-  /** Worker: attempt `attempt` failed and will be retried. Also refreshes `updated_at`. */
+  /** Worker: this attempt failed and will be retried. */
   recordFailedAttempt: (id: string, attempt: number, error: string) => Promise<void>;
-  /** Worker: attempt `attempt` failed and notifying gives up. */
+  /** Worker: this attempt failed and notifying gives up. */
   markFailed: (id: string, attempt: number, error: string) => Promise<void>;
   /**
-   * Reconciler: up to `limit` messages still PENDING whose `updated_at` is older than
-   * `olderThanSeconds`. Claims them by setting `updated_at = now()` in the same statement,
-   * so the next run (or a second reconciler) does not pick them up again right away.
+   * Reconciler: up to `limit` PENDING messages untouched for `olderThanSeconds`, claimed by
+   * bumping `updated_at` in the same statement so the next run skips them.
    */
   claimStalePending: (olderThanSeconds: number, limit: number) => Promise<StalePendingMessage[]>;
-  /** `dlq:replay`: puts a FAILED message back to PENDING with 0 attempts, to try again. */
+  /** `dlq:replay`: FAILED → PENDING with 0 attempts. */
   reopenFailed: (id: string) => Promise<void>;
-  /** Owner's queue card: the messages with these ids that exist, in no particular order. */
+  /** Owner's queue card: the messages that still exist, in no particular order. */
   findByIds: (ids: readonly string[]) => Promise<ContactMessage[]>;
 }
 
-// Matches dao/contact-message.dao.ts, minus `ip_hash`: nothing that reads a message needs it.
+// As in the DAO, minus `ip_hash`: no reader needs it.
 const COLUMNS = 'id, name, email, message, status, attempts, last_error, created_at, sent_at';
 
 type ReadRow = Pick<
@@ -57,7 +53,7 @@ type ReadRow = Pick<
 export function createContactMessageDal(pool: PostgresPool): ContactMessageDal {
   return {
     async insert({ name, email, message, ipHash }) {
-      // id, status, attempts and timestamps come from the column DEFAULTs.
+      // id, status, attempts and timestamps come from column DEFAULTs.
       const result = await pool.query<ReadRow>(
         `INSERT INTO contact_messages (name, email, message, ip_hash)
          VALUES ($1, $2, $3, $4)
@@ -108,9 +104,7 @@ export function createContactMessageDal(pool: PostgresPool): ContactMessageDal {
     },
 
     async claimStalePending(olderThanSeconds, limit) {
-      // The subquery finds the oldest stale messages using the partial index on
-      // (updated_at) WHERE status = 'PENDING'. SKIP LOCKED: rows another transaction is
-      // claiming right now are skipped instead of waited for.
+      // Oldest stale first, via the partial index. SKIP LOCKED: skip rows another run is claiming.
       const result = await pool.query<Pick<ContactMessageRow, 'id' | 'attempts'>>(
         `UPDATE contact_messages
             SET updated_at = now()
@@ -139,7 +133,7 @@ export function createContactMessageDal(pool: PostgresPool): ContactMessageDal {
       if (ids.length === 0) {
         return [];
       }
-      // One query for the whole list (the primary key's index), however many jobs it covers.
+      // One query however many jobs.
       const result = await pool.query<ReadRow>(
         `SELECT ${COLUMNS} FROM contact_messages WHERE id = ANY($1::uuid[])`,
         [ids],

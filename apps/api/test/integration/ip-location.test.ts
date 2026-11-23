@@ -16,7 +16,7 @@ describe('IP location lookup (real .mmdb files)', () => {
       city: 'Linköping',
       organization: 'Bredband2 AB',
     });
-    // Each file is looked up on its own: either may know an address the other does not.
+    // Each file is asked on its own: either may know an address the other doesn't.
     expect(dal.lookup('81.2.69.142')).toEqual({
       countryCode: 'GB',
       city: 'London',

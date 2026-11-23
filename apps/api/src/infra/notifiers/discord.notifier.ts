@@ -2,22 +2,19 @@ import type { ContactMessage } from '../../schema/contact-message.schema.js';
 import { NotificationError, type Notifier } from './notifier.js';
 
 export interface DiscordNotifierOptions {
-  /** Secret: it contains the token. Never log it or put it in an error message. */
+  /** Secret (holds the token): never log it or put it in an error. */
   webhookUrl: string;
-  /** Give up on a request after this long; the attempt then counts as retryable. */
+  /** Give up after this long; the attempt then counts as retryable. */
   timeoutMs?: number;
-  /** Injectable for tests. */
+  /** For tests. */
   fetch?: typeof globalThis.fetch;
 }
 
 const DEFAULT_TIMEOUT_MS = 5_000;
-/** Discord's limit for an embed description is 4096 characters; messages can be 5000. */
+/** Discord allows 4096 characters in an embed; messages can be 5000. */
 const MAX_DESCRIPTION_LENGTH = 4_000;
 
-/**
- * Posts each contact message to a Discord channel through a webhook
- * (https://discord.com/developers/docs/resources/webhook#execute-webhook).
- */
+/** Posts each contact message to a Discord channel through a webhook. */
 export function createDiscordNotifier(options: DiscordNotifierOptions): Notifier {
   const { webhookUrl, timeoutMs = DEFAULT_TIMEOUT_MS, fetch = globalThis.fetch } = options;
 
@@ -31,11 +28,11 @@ export function createDiscordNotifier(options: DiscordNotifierOptions): Notifier
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(toWebhookPayload(message)),
-          // Without a timeout, a hung connection would stall the worker indefinitely.
+          // Without it, a hung connection would stall the worker.
           signal: AbortSignal.timeout(timeoutMs),
         });
       } catch (error) {
-        // No response at all: DNS, refused connection, reset, or our timeout. Worth retrying.
+        // No response (DNS, refused, reset, our timeout): worth retrying.
         throw new NotificationError(
           `Discord webhook request failed: ${describeFetchError(error, timeoutMs)}`,
           { retryable: true, cause: error },
@@ -43,11 +40,11 @@ export function createDiscordNotifier(options: DiscordNotifierOptions): Notifier
       }
 
       if (response.ok) {
-        await response.body?.cancel(); // Discord answers 204; free the connection either way
+        await response.body?.cancel(); // 204 expected; free the connection either way
         return;
       }
 
-      // Discord's error body is short JSON, e.g. {"message": "Unknown Webhook", "code": 10015}.
+      // Short JSON, e.g. {"message": "Unknown Webhook", "code": 10015}.
       const detail = (await response.text().catch(() => '')).slice(0, 200);
       const retryable = response.status === 429 || response.status >= 500;
       throw new NotificationError(
@@ -58,10 +55,7 @@ export function createDiscordNotifier(options: DiscordNotifierOptions): Notifier
   };
 }
 
-/**
- * A short reason for a request that got no response. Built from the error's name and code
- * only: some error messages repeat the URL, and this one contains the webhook's token.
- */
+/** From the error's name and code only: some messages repeat the URL, which holds the token. */
 function describeFetchError(error: unknown, timeoutMs: number): string {
   if (!(error instanceof Error)) {
     return 'unknown error';
@@ -77,7 +71,7 @@ function describeFetchError(error: unknown, timeoutMs: number): string {
   return error.name;
 }
 
-/** The webhook request body: one embed per message. Exported for tests. */
+/** One embed per message. Exported for tests. */
 export function toWebhookPayload(message: ContactMessage) {
   const text =
     message.message.length > MAX_DESCRIPTION_LENGTH
@@ -86,7 +80,7 @@ export function toWebhookPayload(message: ContactMessage) {
 
   return {
     username: 'Portfolio contact form',
-    // The text comes from a stranger: never let "@everyone" or "<@id>" in it ping anyone.
+    // A stranger's text must not ping anyone ("@everyone", "<@id>").
     allowed_mentions: { parse: [] },
     embeds: [
       {

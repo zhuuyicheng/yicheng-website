@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { ProjectCard } from './project-card';
 import { Reveal } from './reveal';
 
-/** Every technology used, most common first (ties alphabetically). */
+/** Every technology used, most common first (ties alphabetical). */
 function technologies(projects: readonly ProjectSummary[]): string[] {
   const uses = new Map<string, number>();
   for (const tech of projects.flatMap((project) => project.techStack)) {
@@ -16,10 +16,7 @@ function technologies(projects: readonly ProjectSummary[]): string[] {
     .map(([tech]) => tech);
 }
 
-/**
- * Project grid with a technology filter: tap a chip to see only the projects that use it.
- * Each card opens its project's page.
- */
+/** The project grid, with a chip per technology to filter it. */
 export function ProjectExplorer({ projects }: { projects: ProjectSummary[] }) {
   const [selected, setSelected] = useState<string | null>(null);
   const allTech = useMemo(() => technologies(projects), [projects]);

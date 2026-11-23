@@ -1,10 +1,6 @@
 /**
- * Scrolling to a home-page section (`/#projects`) from the header or the hero.
- *
- * Next.js's <Link> treats a click on `/#projects` as "already there" once the address ends
- * in `#projects`, so after scrolling back up, a second click on "Projects" did nothing.
- * Scrolling explicitly works on every click; the address still gets the `#hash`, so the link
- * can be shared and the back button behaves.
+ * Scrolls to a home-page section (`/#projects`). Next's <Link> ignores a second click once the
+ * address ends in `#projects`; scrolling ourselves works every time and still sets the hash.
  */
 export interface ScrollEnvironment {
   findSection: (id: string) => { scrollIntoView: (options: ScrollIntoViewOptions) => void } | null;
@@ -12,7 +8,7 @@ export interface ScrollEnvironment {
   setHash: (hash: string) => void;
 }
 
-/** Scrolls to `id` and returns true; false if this page has no such section (navigate instead). */
+/** Scrolls to `id` and returns true; false if there's no such section here (navigate instead). */
 export function scrollToSection(id: string, environment: ScrollEnvironment): boolean {
   const section = environment.findSection(id);
   if (section === null) {
@@ -38,9 +34,8 @@ export function browserScrollEnvironment(): ScrollEnvironment {
 }
 
 /**
- * Back to the top of the home page (the name in the header). Next.js's <Link href="/"> does
- * nothing when you are already on `/`, so clicking the name there did nothing. The `#hash` is
- * removed too, so the address no longer points at a section.
+ * Back to the top of the home page (the header's name): <Link href="/"> does nothing when
+ * already on `/`. Also clears the `#hash`.
  */
 export interface TopEnvironment {
   scrollTo: (options: ScrollToOptions) => void;

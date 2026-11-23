@@ -21,18 +21,18 @@ const NOW = new Date('2026-11-18T12:00:00.000Z');
 const OUTAGE = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
 
 interface SetupOptions {
-  /** Queue entries `take` returns, in order; then `null` (nothing arrived). */
+  /** Entries `take` returns, in order; then `null`. */
   queued?: string[];
   /** The message `findById` returns. */
   message?: ContactMessage | null;
-  /** What the notifier does: succeed, or throw this. */
+  /** Succeed, or throw this. */
   notifierFails?: Error;
   markSentFails?: Error;
   stranded?: number;
   stale?: StalePendingMessage[];
 }
 
-/** A manager over in-memory fake DALs that record every call. */
+/** A manager over fake DALs that record every call. */
 function setup(options: SetupOptions = {}) {
   const queued = [...(options.queued ?? [])];
   const calls = {
@@ -102,7 +102,7 @@ function setup(options: SetupOptions = {}) {
     maxAttempts: 3,
     backoffBaseMs: 5_000,
     now: () => NOW,
-    random: () => 0.5, // no jitter: delays are exactly base × 2^(attempt − 1)
+    random: () => 0.5, // no jitter: exactly base × 2^(attempt − 1)
     newJobId: () => '6f1c2b1e-8a3d-4b5c-9e7f-0a1b2c3d4e5f',
   });
   return { manager, calls, metrics };
@@ -245,7 +245,7 @@ describe('NotificationManager.processNext', () => {
 
     await expect(manager.processNext(log)).rejects.toBe(OUTAGE);
 
-    // Not completed, not retried, not dead-lettered: the consumer puts it back later.
+    // Not completed, retried or dead-lettered: the consumer puts it back later.
     expect(calls.completed).toEqual([]);
     expect(calls.retried).toEqual([]);
     expect(calls.deadLettered).toEqual([]);

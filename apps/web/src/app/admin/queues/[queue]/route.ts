@@ -3,15 +3,14 @@ import { checkOwner, OWNER_CHALLENGE } from '@/lib/admin-auth';
 import { getQueueItems } from '@/lib/admin-api';
 import { adminToken } from '@/lib/config';
 
-/** Written out instead of Next's generated `RouteContext` (see app/[slug]/page.tsx). */
+/** Not Next's generated `RouteContext` (see app/[slug]/page.tsx). */
 interface QueueRouteContext {
   params: Promise<{ queue: string }>;
 }
 
 /**
- * What waits in one queue, for the queue card's "Show items" on /admin (DESIGN.md §8.7). Like
- * the system-status route next to it: the browser sends the owner's password, and this server
- * asks the API with ADMIN_TOKEN, which never leaves it.
+ * One queue's items, for "Show items" on /admin (DESIGN.md §8.7). The browser sends the owner's
+ * password; this server asks the API with ADMIN_TOKEN, which never leaves it.
  */
 export async function GET(request: Request, context: QueueRouteContext) {
   const check = await checkOwner(request.headers.get('authorization'), adminToken());

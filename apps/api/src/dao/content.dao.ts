@@ -1,17 +1,11 @@
 import type { ProfileLink, ProjectSection } from '../schema/content.schema.js';
 
 /**
- * Row types: one per table, column for column, as defined in migrations 0001, 0002, 0006 and
- * 0008.
- * The DAL reads rows in exactly this shape and maps them to the API types in `schema/`, so
- * database naming (`snake_case`) never leaks into responses.
- *
- * DATE columns are typed as `'YYYY-MM-DD'` strings: the DAL selects them with `to_char`,
- * because pg would otherwise turn a DATE into a JS Date at local midnight (timezone bugs).
- * TIMESTAMPTZ columns arrive as JS Dates, which is safe because they carry a timezone.
+ * Content tables (migrations 0001, 0002, 0006, 0008), column for column. DATE columns are
+ * `'YYYY-MM-DD'` strings (selected with to_char): pg would make them local-midnight Dates.
  */
 
-/** `profile`: always exactly one row (`id = 1`) once content is seeded. */
+/** `profile`: exactly one row (`id = 1`) once seeded. */
 export interface ProfileRow {
   id: number;
   full_name: string;
@@ -21,11 +15,11 @@ export interface ProfileRow {
   /** JSONB, parsed by pg. */
   links: ProfileLink[];
   updated_at: Date;
-  /** When any content last changed (migration 0008): the home page's "Last updated" date. */
+  /** When any content last changed: the home page's "Last updated". */
   content_updated_at: Date;
 }
 
-/** `experiences`: one row per job, shown in `sort_order`. */
+/** `experiences`: one row per job, in `sort_order`. */
 export interface ExperienceRow {
   id: string;
   company: string;
@@ -39,7 +33,7 @@ export interface ExperienceRow {
   updated_at: Date;
 }
 
-/** `education`: one row per qualification, shown in `sort_order`. */
+/** `education`: one row per qualification, in `sort_order`. */
 export interface EducationRow {
   id: string;
   institution: string;
@@ -53,7 +47,7 @@ export interface EducationRow {
   updated_at: Date;
 }
 
-/** `projects`: one row per project, identified in URLs by `slug`. */
+/** `projects`: one per project, `slug` in its URL. */
 export interface ProjectRow {
   id: string;
   slug: string;
@@ -64,7 +58,7 @@ export interface ProjectRow {
   repo_url: string | null;
   live_url: string | null;
   featured: boolean;
-  /** JSONB (migration 0006), written only by content:seed after validation. */
+  /** JSONB, written only by content:seed after validation. */
   sections: ProjectSection[];
   sort_order: number;
   created_at: Date;

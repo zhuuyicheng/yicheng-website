@@ -5,13 +5,10 @@ import { renderProfile, renderProject, renderProjectList } from '../views/conten
 import { API_V1 } from './api-v1.js';
 import { parseRequest } from './parse-request.js';
 
-/** Tells clients (and you, in curl) whether the response came from Redis. */
+/** Whether the response came from Redis. */
 export const CACHE_HEADER = 'x-cache';
 
-/**
- * Portfolio content endpoints. See DESIGN.md §7.4. Each endpoint validates its input, calls
- * one manager method, and renders a view.
- */
+/** Portfolio content (DESIGN.md §7.4). */
 export function registerContentController(
   app: FastifyInstance,
   contentManager: ContentManager,

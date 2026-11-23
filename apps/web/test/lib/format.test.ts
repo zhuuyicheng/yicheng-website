@@ -32,7 +32,7 @@ describe('date formatting', () => {
 
   it('shows a "Last updated" moment as the day in Singapore', () => {
     expect(formatDay('2026-11-21T09:30:00.000Z')).toBe('21 November 2026');
-    // 23:00 UTC on the 20th is already 07:00 on the 21st in Singapore (UTC+8).
+    // 23:00 UTC on the 20th is 07:00 on the 21st in Singapore.
     expect(formatDay('2026-11-20T23:00:00.000Z')).toBe('21 November 2026');
   });
 });

@@ -4,19 +4,15 @@ import type { SystemStatusManager } from '../services/system-status.manager.js';
 
 export const METRICS_PATH = '/metrics';
 
-/**
- * The metrics endpoint for a monitoring server. See DESIGN.md §7.7. The JSON status report
- * for people is owner-only: controllers/admin.controller.ts.
- */
+/** GET /metrics (DESIGN.md §7.7). The JSON status report is in admin.controller.ts. */
 export function registerSystemController(
   app: FastifyInstance,
   systemStatusManager: Pick<SystemStatusManager, 'getMetricsText'>,
   options: { metricsToken: string | null },
 ): void {
   /**
-   * For Prometheus (unversioned, like /health: machines read it, not the web app). Plain text
-   * in Prometheus' format, no `{ data }` envelope. Optionally behind a bearer token, because it
-   * reveals internals (route names, error counts) that are nobody else's business.
+   * For Prometheus: plain text, no envelope. Optionally behind a bearer token, since it reveals
+   * internals (route names, error counts).
    */
   const { metricsToken } = options;
   app.get(

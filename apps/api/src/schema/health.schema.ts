@@ -1,6 +1,6 @@
 import type { DependencyHealth } from '@portfolio/shared';
 
-/** A named dependency (Postgres, Redis, ...) that can be probed for liveness. */
+/** A dependency (Postgres, Redis) that can be probed. */
 export interface DependencyCheck {
   name: string;
   ping: () => Promise<void>;
@@ -14,7 +14,7 @@ export interface HealthReport {
   checks: Record<string, DependencyHealth>;
 }
 
-/** `GET /health/live`: the process can answer. Checks nothing else, on purpose. */
+/** `GET /health/live`: the process answers. Checks nothing else, on purpose. */
 export interface LivenessReport {
   status: 'ok';
 }

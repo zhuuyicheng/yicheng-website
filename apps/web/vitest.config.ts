@@ -1,10 +1,7 @@
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
-/**
- * Unit tests for the web app's logic (src/lib): pure functions, no browser, no network.
- * Components are exercised by running the site (DATA-TOOLS.md §7.4).
- */
+/** Web logic (src/lib) only: no browser, no network. Components are checked by running the site. */
 export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, 'src') },

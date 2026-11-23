@@ -16,7 +16,7 @@ const TTL_SECONDS = 300;
 const itemSchema = z.object({ name: z.string() });
 type Item = z.infer<typeof itemSchema>;
 
-/** In-memory stand-in for Redis, with switches to simulate failures. */
+/** In-memory Redis stand-in that can be told to fail. */
 function createFakeStore() {
   const entries = new Map<string, string>();
   const ttls = new Map<string, number>();

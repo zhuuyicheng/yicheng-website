@@ -17,10 +17,10 @@ interface LiveChartProps {
   title: string;
   /** Oldest first; `value: null` = no data at that moment. */
   points: readonly TimePoint[];
-  /** The right edge of the time axis (now); the axis covers `windowMs` before it. */
+  /** The axis' right edge (now); it covers `windowMs` before it. */
   end: number;
   windowMs: number;
-  /** Longest pause between samples that is still drawn as one line. */
+  /** The longest pause still drawn as one line. */
   maxGapMs: number;
   format: (value: number | null) => string;
 }
@@ -35,9 +35,8 @@ const TIME = new Intl.DateTimeFormat('en-GB', {
 });
 
 /**
- * One measure over the last `windowMs`, placed by time: a 2 px line, a recessive grid with
- * the scale's top value, a labelled tick every 5 minutes, and a crosshair + tooltip on hover
- * or touch. One series per chart (never two y-axes); the title names it, so no legend.
+ * One measure over time: a 2 px line, a light grid, a tick every 5 minutes, and a crosshair
+ * with a tooltip. One series per chart, so the title is the legend.
  */
 export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: LiveChartProps) {
   const [hoverAt, setHoverAt] = useState<number | null>(null);
@@ -57,7 +56,7 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
   const hover = hoverAt === null ? null : nearestPoint(visible, hoverAt);
   const hoverX = hover === null ? 0 : timeX(hover.at, scale);
   const hoverValue = hover?.value ?? null;
-  // A fraction of the plot's height, the same one the line uses (valueDepth).
+  // The same fraction the line uses.
   const hoverDepth = hoverValue === null ? null : valueDepth(hoverValue, ceiling);
   const percent = (x: number) => `${String((x / WIDTH) * 100)}%`;
 
@@ -68,11 +67,8 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
         <span className="text-sm text-ink tabular-nums">{format(latest)}</span>
       </figcaption>
 
-      {/*
-        The plot: this box is exactly the SVG's size, so the marker's and tooltip's percentages
-        mean the same as the line's coordinates. (With the time labels inside it, the box was
-        taller than the SVG and the marker sat too low: a zero showed under the axis.)
-      */}
+      {/* Exactly the SVG's size, so the marker's percentages match the line (time labels
+          inside it once put a zero under the axis). */}
       <div className="relative mt-4">
         <span className="absolute -top-1 left-0 text-[10px] text-faint tabular-nums">
           {format(ceiling)}
@@ -171,7 +167,7 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
       <div aria-hidden className="relative mt-2 h-4 text-[10px] text-muted tabular-nums">
         {ticks.map((at) => {
           const x = timeX(at, scale);
-          // Too close to an edge, a centred label would stick out of the card.
+          // Near an edge, a centred label would stick out of the card.
           if (x < WIDTH * 0.04 || x > WIDTH * 0.96) return null;
           return (
             <span key={at} className="absolute -translate-x-1/2" style={{ left: percent(x) }}>

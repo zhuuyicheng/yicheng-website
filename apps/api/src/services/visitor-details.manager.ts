@@ -8,9 +8,8 @@ import type {
 } from '../schema/analytics-event.schema.js';
 
 /**
- * What the request itself reveals about the visitor, used to derive the details and the
- * visitor hash. The user agent is then discarded (never stored or logged). The IP address is
- * also stored with the event, by the owner's choice (DESIGN.md §12), but never logged.
+ * What the request reveals about the visitor. The user agent is never stored or logged; the
+ * IP is stored with the event by the owner's choice (DESIGN.md §12), never logged.
  */
 export interface Visitor {
   ip: string;
@@ -19,9 +18,8 @@ export interface Visitor {
 }
 
 /**
- * Describes a visitor from three sources (DESIGN.md §8.2): the link they followed (campaign),
- * their browser (device) and their IP address (network). Pure computation plus an in-memory
- * database lookup: nothing here can be slow or fail because a server is down.
+ * Visitor details (DESIGN.md §8.2) from the link (campaign), browser (device) and IP
+ * (network). In-memory only, so nothing here can be slow or fail.
  */
 export interface VisitorDetailsManager {
   describe: (event: EventRequest, visitor: Visitor) => VisitorDetails;
@@ -41,12 +39,9 @@ export function createVisitorDetailsManager(deps: {
   };
 }
 
-/**
- * Tagged-link parameters from the page's query string. Share `https://<site>/?ref=acme` with
- * one company and every visit through that link carries `ref = 'acme'`.
- */
+/** Tagged-link parameters: share `/?ref=acme` with one company and its visits say `acme`. */
 export function campaignFrom(path: string): Campaign {
-  // Only the part between "?" and "#" is a query string ("/a#x?ref=b" has none).
+  // The query string is between "?" and "#" ("/a#x?ref=b" has none).
   const [withoutFragment = ''] = path.split('#', 1);
   const queryStart = withoutFragment.indexOf('?');
   const query = new URLSearchParams(queryStart === -1 ? '' : withoutFragment.slice(queryStart + 1));
@@ -59,7 +54,7 @@ export function campaignFrom(path: string): Campaign {
   };
 }
 
-/** Real user agents are under 300 characters; a cap bounds the parser's work on junk input. */
+/** Real ones are under 300 characters; the cap bounds the parser's work on junk. */
 const MAX_USER_AGENT_LENGTH = 512;
 
 /** `Mozilla/5.0 (Macintosh; ...) Chrome/131...` → Chrome, macOS, desktop. */
@@ -68,7 +63,7 @@ export function deviceFrom(
   timezone: string | null,
 ): Device {
   const userAgent = visitor.userAgent.trim().slice(0, MAX_USER_AGENT_LENGTH);
-  // bowser throws on an empty user agent, which curl and some bots send.
+  // bowser throws on an empty user agent (curl, some bots).
   const parsed = userAgent === '' ? null : Bowser.parse(userAgent);
 
   return {
@@ -80,10 +75,10 @@ export function deviceFrom(
   };
 }
 
-/** A well-formed language tag such as "en", "en-SG" or "zh-Hant-TW". */
+/** "en", "en-SG", "zh-Hant-TW". */
 const LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8}){0,3}$/;
 
-/** `en-SG,en;q=0.9,zh;q=0.8` → `en-SG` (the first is the visitor's preferred language). */
+/** `en-SG,en;q=0.9` → `en-SG`, the preferred one. */
 export function primaryLanguage(acceptLanguage: string): string | null {
   const [first = ''] = acceptLanguage.split(',', 1);
   const [tag = ''] = first.split(';', 1);

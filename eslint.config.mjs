@@ -1,4 +1,4 @@
-// One flat config for the whole monorepo. Type-aware rules use each package's tsconfig.json.
+// One flat config for the monorepo; type-aware rules use each package's tsconfig.json.
 import js from '@eslint/js';
 import nextPlugin from '@next/eslint-plugin-next';
 import prettierConfig from 'eslint-config-prettier';
@@ -35,7 +35,7 @@ export default defineConfig(
     },
   },
 
-  // Plain JS config files are not part of any tsconfig.
+  // Plain JS config files belong to no tsconfig.
   {
     files: ['**/*.{js,mjs,cjs}'],
     extends: [tseslint.configs.disableTypeChecked],
@@ -48,8 +48,8 @@ export default defineConfig(
     languageOptions: { globals: globals.browser },
     settings: { next: { rootDir: 'apps/web' } },
     rules: {
-      // Prefetching a page rendered per request runs its generateMetadata, an API request that
-      // /admin counts as traffic though nobody clicked (DESIGN.md §8.6), so each link decides.
+      // Prefetching a per-request page runs its generateMetadata, an API request /admin counts
+      // though nobody clicked (DESIGN.md §8.6), so each link must choose.
       'no-restricted-syntax': [
         'error',
         {
@@ -62,6 +62,6 @@ export default defineConfig(
     },
   },
 
-  // Must stay last: turns off stylistic rules that Prettier owns.
+  // Last: turns off stylistic rules Prettier owns.
   prettierConfig,
 );

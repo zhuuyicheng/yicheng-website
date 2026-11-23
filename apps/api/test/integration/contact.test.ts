@@ -23,7 +23,7 @@ import {
 const MESSAGE = { name: 'Ada', email: 'ada@example.com', message: 'Hello from the tests!' };
 const VISITOR_IP = '203.0.113.7';
 
-/** POSTs the contact form as if from `ip` (light-my-request sets the socket address). */
+/** POSTs the form as if from `ip`. */
 function postContact(app: FastifyInstance, ip = VISITOR_IP, payload: object = MESSAGE) {
   return app.inject({ method: 'POST', url: '/api/v1/contact', payload, remoteAddress: ip });
 }
@@ -73,7 +73,7 @@ describe('POST /api/v1/contact with live Postgres and Redis', () => {
 
     const [row] = await storedMessages();
     expect(row).toMatchObject({ id, ...MESSAGE, status: 'PENDING', attempts: 0, sent_at: null });
-    // A keyed hash of the IP, never the IP itself.
+    // A keyed hash, never the IP.
     expect(row?.ip_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(row?.ip_hash).not.toContain(VISITOR_IP);
 
@@ -98,7 +98,7 @@ describe('POST /api/v1/contact with live Postgres and Redis', () => {
     ]);
     const blocked = responses[3];
     expect(blocked?.json<ErrorResponseBody>().error.code).toBe('RATE_LIMITED');
-    // The first message leaves the 600 s window in (just under) 600 s.
+    // The first message leaves the 600 s window in just under 600 s.
     const retryAfter = Number(blocked?.headers['retry-after']);
     expect(retryAfter).toBeGreaterThan(595);
     expect(retryAfter).toBeLessThanOrEqual(600);
@@ -118,7 +118,7 @@ describe('POST /api/v1/contact with live Postgres and Redis', () => {
 
     const key = rateLimitKey('contact', createIpHasher(deps.config.ipHash.secret)(VISITOR_IP));
     expect(await deps.redis.zcard(key)).toBe(3); // the 3 accepted requests, not 10
-    // An ephemeral key: it disappears one window after the last accepted request.
+    // Ephemeral: gone one window after the last accepted request.
     expect(await deps.redis.pttl(key)).toBeGreaterThan(595_000);
   });
 
@@ -138,7 +138,7 @@ describe('POST /api/v1/contact with live Postgres and Redis', () => {
     expect(response.json<ErrorResponseBody>().error.details).toEqual([
       { path: 'email', message: 'must be a valid email address' },
     ]);
-    // The limiter runs before validation, so this request used one of the 3 slots.
+    // The limiter runs before validation, so this used one of the 3 slots.
     expect(rateLimitHeaders(response)).toEqual({
       limit: '3',
       remaining: '2',
@@ -149,8 +149,8 @@ describe('POST /api/v1/contact with live Postgres and Redis', () => {
   });
 
   it('admits exactly 3 of 20 simultaneous requests, even across 4 API instances', async () => {
-    // Four apps with their own Redis connection, like four API replicas behind a load
-    // balancer. Only an atomic check-and-add in Redis keeps the total at 3.
+    // Four apps with their own connections, like four replicas: only an atomic check-and-add
+    // keeps the total at 3.
     const connections: Redis[] = [];
     const apps: FastifyInstance[] = [];
     for (let i = 0; i < 4; i++) {
@@ -180,7 +180,7 @@ describe('POST /api/v1/contact with live Postgres and Redis', () => {
   });
 
   it('slides: each slot frees up exactly one window after its own request', async () => {
-    // The manager against real Redis, with a clock the test controls (no 10-minute waits).
+    // Real Redis, with a clock the test controls (no 10-minute waits).
     let clock = 1_763_456_000_000;
     const limiter = createRateLimiterManager({
       limiter: 'contact',
@@ -201,15 +201,15 @@ describe('POST /api/v1/contact with live Postgres and Redis', () => {
     await at(2_000);
     expect(await at(3_000)).toMatchObject({ allowed: false, retryAfterSeconds: 597 });
 
-    // 600 s after the first request, its slot is free again; the other two still count.
+    // 600 s after the first request its slot is free; the other two still count.
     expect(await at(600_000)).toMatchObject({ allowed: true, remaining: 0 });
-    // A fixed window would reset everything here. A sliding one waits for the 1 s request.
+    // A fixed window would reset here; a sliding one waits for the 1 s request.
     expect(await at(600_001)).toMatchObject({ allowed: false, retryAfterSeconds: 1 });
     expect(await at(601_000)).toMatchObject({ allowed: true });
   });
 
   it('still answers 202 when the job cannot be queued, and counts the failure', async () => {
-    // Make LPUSH fail: a string where the job list should be gives a WRONGTYPE error.
+    // A string where the list should be: LPUSH fails with WRONGTYPE.
     await deps.redis.set(NOTIFICATION_QUEUE_KEYS.ready, 'not a list');
 
     const response = await postContact(app);

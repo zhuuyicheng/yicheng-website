@@ -153,7 +153,7 @@ describe('sendEvent', () => {
     expect(() => {
       sendEvent(event, { baseUrl: 'http://api.test', fetch });
     }).not.toThrow();
-    await Promise.resolve(); // let the rejected promise settle: no unhandled rejection
+    await Promise.resolve(); // let the rejection settle: none unhandled
 
     expect(fetch).toHaveBeenCalledWith('http://api.test/api/v1/events', {
       method: 'POST',

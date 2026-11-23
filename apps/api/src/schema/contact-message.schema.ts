@@ -1,14 +1,6 @@
 import type { ContactMessageStatus, ContactRequest } from '@portfolio/shared';
 
-/**
- * Contact messages. See DESIGN.md §7.6 and §8.3.
- *
- * Shapes:
- *   1. `ContactRequest`: what a visitor sends to POST /api/v1/contact. Public contract, so it
- *      lives in `@portfolio/shared` (the web app's form validates with the same schema).
- *   2. `ContactMessage`: a stored message, as the DAL returns it.
- *   3. `ContactAccepted`: the response body (also in `@portfolio/shared`).
- */
+/** Contact messages (DESIGN.md §7.6, §8.3). Request and response are shared with the form. */
 
 export {
   CONTACT_MESSAGE_STATUSES,
@@ -18,9 +10,7 @@ export {
   type ContactRequest,
 } from '@portfolio/shared';
 
-// ---------------------------------------------------------------------------------------------
-// 2. Stored message
-// ---------------------------------------------------------------------------------------------
+// Stored message
 
 /** What the DAL needs to insert a message. */
 export interface NewContactMessage extends ContactRequest {

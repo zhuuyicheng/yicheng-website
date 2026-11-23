@@ -3,10 +3,8 @@ import { checkOwner, OWNER_CHALLENGE } from '@/lib/admin-auth';
 import { adminToken } from '@/lib/config';
 
 /**
- * The lock on the owner area (DESIGN.md §8.7). Every /admin request needs the owner's
- * password (HTTP Basic: the browser shows its own login box); without ADMIN_TOKEN configured
- * the area does not exist. The pages check again themselves: this is the first lock, not the
- * only one.
+ * The first lock on /admin (DESIGN.md §8.7): the owner's password via HTTP Basic. Without
+ * ADMIN_TOKEN the area doesn't exist. The pages check again.
  */
 export async function proxy(request: NextRequest) {
   const check = await checkOwner(request.headers.get('authorization'), adminToken());
@@ -21,7 +19,7 @@ export async function proxy(request: NextRequest) {
   }
 
   const response = NextResponse.next();
-  // Private data: never stored by a cache, never indexed by a search engine.
+  // Private: never cached, never indexed.
   response.headers.set('cache-control', 'no-store');
   response.headers.set('x-robots-tag', 'noindex, nofollow');
   return response;

@@ -1,22 +1,13 @@
 import type { Redis } from '../infra/redis.js';
 
-/**
- * A salt lives for 48 h although it is only used for one UTC day: created at any time during
- * its day, it must outlast that day even for a request that arrives a little late.
- */
+/** 48 h for a one-day salt: made at any hour of its day, it must outlast that day. */
 const SALT_TTL_SECONDS = 48 * 60 * 60;
 
 export const telemetrySaltKey = (date: string): string => `telemetry:salt:${date}`;
 
-/**
- * Redis DAL for the daily visitor-hash salt (`telemetry:salt:{YYYY-MM-DD}`, DESIGN.md §6.2).
- * Shared through Redis so that every API instance hashes a visitor the same way.
- */
+/** The daily visitor-hash salt (DESIGN.md §6.2), in Redis so every replica hashes alike. */
 export interface TelemetrySaltDal {
-  /**
-   * The salt for `date` (UTC, `YYYY-MM-DD`). If none exists yet, tries to store `candidate`.
-   * When several instances race, the first `SET NX` wins and everyone reads the winner.
-   */
+  /** The salt for `date` (UTC), else stores `candidate`; in a race the first SET NX wins. */
   getOrCreate: (date: string, candidate: string) => Promise<string>;
 }
 
@@ -29,7 +20,7 @@ export function createTelemetrySaltDal(redis: Redis): TelemetrySaltDal {
         return existing;
       }
 
-      // NX: only set if the key does not exist. A concurrent winner's value is kept.
+      // NX: only if the key doesn't exist, so a concurrent winner is kept.
       await redis.set(key, candidate, 'EX', SALT_TTL_SECONDS, 'NX');
       const winner = await redis.get(key);
       if (winner === null) {

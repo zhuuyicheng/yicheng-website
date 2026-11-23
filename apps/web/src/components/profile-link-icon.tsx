@@ -1,7 +1,7 @@
 import { ArrowUpRight } from 'lucide-react';
 import { LinkedInIcon } from './icons/linkedin-icon';
 
-/** The icon for a profile link: LinkedIn's mark for LinkedIn, an arrow for anything else. */
+/** LinkedIn's mark for LinkedIn, an arrow for anything else. */
 export function ProfileLinkIcon({
   url,
   className,

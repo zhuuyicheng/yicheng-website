@@ -3,9 +3,8 @@ import { ArrowRight, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
 /**
- * One project as a card. The whole card opens the project's page: the title link's `::after`
- * stretches over the card, so the full box is clickable while screen readers still hear just
- * the title as the link. Hovering lifts the card; keyboard focus outlines it.
+ * One project card, clickable all over: the title link's `::after` covers the card, while
+ * screen readers hear just the title.
  */
 export function ProjectCard({ project }: { project: ProjectSummary }) {
   return (

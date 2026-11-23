@@ -14,7 +14,7 @@ import type { ContentDal } from '../dal/content.dal.js';
 import type { CacheAsideManager, Cached } from './cache-aside.manager.js';
 
 export interface PublishSummary {
-  /** `false` when the database already matched the file: no "Last updated" date moved. */
+  /** `false` when the database already matched: no "Last updated" date moved. */
   changed: boolean;
   experiences: number;
   education: number;
@@ -26,7 +26,7 @@ export interface ContentManager {
   getProfile: (log: Logger) => Promise<Cached<Profile>>;
   listProjects: (log: Logger) => Promise<Cached<ProjectSummary[]>>;
   getProject: (slug: string, log: Logger) => Promise<Cached<Project>>;
-  /** `content:seed`: save to Postgres, clear the cache, then warm it again. */
+  /** `content:seed`: save to Postgres, clear the cache, warm it. */
   publish: (content: PortfolioContent, log: Logger) => Promise<PublishSummary>;
 }
 
@@ -63,7 +63,7 @@ export function createContentManager(dependencies: ContentManagerDependencies): 
         },
         log,
       );
-      // listProjects never returns null (no projects is an empty list); this narrows the type.
+      // Never null (no projects is []); this narrows the type.
       return found(result, 'Projects not found');
     },
 
@@ -83,11 +83,10 @@ export function createContentManager(dependencies: ContentManagerDependencies): 
     async publish(content, log) {
       const changed = await dal.replaceAll(content);
 
-      // Postgres is updated, so every cached copy is now stale. A failure here is not
-      // swallowed: the seed exits non-zero and says the cache may be stale until its TTL.
+      // Every cached copy is stale now. Not swallowed: the seed fails and says so.
       const cacheKeysCleared = await cacheDal.deleteAllContent();
 
-      // Warm the cache through the normal read path, so the first visitor gets a hit.
+      // Warm through the normal read path, so the first visitor gets a hit.
       await manager.getProfile(log);
       const projects = await manager.listProjects(log);
       for (const project of projects.value) {

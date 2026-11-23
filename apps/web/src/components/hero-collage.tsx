@@ -2,10 +2,7 @@ import Image from 'next/image';
 import type { CSSProperties } from 'react';
 import type { CollagePhoto } from '@/content/photos';
 
-/**
- * Where each photo of the hero collage sits, as percentages of the collage box: position,
- * width, shape, tilt and stacking. The first place is the large photo in the middle.
- */
+/** A collage place, as percentages of its box. The first is the big photo in the middle. */
 interface Slot {
   left: number;
   top: number;
@@ -13,7 +10,7 @@ interface Slot {
   aspect: string;
   tilt: number;
   z: string;
-  /** Hidden on phones, where seven photos would crowd each other. */
+  /** Hidden on phones, where seven photos would crowd. */
   wideOnly?: boolean;
 }
 
@@ -27,13 +24,10 @@ const SLOTS: readonly Slot[] = [
   { left: 74, top: 37, width: 26, aspect: 'aspect-[4/3]', tilt: -7, z: 'z-10', wideOnly: true },
 ];
 
-/** Widest the collage gets (px): for `sizes`, so phones and laptops download small copies. */
+/** The collage's widest (px), for `sizes`: phones and laptops download small copies. */
 const COLLAGE_PX = 544;
 
-/**
- * Photos pinned like prints around the large one, each at its own angle. Hovering one
- * straightens it and brings it to the front (instantly with reduced motion: globals.css).
- */
+/** Photos pinned around the big one, tilted; hovering one straightens it and brings it forward. */
 export function HeroCollage({ photos }: { photos: readonly CollagePhoto[] }) {
   return (
     <div className="relative mx-auto aspect-[1/1.05] w-full max-w-md sm:max-w-lg lg:max-w-none">

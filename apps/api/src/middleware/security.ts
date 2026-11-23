@@ -4,19 +4,8 @@ import type { FastifyInstance } from 'fastify';
 import { REQUEST_ID_HEADER } from './request-id.js';
 
 /**
- * Browser-facing protections (DESIGN.md §12). Both are standard Fastify plugins.
- *
- * Helmet sets response headers that tell browsers to be stricter, e.g.
- *   - `X-Content-Type-Options: nosniff`: never guess a different content type than declared;
- *   - `Strict-Transport-Security`: once seen over HTTPS, only ever use HTTPS for this host;
- *   - `Content-Security-Policy`, `X-Frame-Options`: no scripts, frames or embedding from
- *     elsewhere (little to protect in JSON, but they cost nothing and cover mistakes).
- *
- * CORS (Cross-Origin Resource Sharing): browsers stop JavaScript on one origin
- * (http://localhost:3000, the web app) from reading responses of another (http://localhost:4000,
- * the API) unless the API says that origin is allowed. Only `origins` are; any other site gets
- * no `Access-Control-Allow-Origin` header, and the browser hides the response from its script.
- * CORS is a rule browsers enforce for their users, not access control: curl ignores it.
+ * Helmet (stricter browser headers) and CORS (DESIGN.md §12). CORS lets only `origins` read
+ * the API's responses in a browser; it isn't access control (curl ignores it).
  */
 export function registerSecurityPlugins(
   app: FastifyInstance,
@@ -27,11 +16,9 @@ export function registerSecurityPlugins(
   void app.register(cors, {
     origin: [...options.corsOrigins],
     methods: ['GET', 'POST'],
-    // Headers the web app may send. JSON bodies need content-type, which makes the browser ask
-    // first with an OPTIONS "preflight" request.
+    // Headers the web app may send. JSON's content-type triggers a preflight OPTIONS request.
     allowedHeaders: ['content-type', REQUEST_ID_HEADER],
-    // Headers its scripts may read. Browsers hide all but a few basic ones unless listed: the
-    // contact form needs the rate-limit headers to say "3 messages every 10 minutes: 2 left".
+    // Headers its scripts may read: the contact form shows the rate-limit ones.
     exposedHeaders: [
       REQUEST_ID_HEADER,
       'x-ratelimit-limit',
@@ -40,7 +27,7 @@ export function registerSecurityPlugins(
       'retry-after',
       'x-cache',
     ],
-    // Browsers may remember a preflight answer for 10 minutes instead of asking every time.
+    // Browsers may cache a preflight answer for 10 minutes.
     maxAge: 600,
   });
 }

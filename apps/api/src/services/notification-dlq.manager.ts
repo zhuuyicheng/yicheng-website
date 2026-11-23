@@ -10,9 +10,8 @@ import {
 import type { ReplayOutcome } from './telemetry-dlq.manager.js';
 
 /**
- * The notification dead-letter queue (DESIGN.md §8.3). A job lands there when notifying failed
- * for good, and its message is FAILED. After fixing the cause (a new webhook URL, Discord is
- * back), replaying reopens each message and queues a fresh job with a full set of attempts.
+ * Replays notification dead letters (DESIGN.md §8.3) once the cause is fixed: reopens each
+ * FAILED message and queues a fresh job with a full set of attempts.
  */
 export interface NotificationDlqManager {
   replay: (log: Logger) => Promise<ReplayOutcome>;
@@ -21,7 +20,7 @@ export interface NotificationDlqManager {
 export function createNotificationDlqManager(deps: {
   queueDal: Pick<NotificationQueueDal, 'listDeadLetters' | 'replayDeadLetter'>;
   contactMessageDal: Pick<ContactMessageDal, 'reopenFailed'>;
-  /** Injectable for tests. */
+  /** For tests. */
   now?: () => Date;
   newJobId?: () => string;
 }): NotificationDlqManager {
@@ -36,14 +35,14 @@ export function createNotificationDlqManager(deps: {
       for (const [index, entry] of entries.entries()) {
         const job = readDeadLetteredJob(entry);
         if (job === null) {
-          // e.g. an `invalid_payload` dead letter: there is no job in it to replay.
+          // e.g. `invalid_payload`: there's no job to replay.
           unreadable += 1;
           log.warn({ index }, 'unreadable DLQ entry left in place');
           continue;
         }
 
-        // Reopen first: a fresh job for a message that is still FAILED would just be skipped.
-        // A crash right after leaves it PENDING without a job, which the reconciler repairs.
+        // Reopen first: a job for a FAILED message would be skipped. A crash after this leaves
+        // it PENDING without a job, which the reconciler repairs.
         await contactMessageDal.reopenFailed(job.messageId);
         const freshJob: NotificationJob = {
           jobId: newJobId(),
@@ -60,7 +59,7 @@ export function createNotificationDlqManager(deps: {
   };
 }
 
-/** The job inside a DLQ entry, or `null` if either layer is unreadable. */
+/** The job inside a DLQ entry, or `null` if unreadable. */
 function readDeadLetteredJob(entry: string): NotificationJob | null {
   const deadLetter = deadLetteredJobSchema.safeParse(parseJson(entry));
   if (!deadLetter.success) {
@@ -74,6 +73,6 @@ function parseJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
-    return undefined; // fails the schema check, which reports it as unreadable
+    return undefined; // the schema check then reports it unreadable
   }
 }

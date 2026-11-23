@@ -2,17 +2,15 @@ import type { PostgresPool } from '../infra/postgres.js';
 import type { Visit } from '../schema/visitor-insights.schema.js';
 
 /**
- * Read-only summaries of `analytics_events` (Postgres) for the owner's /admin page
- * (DESIGN.md §7.8). The ingestion path never uses this file.
- *
- * Every query skips crawlers (`device_type = 'bot'`) and the owner's own /admin pages.
+ * Read-only summaries of `analytics_events` for /admin (DESIGN.md §7.8). Every query skips
+ * bots and the owner's /admin pages.
  */
 export interface VisitorInsightsDal {
-  /** One entry per visit (browser-tab session) that started since `since`, newest first. */
+  /** One per visit (a tab's session) started since `since`, newest first. */
   listVisits: (since: Date, limit: number) => Promise<Visit[]>;
   /** Page views and unique visitors per UTC day; days without events are missing. */
   dailyCounts: (since: Date) => Promise<DailyCount[]>;
-  /** Most viewed pages, with the number of visits that viewed each. */
+  /** Most viewed pages, with how many visits viewed each. */
   topPages: (since: Date, limit: number) => Promise<PageCount[]>;
   /** Most clicked tracked links (`interaction` events), by name. */
   topClicks: (since: Date, limit: number) => Promise<ClickCount[]>;
@@ -33,8 +31,7 @@ export interface ClickCount {
   clicks: number;
 }
 
-// These shapes are aggregate query results, not table rows, so they live here rather than in
-// dao/. Counts are cast to int in SQL: pg returns bigint (count(*)) as a string otherwise.
+// Query results, not table rows, so they live here. Counts are ::int: pg returns bigint as text.
 interface VisitRow {
   started_at: Date;
   last_seen_at: Date;

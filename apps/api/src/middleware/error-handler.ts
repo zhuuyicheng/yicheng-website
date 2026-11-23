@@ -12,7 +12,7 @@ export interface ErrorResponse {
   body: ErrorResponseBody;
 }
 
-/** Installs the error and 404 handlers so every failure uses the same envelope. */
+/** Error and 404 handlers, so every failure uses the same envelope. */
 export function registerErrorHandlers(app: FastifyInstance): void {
   app.setErrorHandler((error, request, reply) => {
     const { statusCode, body } = toErrorResponse(error, request.id);
@@ -36,7 +36,7 @@ export function registerErrorHandlers(app: FastifyInstance): void {
   });
 }
 
-/** Maps any thrown value to a status code and a safe, client-facing error body. */
+/** Any thrown value → a status code and a safe error body. */
 export function toErrorResponse(error: unknown, requestId: string): ErrorResponse {
   if (error instanceof AppError) {
     return {
@@ -58,8 +58,7 @@ export function toErrorResponse(error: unknown, requestId: string): ErrorRespons
     };
   }
 
-  // Fastify's own client errors (malformed JSON, body too large, ...) carry a 4xx
-  // statusCode and a message that is safe to show.
+  // Fastify's own client errors (bad JSON, body too large) have a 4xx and a safe message.
   const clientStatus = getClientErrorStatus(error);
   if (clientStatus !== undefined && error instanceof Error) {
     return {
@@ -68,8 +67,7 @@ export function toErrorResponse(error: unknown, requestId: string): ErrorRespons
     };
   }
 
-  // A datastore that is down or restarting is not a bug in our code: 503 tells clients to
-  // retry shortly, and keeps 500 meaning "something is actually broken".
+  // A datastore down or restarting isn't a bug: 503 says "retry soon", 500 stays "broken".
   if (isTransientDatastoreError(error)) {
     return {
       statusCode: 503,

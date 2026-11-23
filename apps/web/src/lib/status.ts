@@ -1,100 +1,77 @@
 import { systemStatusSchema, type SystemStatus } from '@portfolio/shared';
+import { z } from 'zod';
 import { fetchOwnerData } from './owner-fetch';
 
-/**
- * The owner's live system dashboard (on /admin): fetch the API's self-report (DESIGN.md §7.7)
- * and turn it into what the page shows. No React, so it can be unit-tested.
- */
+/** The /admin system dashboard: fetch each replica's report (DESIGN.md §7.7) and shape it. */
 
 /**
- * The status as the browser gets it: from the web server's owner-only route
- * (app/admin/system-status/route.ts), which asks the API with the admin token. Validated
- * against the shared contract.
+ * What app/admin/system-status/route.ts answers: each API replica's status by name, `null` if
+ * it didn't answer. Each replica counts only its own requests, so the page needs them all.
  */
-export function fetchStatus(options: {
+export const replicaStatusesSchema = z.object({
+  replicas: z
+    .array(z.object({ name: z.string().min(1), status: systemStatusSchema.nullable() }))
+    .min(1),
+});
+export type ReplicaStatuses = z.infer<typeof replicaStatusesSchema>;
+export type ReplicaStatus = ReplicaStatuses['replicas'][number];
+
+/** The replicas' statuses, each checked against the shared contract. */
+export async function fetchStatus(options: {
   url: string;
   fetch: typeof globalThis.fetch;
   signal?: AbortSignal;
-}): Promise<SystemStatus> {
-  return fetchOwnerData({ ...options, schema: systemStatusSchema });
+}): Promise<ReplicaStatus[]> {
+  const statuses = await fetchOwnerData({ ...options, schema: replicaStatusesSchema });
+  return statuses.replicas;
 }
 
 export interface Health {
   level: 'operational' | 'degraded';
   /** Names of the dependencies that are down, e.g. `["redis"]`. */
   down: string[];
+  /** Names of the API replicas that did not answer, e.g. `["api-2"]`. */
+  silent: string[];
 }
 
-/** Operational when every dependency is up. */
-export function overallHealth(status: SystemStatus): Health {
+/** Operational when every dependency is up and every replica answered. */
+export function overallHealth(status: SystemStatus, silent: readonly string[] = []): Health {
   const down = Object.entries(status.dependencies)
     .filter(([, health]) => health.status === 'down')
     .map(([name]) => name);
-  return { level: down.length === 0 ? 'operational' : 'degraded', down };
+  const healthy = down.length === 0 && silent.length === 0;
+  return { level: healthy ? 'operational' : 'degraded', down, silent: [...silent] };
 }
 
-/**
- * One API replica's own numbers, from its latest status. The API runs as two replicas behind
- * Caddy (DESIGN.md §14.5), each counting only what it answered, and polls reach them in turn:
- * shown answer by answer, every number flipped between the two (the request chart jumped
- * 0, 1, 0, 1). So the page keeps each replica's latest reading and shows them combined.
- */
-export interface ReplicaReading {
-  /** When this page received it (ms since epoch). */
-  at: number;
-  uptimeSeconds: number;
-  requestCount: number;
-  p50: number | null;
-  p95: number | null;
-  cacheHits: number;
-  cacheMisses: number;
-}
-
-/** Each replica's latest reading, by its `instance` name (`api-1`, `api-2`). */
-export type Replicas = Readonly<Record<string, ReplicaReading>>;
-
-/**
- * How long a replica's numbers still count after its last answer. Polls reach each one about
- * every 10 s, so one silent this long has stopped. A deploy's replacement keeps the name and
- * simply overwrites the old reading.
- */
-export const REPLICA_STALE_MS = 30_000;
-
-/** Records `status` as its replica's latest reading, forgetting replicas silent for `staleMs`. */
-export function recordReplica(
-  replicas: Replicas,
-  status: SystemStatus,
-  at: number,
-  staleMs = REPLICA_STALE_MS,
-): Replicas {
-  const next: Record<string, ReplicaReading> = {};
-  for (const [name, reading] of Object.entries(replicas)) {
-    if (at - reading.at < staleMs) next[name] = reading;
+/** For the banner: `redis is down · api-2 is not answering (…)`. */
+export function healthProblems(health: Health): string {
+  const verb = (names: readonly string[]) => (names.length === 1 ? 'is' : 'are');
+  const problems: string[] = [];
+  if (health.down.length > 0) {
+    problems.push(`${health.down.join(', ')} ${verb(health.down)} down`);
   }
-  next[status.instance] = {
-    at,
-    uptimeSeconds: status.uptimeSeconds,
-    requestCount: status.http.requestCount,
-    p50: status.http.latencyMs.p50,
-    p95: status.http.latencyMs.p95,
-    cacheHits: status.cache.hits,
-    cacheMisses: status.cache.misses,
-  };
-  return next;
+  if (health.silent.length > 0) {
+    problems.push(
+      `${health.silent.join(', ')} ${verb(health.silent)} not answering (left out of the numbers)`,
+    );
+  }
+  return problems.join(' · ');
 }
 
-/** The whole API's numbers, from each replica's latest reading. */
-export interface CombinedNumbers {
-  /** Replica names, sorted. */
-  replicas: string[];
-  /** The most recently started replica's: a deploy restarts them one after the other. */
+/** The whole API's numbers, from one poll's answers. */
+export interface CombinedStatus {
+  /** Dependencies, queues and page views, from the first replica that answered (they're shared). */
+  shared: SystemStatus;
+  /** By name. */
+  answered: string[];
+  silent: string[];
+  /** The most recently started replica's. */
   uptimeSeconds: number;
   /** Added up: every request reaches exactly one replica. */
   requestCount: number;
   /**
-   * The slower replica's value: not the exact percentile of all requests together (that would
-   * need every duration), but a safe upper bound. If each replica answered half its requests
-   * faster than its own p50, at least half of all of them were faster than the larger p50.
+   * The slower replica's: not the exact percentile of all requests (that needs every duration),
+   * but a safe upper bound.
    */
   p50: number | null;
   p95: number | null;
@@ -104,46 +81,54 @@ export interface CombinedNumbers {
   hitRatio: number | null;
 }
 
-/** Combines the replicas' latest readings; `null` before the first one. */
-export function combineReplicas(replicas: Replicas): CombinedNumbers | null {
-  const named = Object.entries(replicas).sort(([a], [b]) => a.localeCompare(b));
-  const readings = named.map(([, reading]) => reading);
-  if (readings.length === 0) {
+/**
+ * One poll's answers combined; `null` if none answered. A silent replica is named, not guessed;
+ * while it's down Caddy sends everyone to the others, so their counts hold nearly everything.
+ */
+export function combineReplicas(replicas: readonly ReplicaStatus[]): CombinedStatus | null {
+  const answering = replicas.flatMap((replica) =>
+    replica.status === null ? [] : [{ name: replica.name, status: replica.status }],
+  );
+  const first = answering[0];
+  if (first === undefined) {
     return null;
   }
-  const sum = (pick: (reading: ReplicaReading) => number) =>
-    readings.reduce((total, reading) => total + pick(reading), 0);
-  const slowest = (pick: (reading: ReplicaReading) => number | null) => {
-    const known = readings.map(pick).filter((value): value is number => value !== null);
+  const statuses = answering.map((replica) => replica.status);
+  const sum = (pick: (status: SystemStatus) => number) =>
+    statuses.reduce((total, status) => total + pick(status), 0);
+  const slowest = (pick: (status: SystemStatus) => number | null) => {
+    const known = statuses.map(pick).filter((value): value is number => value !== null);
     return known.length === 0 ? null : Math.max(...known);
   };
-  const cacheHits = sum((reading) => reading.cacheHits);
-  const cacheMisses = sum((reading) => reading.cacheMisses);
+  const cacheHits = sum((status) => status.cache.hits);
+  const cacheMisses = sum((status) => status.cache.misses);
   const lookups = cacheHits + cacheMisses;
   return {
-    replicas: named.map(([name]) => name),
-    uptimeSeconds: Math.min(...readings.map((reading) => reading.uptimeSeconds)),
-    requestCount: sum((reading) => reading.requestCount),
-    p50: slowest((reading) => reading.p50),
-    p95: slowest((reading) => reading.p95),
+    shared: first.status,
+    answered: answering.map((replica) => replica.name),
+    silent: replicas.filter((replica) => replica.status === null).map((replica) => replica.name),
+    uptimeSeconds: Math.min(...statuses.map((status) => status.uptimeSeconds)),
+    requestCount: sum((status) => status.http.requestCount),
+    p50: slowest((status) => status.http.latencyMs.p50),
+    p95: slowest((status) => status.http.latencyMs.p95),
     cacheHits,
     cacheMisses,
     hitRatio: lookups === 0 ? null : cacheHits / lookups,
   };
 }
 
-/** One point of the charts: what the status said at `at` (ms since epoch). */
+/** One chart point: the status at `at` (ms since epoch). */
 export interface Sample {
   at: number;
   p95: number | null;
   requests: number;
 }
 
-/** The charts' time axis: the last 30 minutes, with a labelled tick every 5 minutes. */
+/** The charts' axis: the last 30 minutes, a tick every 5. */
 export const CHART_WINDOW_MS = 30 * 60_000;
 export const CHART_TICK_MS = 5 * 60_000;
 
-/** Adds `sample` and drops those older than `windowMs` before it: the chart's time window. */
+/** Adds `sample` and drops those older than `windowMs`. */
 export function appendSample(
   history: readonly Sample[],
   sample: Sample,
@@ -164,28 +149,28 @@ export function formatUptime(totalSeconds: number): string {
   return `${String(s)}s`;
 }
 
-/** `7.5` → `7.5 ms`; `null` (no requests in the window) → `—`. */
+/** `7.5` → `7.5 ms`; `null` (no requests) → `—`. */
 export function formatMs(value: number | null): string {
   return value === null ? '—' : `${value < 10 ? value.toFixed(1) : String(Math.round(value))} ms`;
 }
 
-/** `0.968` → `96.8 %`; `null` (no lookups yet) → `—`. */
+/** `0.968` → `96.8 %`; `null` (no lookups) → `—`. */
 export function formatRatio(ratio: number | null): string {
   return ratio === null ? '—' : `${(ratio * 100).toFixed(1)} %`;
 }
 
-/** Seconds since the last successful update, for "updated 3 s ago". */
+/** For "updated 3 s ago". */
 export function secondsAgo(at: number, now: number): number {
   return Math.max(0, Math.round((now - at) / 1000));
 }
 
-/** One point of a chart's line: a value (or `null`, unknown) at a time (ms since epoch). */
+/** A value (or `null`, unknown) at a time (ms since epoch). */
 export interface TimePoint {
   at: number;
   value: number | null;
 }
 
-/** Where a chart's time axis starts and ends (ms since epoch), and how wide it is drawn. */
+/** The axis' start and end (ms) and drawn width. */
 export interface TimeScale {
   start: number;
   end: number;
@@ -197,11 +182,7 @@ export function timeX(at: number, scale: TimeScale): number {
   return ((at - scale.start) / (scale.end - scale.start)) * scale.width;
 }
 
-/**
- * Tick times between `start` and `end`: every multiple of `stepMs` since the epoch. With a
- * 5-minute step these fall on :00, :05, :10 … of the viewer's clock, because every time zone
- * is offset from UTC by whole quarter hours.
- */
+/** Multiples of `stepMs` since the epoch: :00, :05… on any clock (zones are quarter hours). */
 export function timeTicks(start: number, end: number, stepMs: number): number[] {
   const ticks: number[] = [];
   for (let at = Math.ceil(start / stepMs) * stepMs; at <= end; at += stepMs) {
@@ -210,18 +191,14 @@ export function timeTicks(start: number, end: number, stepMs: number): number[] 
   return ticks;
 }
 
-/**
- * How far down the plot `value` sits, as a fraction of its height: 0 at the top (`ceiling` or
- * more), 1 at the bottom (zero). The line and the hover marker both use it, so they agree.
- */
+/** How far down `value` sits: 0 at `ceiling`, 1 at zero. Shared by the line and the marker. */
 export function valueDepth(value: number, ceiling: number): number {
   return 1 - Math.min(Math.max(value, 0), ceiling) / ceiling;
 }
 
 /**
- * An SVG path through `points`, placed by time (x) and scaled from 0 (bottom) to `ceiling`
- * (top). The line breaks at unknown values and at gaps longer than `maxGapMs` (polling pauses
- * while the tab is hidden) instead of drawing a straight line across time it knows nothing of.
+ * An SVG path placed by time and scaled 0 → `ceiling`. It breaks at unknown values and at gaps
+ * over `maxGapMs` (a hidden tab) rather than draw across time it knows nothing about.
  */
 export function timeLinePath(
   points: readonly TimePoint[],
@@ -245,7 +222,7 @@ export function timeLinePath(
   return path.trim();
 }
 
-/** The point closest in time to `at` (for the hover crosshair), or `null` if there is none. */
+/** The point nearest `at` in time (the hover crosshair), or `null`. */
 export function nearestPoint(points: readonly TimePoint[], at: number): TimePoint | null {
   let best: TimePoint | null = null;
   for (const point of points) {
@@ -262,12 +239,12 @@ const CLOCK = new Intl.DateTimeFormat('en-GB', {
   hourCycle: 'h23',
 });
 
-/** `17:35` in the viewer's time zone: the time axis' labels. */
+/** `17:35` on the viewer's clock: the axis labels. */
 export function formatClock(at: number): string {
   return CLOCK.format(at);
 }
 
-/** A round number just above the largest value, so the chart's top label reads cleanly. */
+/** A round number just above the largest value, for a clean top label. */
 export function niceCeiling(values: readonly (number | null)[]): number {
   const max = Math.max(0, ...values.filter((v): v is number => v !== null));
   if (max === 0) return 1;

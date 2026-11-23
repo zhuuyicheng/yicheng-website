@@ -1,9 +1,8 @@
 import type { z } from 'zod';
 
 /**
- * Reads one of this web server's owner-only routes from the browser (`/admin/system-status`,
- * `/admin/queues/…`) and checks the `{ data }` it answers against the shared contract. The
- * browser resends the owner's /admin password by itself (HTTP Basic, DESIGN.md §8.7).
+ * Reads an owner-only route from the browser and checks its `{ data }` against a schema. The
+ * browser resends the /admin password itself (HTTP Basic).
  */
 export async function fetchOwnerData<T extends z.ZodType>(options: {
   url: string;

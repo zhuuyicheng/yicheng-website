@@ -4,19 +4,15 @@ import type { AppConfig } from '../config/env.js';
 import type { IpDatabases } from '../dal/ip-location.dal.js';
 import type { Logger } from './logger.js';
 
-/** apps/api: the same relative location from src/infra and dist/infra. */
+/** apps/api, from both src/infra and dist/infra. */
 const API_ROOT = path.resolve(import.meta.dirname, '../..');
 
 /** Where `npm run geoip:download` puts the files. */
 export const GEOIP_DIRECTORY = path.join(API_ROOT, 'data/geoip');
 
 /**
- * Opens the GeoIP database files named in the config (DESIGN.md §8.2). Called once at API
- * startup; the whole file is read into memory. Relative paths are resolved from apps/api.
- *
- *   - path not configured → that lookup is disabled (a warning, then its fields stay null);
- *   - path configured but the file is missing or invalid → throws, so the API refuses to
- *     start instead of quietly collecting less than you asked for.
+ * Opens the GeoIP files named in the config into memory (DESIGN.md §8.2). No path: that lookup
+ * is off. A missing or bad file throws, so the API won't start collecting less than asked.
  */
 export async function openIpDatabases(
   config: AppConfig['ipLookup'],

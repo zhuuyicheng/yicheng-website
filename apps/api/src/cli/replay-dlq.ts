@@ -1,12 +1,6 @@
 /**
- * `npm run dlq:replay -- <queue>` — gives dead-lettered items another chance, after you fixed
- * what made them fail. DESIGN.md §8.2 (telemetry) and §8.3 (notifications).
- *
- *   telemetry       events go back into the buffer; the worker inserts them on its next flush.
- *   notifications   FAILED messages go back to PENDING with a fresh job and a full set of
- *                   attempts (e.g. after replacing a deleted Discord webhook).
- *
- * Entries that cannot be read are left in place, and the command exits 1.
+ * `npm run dlq:replay -- <telemetry|notifications>`: retries dead letters once their cause is
+ * fixed (DESIGN.md §8.2, §8.3). Unreadable entries stay, and the command exits 1.
  */
 import { loadConfigOrExit, type AppConfig } from '../config/env.js';
 import { createContactMessageDal } from '../dal/contact-message.dal.js';
@@ -45,7 +39,7 @@ const redis = createRedisClient(
   metrics,
 );
 
-/** Notifications also need Postgres, to reopen the FAILED messages. */
+/** Also needs Postgres, to reopen the FAILED messages. */
 async function replayNotifications(
   appConfig: AppConfig,
   client: Redis,

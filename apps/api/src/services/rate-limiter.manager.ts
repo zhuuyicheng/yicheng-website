@@ -6,26 +6,20 @@ import type { Logger } from '../infra/logger.js';
 import type { Metrics } from '../infra/metrics.js';
 import { isTransientDatastoreError } from '../infra/transient-error.js';
 
-/** Everything a caller needs to answer the request and fill in the `X-RateLimit-*` headers. */
+/** What a caller needs to answer and fill in the `X-RateLimit-*` headers. */
 export interface RateLimitOutcome {
   allowed: boolean;
   limit: number;
   remaining: number;
-  /** The window `limit` counts over, so a client can say "3 messages every 10 minutes". */
+  /** The window `limit` counts over ("3 messages every 10 minutes"). */
   windowSeconds: number;
-  /** When denied: whole seconds until a retry can succeed (rounded up). 0 when allowed. */
+  /** When denied: whole seconds until a retry can succeed; 0 when allowed. */
   retryAfterSeconds: number;
 }
 
-/**
- * "At most `max` requests per sender per `windowSeconds`" (DESIGN.md §6.4). The counting
- * happens atomically in Redis, so the limit holds across every API process.
- */
+/** At most `max` requests per sender per window (DESIGN.md §6.4), counted atomically in Redis. */
 export interface RateLimiterManager {
-  /**
-   * Counts one request from `ip` if the window has room. Fails closed: when Redis is
-   * unavailable it throws a 503 instead of letting every request through.
-   */
+  /** Counts one request if the window has room. Fails closed: no Redis → 503, not "allow all". */
   consume: (ip: string, log: Logger) => Promise<RateLimitOutcome>;
 }
 
@@ -37,7 +31,7 @@ export interface RateLimiterManagerDependencies {
   metrics: Metrics;
   max: number;
   windowSeconds: number;
-  /** Injectable for tests. */
+  /** For tests. */
   now?: () => number;
   newMemberId?: () => string;
 }
@@ -48,7 +42,7 @@ export function createRateLimiterManager(deps: RateLimiterManagerDependencies): 
 
   return {
     async consume(ip, log) {
-      // The key holds a hash, never the IP itself: Redis data and its backups stay IP-free.
+      // A hash, never the IP: Redis and its backups stay IP-free.
       const key = rateLimitKey(limiter, hashIp(ip));
       const nowMs = now();
 
@@ -62,10 +56,9 @@ export function createRateLimiterManager(deps: RateLimiterManagerDependencies): 
         });
       } catch (error) {
         if (!isTransientDatastoreError(error)) {
-          throw error; // a bug, not an outage: let it surface as a 500
+          throw error; // a bug, not an outage: a 500
         }
-        // Fail closed: without Redis we cannot count, and an open contact form would let a
-        // bot flood the inbox. The form is not critical; a short outage is acceptable.
+        // Fail closed: without counting, a bot could flood the inbox. A short form outage is fine.
         metrics.rateLimitErrors.inc({ limiter });
         log.warn({ err: error, limiter }, 'rate limiter unavailable, refusing request');
         throw new AppError(
@@ -81,7 +74,7 @@ export function createRateLimiterManager(deps: RateLimiterManagerDependencies): 
         limit: max,
         remaining: window.remaining,
         windowSeconds,
-        // Rounded up: retrying after a rounded-down value could arrive a moment too early.
+        // Rounded up, or a retry could come a moment too early.
         retryAfterSeconds: window.allowed ? 0 : Math.max(1, Math.ceil(window.retryAfterMs / 1000)),
       };
     },

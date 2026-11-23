@@ -1,11 +1,7 @@
 /**
- * "Scrollspy": which section is being read, for the header's links and a project page's
- * "On this page" list (components/use-scroll-spy.ts). No React, so it can be unit-tested.
- *
- * IntersectionObserver reports each section entering or leaving a band across the screen.
- * The set of sections inside the band is kept up to date from those reports, and the one being
- * read is the first of them in page order, or none. "None" matters: above the first section
- * (the hero) nothing is being read, so nothing should stay highlighted.
+ * Which section is being read, for the header and "On this page" (components/use-scroll-spy.ts).
+ * IntersectionObserver reports sections entering or leaving a band; the active one is the first
+ * inside it, or none (above the first section nothing should stay highlighted).
  */
 
 export interface BandChange {
@@ -13,7 +9,7 @@ export interface BandChange {
   isIntersecting: boolean;
 }
 
-/** The sections inside the band after `changes` (a new set; the old one is left alone). */
+/** The sections in the band after `changes` (a new set). */
 export function updateVisible(
   visible: ReadonlySet<string>,
   changes: readonly BandChange[],
@@ -29,7 +25,7 @@ export function updateVisible(
   return next;
 }
 
-/** The first section of `order` that is inside the band, or `null` when none is. */
+/** The first section of `order` inside the band, or `null`. */
 export function activeSection(
   visible: ReadonlySet<string>,
   order: readonly string[],

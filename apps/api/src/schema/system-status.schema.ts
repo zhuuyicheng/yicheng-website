@@ -1,5 +1,2 @@
-/**
- * GET /api/v1/admin/system-status (DESIGN.md §7.7). The response is the public contract (the
- * web app's /admin dashboard parses it), so its schema lives in `@portfolio/shared`.
- */
+/** GET /api/v1/admin/system-status (DESIGN.md §7.7); the schema is shared with the web app. */
 export type { QueueDepths, SystemStatus } from '@portfolio/shared';

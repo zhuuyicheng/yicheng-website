@@ -1,9 +1,6 @@
 /**
- * `npm run content:seed` — publishes content/portfolio.json:
- *   1. validate the file (every problem is listed, nothing is written if any exist),
- *   2. make Postgres match it in one transaction,
- *   3. clear the content cache and warm it again.
- * See DESIGN.md §8.1.
+ * `npm run content:seed`: validates content/portfolio.json (nothing is written if it's
+ * invalid), makes Postgres match it in one transaction, then clears and warms the cache.
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';

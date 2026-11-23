@@ -8,10 +8,7 @@ export interface ContentsItem {
   heading: string;
 }
 
-/**
- * "On this page" for a project: links to each section, highlighting the one being read (the
- * section crossing the upper part of the screen). Without JavaScript the links still work.
- */
+/** "On this page" for a project, highlighting the section being read. Works without JavaScript. */
 export function ProjectContents({ items }: { items: ContentsItem[] }) {
   const ids = useMemo(() => items.map((item) => item.id), [items]);
   const active = useScrollSpy(ids, '-20% 0px -70% 0px');

@@ -19,13 +19,12 @@ type Loaded = { state: 'loading' } | { state: 'failed' } | { state: 'ready'; res
 const MESSAGE_PREVIEW_CHARS = 280;
 
 /**
- * "Show items" under a queue on /admin's queue card (DESIGN.md §8.7): what is in it, read when
- * asked rather than with every 5-second poll, and kept on screen until reloaded. Reading takes
- * nothing out of the queue.
+ * "Show items" under a queue (DESIGN.md §8.7): read on request, not with the 5 s poll, and kept
+ * until reloaded. Takes nothing out.
  */
 export function QueueItemsPanel({ queue, count }: { queue: QueueName; count: number }) {
   const [open, setOpen] = useState(false);
-  const [round, setRound] = useState(0); // "Reload" bumps it, which reads again
+  const [round, setRound] = useState(0); // "Reload" bumps it to read again
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' });
 
   useEffect(() => {
@@ -36,7 +35,7 @@ export function QueueItemsPanel({ queue, count }: { queue: QueueName; count: num
         setLoaded({ state: 'ready', result });
       })
       .catch(() => {
-        // Closed or reloaded meanwhile: nothing to report. Otherwise say so, with a retry.
+        // Unless closed or reloaded meanwhile, say so and offer a retry.
         if (!controller.signal.aborted) setLoaded({ state: 'failed' });
       });
     return () => {
@@ -49,7 +48,7 @@ export function QueueItemsPanel({ queue, count }: { queue: QueueName; count: num
     setRound((n) => n + 1);
   };
 
-  // Nothing to show; but an open panel stays open, so what was loaded does not vanish.
+  // Nothing to show, but an open panel stays open so loaded items don't vanish.
   if (!open && count === 0) return null;
 
   return (
@@ -118,7 +117,7 @@ function ItemList({ result, onReload }: { result: QueueItems; onReload: () => vo
       {result.items.length > 0 && (
         <ol className="mt-2 divide-y divide-line">
           {result.items.map((item, index) => (
-            // By position: the same entry can be queued twice (delivery is at least once).
+            // By position: the same entry can be queued twice.
             <li key={index} className="py-2.5 text-xs leading-relaxed">
               {item.kind === 'event' ? <EventItem item={item} /> : <NotificationItem item={item} />}
             </li>
@@ -187,7 +186,7 @@ function NotificationItem({ item }: { item: Extract<QueueItem, { kind: 'notifica
   );
 }
 
-/** The dead letter's reason in words, when, and the error exactly as it was reported. */
+/** The reason in words, when, and the error as reported. */
 function WhyItFailed({ deadLetter }: { deadLetter: DeadLetter }) {
   return (
     <div className="mt-1">

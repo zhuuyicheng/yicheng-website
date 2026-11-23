@@ -5,27 +5,25 @@ import { isTransientDatastoreError } from '../infra/transient-error.js';
 import { backoffMs } from './backoff.js';
 
 /**
- * "Run this every N ms" for small housekeeping tasks. worker.ts starts two:
- *   - `notification-promoter` (every 1 s): delayed retries whose wait is over → ready;
- *   - `notification-reconciler` (every 60 s): PENDING messages with a lost job → re-queued.
- * The task itself is a manager method; this loop only decides when to run it.
+ * Runs a manager method every N ms: the promoter (1 s, due retries → ready) and the
+ * reconciler (60 s, re-queues messages whose job was lost).
  */
 export interface PeriodicWorker {
   start: () => void;
-  /** Lets a running task finish, then stops. Resolves once the loop has exited. */
+  /** Lets a running task finish, then stops. */
   stop: () => Promise<void>;
 }
 
 export interface PeriodicWorkerDependencies {
-  /** The loop's name in logs and in `worker_loop_failures_total{loop}`. */
+  /** For logs and `worker_loop_failures_total{loop}`. */
   name: string;
   intervalMs: number;
-  /** `true`: first run right at start. `false`: first run after one interval. */
+  /** `true`: first run at start; `false`: after one interval. */
   runImmediately: boolean;
   task: (log: Logger) => Promise<unknown>;
   metrics: Metrics;
   logger: Logger;
-  /** Injectable for tests. */
+  /** For tests. */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
@@ -33,10 +31,9 @@ export function createPeriodicWorker(deps: PeriodicWorkerDependencies): Periodic
   const { name, intervalMs, runImmediately, task, metrics, sleep = realSleep } = deps;
   const log = deps.logger.child({ worker: name });
 
-  const wakeUp = new AbortController(); // aborting it cuts the current (and any later) sleep short
+  const wakeUp = new AbortController(); // aborting it cuts every sleep short
   let stopping = false;
-  // Read through a function inside the loop: TypeScript would otherwise assume `stopping`
-  // cannot change there, but stop() sets it while the task is running.
+  // A function, or TypeScript assumes `stopping` can't change during the task.
   const isStopping = (): boolean => stopping;
   let loop: Promise<void> | null = null;
 
@@ -67,7 +64,7 @@ export function createPeriodicWorker(deps: PeriodicWorkerDependencies): Periodic
       if (isStopping()) {
         break;
       }
-      // After failures, wait at least the backoff: no point retrying a down datastore every second.
+      // After failures, wait at least the backoff.
       const waitMs =
         consecutiveFailures === 0
           ? intervalMs

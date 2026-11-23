@@ -1,16 +1,9 @@
 import type { ClientContext, Result } from 'ioredis';
 
 /**
- * Sliding-window rate limiter, as ONE atomic step. See DESIGN.md §6.4.
- *
- * The key is a sorted set (ZSET) holding one member per ACCEPTED request, scored by its time
- * in ms. A request is allowed if fewer than `limit` members are newer than `now − window`.
- * Rejected requests are not recorded, so a client that keeps retrying while blocked does not
- * extend its own lockout.
- *
- * Why a script: as separate commands (count, then add), 20 simultaneous requests could all
- * count 0 and all be admitted. Redis runs a script without interleaving any other command, so
- * exactly `limit` of them get in, even across several API processes.
+ * Sliding-window rate limit in one atomic step (DESIGN.md §6.4). A ZSET holds one member per
+ * accepted request, scored by time; refused ones aren't recorded, so retrying while blocked
+ * doesn't extend the block. Atomic, so simultaneous requests can't all slip in.
  */
 export const SLIDING_WINDOW_SCRIPT = {
   name: 'rateLimitSlidingWindow',
@@ -39,7 +32,7 @@ return { 0, 0, tonumber(oldest[2]) + window - now }
 `,
 } as const;
 
-// Tells TypeScript about the command that `defineCommand` adds to the client at runtime.
+// Declares the command `defineCommand` adds at runtime.
 declare module 'ioredis' {
   interface RedisCommander<Context extends ClientContext = { type: 'default' }> {
     /** `[allowed (1|0), remaining, retryAfterMs]`. */
