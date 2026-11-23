@@ -1272,11 +1272,15 @@ with them (`admin`, `projects`, `privacy`), a path that cannot be a slug is a 40
 asking the API, and `next.config.ts` redirects the old `/projects` and `/projects/<slug>`
 addresses permanently (and the removed `/privacy` to the home page). There is no separate
 projects list: the home page's Projects section is the list. Links to the home page (the
-header's name and section links, the footer, "Back to projects", the 404 page) do not
-prefetch (`prefetch={false}`): for a page rendered per request, Next.js 16 prefetches only its
-title, and that runs `generateMetadata`, an API request for the profile, whenever such a link
-is on screen. Every page's header has one, so each load of `/admin` added a request to its own
-dashboard. The click is no slower: a page rendered per request is fetched on click either way.
+header's name and section links, the footer, "Back to projects", the 404 page) and to a
+project (the cards, "Next project") do not prefetch (`prefetch={false}`): for a page rendered
+per request, Next.js 16 prefetches only its title, and that runs `generateMetadata`, an API
+request (the profile, or the project) whenever such a link is on screen, clicked or not. Every
+page's header has one, so each load of `/admin` added a request to its own dashboard, and each
+project card that scrolled into view added another. The click is no slower: a page rendered
+per request is fetched on click either way. ESLint (`no-restricted-syntax` in
+`eslint.config.mjs`) fails any `<Link>` without a `prefetch` prop, so a new link decides on
+purpose; the period picker keeps `"auto"` because `/admin`'s title is fixed.
 
 **Page-view beacon** (`components/page-view-beacon.tsx`, logic in `lib/telemetry.ts`):
 

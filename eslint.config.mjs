@@ -47,6 +47,19 @@ export default defineConfig(
     extends: [nextPlugin.configs['core-web-vitals'], reactHooks.configs.flat.recommended],
     languageOptions: { globals: globals.browser },
     settings: { next: { rootDir: 'apps/web' } },
+    rules: {
+      // Prefetching a page rendered per request runs its generateMetadata, an API request that
+      // /admin counts as traffic though nobody clicked (DESIGN.md §8.6), so each link decides.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "JSXOpeningElement[name.name='Link']:not(:has(JSXAttribute[name.name='prefetch']))",
+          message:
+            'Give this <Link> a prefetch prop: prefetch={false} for a page whose title asks the API (DESIGN.md §8.6).',
+        },
+      ],
+    },
   },
 
   // Must stay last: turns off stylistic rules that Prettier owns.

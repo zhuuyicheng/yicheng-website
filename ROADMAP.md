@@ -309,3 +309,6 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
       5 min". Next.js prefetched the home page's title for the header's links, which asks the
       API for the profile (reproduced against a production build). Links to the home page no
       longer prefetch (`prefetch={false}`, DESIGN.md §8.6)
+- [x] Project cards and "Next project" no longer prefetch either: each card on screen asked the
+      API for its project's title, so one home-page visit counted several requests. ESLint now
+      fails a `<Link>` without a `prefetch` prop (the regression guard for both fixes)

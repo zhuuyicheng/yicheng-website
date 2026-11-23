@@ -14,6 +14,7 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
         <h3 className="font-display text-xl font-semibold text-ink">
           <Link
             href={`/${project.slug}`}
+            prefetch={false} // why: section-link.tsx
             className="after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none"
           >
             {project.title}

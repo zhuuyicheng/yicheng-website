@@ -106,6 +106,7 @@ export default async function ProjectPage(props: ProjectPageProps) {
         {next && (
           <Link
             href={`/${next.slug}`}
+            prefetch={false} // why: components/section-link.tsx
             className="group rounded-xl border border-line px-5 py-4 transition hover:border-brand/50 hover:bg-surface sm:text-right"
           >
             <span className="block text-xs text-muted">Next project</span>

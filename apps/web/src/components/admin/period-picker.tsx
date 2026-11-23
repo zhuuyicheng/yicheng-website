@@ -11,6 +11,8 @@ export function PeriodPicker({ days }: { days: number }) {
           <Link
             key={period.days}
             href={`/admin?days=${String(period.days)}`}
+            // The default: /admin's title is fixed, so prefetching it asks the API nothing.
+            prefetch="auto"
             aria-current={active ? 'page' : undefined}
             className={`rounded-full border px-3.5 py-1.5 text-xs transition ${
               active
