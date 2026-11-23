@@ -133,6 +133,9 @@ services:
     environment:
       # Caddy's internal listener: the server's API calls are load balanced too.
       API_BASE_URL: http://caddy:8080
+      # Except the /admin dashboard's: it asks each replica directly, since each counts only
+      # the requests it answered (DESIGN.md §8.6). Keep in step with the api-N services.
+      API_REPLICA_URLS: http://api-1:4000,http://api-2:4000
       ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN in deploy/.env}
     healthcheck:
       # A static file: answers without the API, so it checks the web server alone.

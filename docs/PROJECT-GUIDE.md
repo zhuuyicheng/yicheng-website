@@ -287,7 +287,8 @@ sequenceDiagram
   W-->>B: page (no-store, noindex)
   loop every 5 s while the tab is visible
     B->>W: GET /admin/system-status
-    W->>A: GET /api/v1/admin/system-status, Bearer token
+    W->>A: GET /api/v1/admin/system-status on api-1 and on api-2, directly, Bearer token
+    W-->>B: both reports; the page adds them up
   end
   opt you press "Show items" on a queue
     B->>W: GET /admin/queues/telemetryDeadLetter (for example)

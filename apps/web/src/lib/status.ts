@@ -1,4 +1,5 @@
 import { systemStatusSchema, type SystemStatus } from '@portfolio/shared';
+import { z } from 'zod';
 import { fetchOwnerData } from './owner-fetch';
 
 /**
@@ -7,86 +8,74 @@ import { fetchOwnerData } from './owner-fetch';
  */
 
 /**
- * The status as the browser gets it: from the web server's owner-only route
- * (app/admin/system-status/route.ts), which asks the API with the admin token. Validated
- * against the shared contract.
+ * What the web server's owner-only route (app/admin/system-status/route.ts) answers: every API
+ * replica's own status, by name, or `null` for one that did not answer. The API runs as two
+ * replicas (DESIGN.md §14.5), each counting only what it answered, so the page needs all of
+ * them to know the whole API's numbers.
  */
-export function fetchStatus(options: {
+export const replicaStatusesSchema = z.object({
+  replicas: z
+    .array(z.object({ name: z.string().min(1), status: systemStatusSchema.nullable() }))
+    .min(1),
+});
+export type ReplicaStatuses = z.infer<typeof replicaStatusesSchema>;
+export type ReplicaStatus = ReplicaStatuses['replicas'][number];
+
+/** The replicas' statuses as the browser gets them, validated (each against the shared contract). */
+export async function fetchStatus(options: {
   url: string;
   fetch: typeof globalThis.fetch;
   signal?: AbortSignal;
-}): Promise<SystemStatus> {
-  return fetchOwnerData({ ...options, schema: systemStatusSchema });
+}): Promise<ReplicaStatus[]> {
+  const statuses = await fetchOwnerData({ ...options, schema: replicaStatusesSchema });
+  return statuses.replicas;
 }
 
 export interface Health {
   level: 'operational' | 'degraded';
   /** Names of the dependencies that are down, e.g. `["redis"]`. */
   down: string[];
+  /** Names of the API replicas that did not answer, e.g. `["api-2"]`. */
+  silent: string[];
 }
 
-/** Operational when every dependency is up. */
-export function overallHealth(status: SystemStatus): Health {
+/**
+ * Operational when every dependency is up and every replica answered. One silent replica is
+ * not an outage (Caddy sends its visitors to the other one), but the site has lost its spare.
+ */
+export function overallHealth(status: SystemStatus, silent: readonly string[] = []): Health {
   const down = Object.entries(status.dependencies)
     .filter(([, health]) => health.status === 'down')
     .map(([name]) => name);
-  return { level: down.length === 0 ? 'operational' : 'degraded', down };
+  const healthy = down.length === 0 && silent.length === 0;
+  return { level: healthy ? 'operational' : 'degraded', down, silent: [...silent] };
 }
 
-/**
- * One API replica's own numbers, from its latest status. The API runs as two replicas behind
- * Caddy (DESIGN.md §14.5), each counting only what it answered, and polls reach them in turn:
- * shown answer by answer, every number flipped between the two (the request chart jumped
- * 0, 1, 0, 1). So the page keeps each replica's latest reading and shows them combined.
- */
-export interface ReplicaReading {
-  /** When this page received it (ms since epoch). */
-  at: number;
-  uptimeSeconds: number;
-  requestCount: number;
-  p50: number | null;
-  p95: number | null;
-  cacheHits: number;
-  cacheMisses: number;
-}
-
-/** Each replica's latest reading, by its `instance` name (`api-1`, `api-2`). */
-export type Replicas = Readonly<Record<string, ReplicaReading>>;
-
-/**
- * How long a replica's numbers still count after its last answer. Polls reach each one about
- * every 10 s, so one silent this long has stopped. A deploy's replacement keeps the name and
- * simply overwrites the old reading.
- */
-export const REPLICA_STALE_MS = 30_000;
-
-/** Records `status` as its replica's latest reading, forgetting replicas silent for `staleMs`. */
-export function recordReplica(
-  replicas: Replicas,
-  status: SystemStatus,
-  at: number,
-  staleMs = REPLICA_STALE_MS,
-): Replicas {
-  const next: Record<string, ReplicaReading> = {};
-  for (const [name, reading] of Object.entries(replicas)) {
-    if (at - reading.at < staleMs) next[name] = reading;
+/** What is wrong, for the banner: `redis is down · api-2 is not answering (…)`. */
+export function healthProblems(health: Health): string {
+  const verb = (names: readonly string[]) => (names.length === 1 ? 'is' : 'are');
+  const problems: string[] = [];
+  if (health.down.length > 0) {
+    problems.push(`${health.down.join(', ')} ${verb(health.down)} down`);
   }
-  next[status.instance] = {
-    at,
-    uptimeSeconds: status.uptimeSeconds,
-    requestCount: status.http.requestCount,
-    p50: status.http.latencyMs.p50,
-    p95: status.http.latencyMs.p95,
-    cacheHits: status.cache.hits,
-    cacheMisses: status.cache.misses,
-  };
-  return next;
+  if (health.silent.length > 0) {
+    problems.push(
+      `${health.silent.join(', ')} ${verb(health.silent)} not answering (left out of the numbers)`,
+    );
+  }
+  return problems.join(' · ');
 }
 
-/** The whole API's numbers, from each replica's latest reading. */
-export interface CombinedNumbers {
-  /** Replica names, sorted. */
-  replicas: string[];
+/** The whole API's numbers, from every replica that answered the same poll. */
+export interface CombinedStatus {
+  /**
+   * What the replicas share, from the first that answered: dependencies, queues and page views
+   * live in Postgres and Redis, which every replica reads alike.
+   */
+  shared: SystemStatus;
+  /** Replicas that answered, and those that did not, by name. */
+  answered: string[];
+  silent: string[];
   /** The most recently started replica's: a deploy restarts them one after the other. */
   uptimeSeconds: number;
   /** Added up: every request reaches exactly one replica. */
@@ -104,28 +93,38 @@ export interface CombinedNumbers {
   hitRatio: number | null;
 }
 
-/** Combines the replicas' latest readings; `null` before the first one. */
-export function combineReplicas(replicas: Replicas): CombinedNumbers | null {
-  const named = Object.entries(replicas).sort(([a], [b]) => a.localeCompare(b));
-  const readings = named.map(([, reading]) => reading);
-  if (readings.length === 0) {
+/**
+ * Combines one poll's answers; `null` when no replica answered. All of them come from the same
+ * moment, so the totals are never half old: a replica that does not answer is named (`silent`)
+ * rather than guessed. While it is down, Caddy sends every visitor to the others, so their
+ * counts still hold nearly all recent requests.
+ */
+export function combineReplicas(replicas: readonly ReplicaStatus[]): CombinedStatus | null {
+  const answering = replicas.flatMap((replica) =>
+    replica.status === null ? [] : [{ name: replica.name, status: replica.status }],
+  );
+  const first = answering[0];
+  if (first === undefined) {
     return null;
   }
-  const sum = (pick: (reading: ReplicaReading) => number) =>
-    readings.reduce((total, reading) => total + pick(reading), 0);
-  const slowest = (pick: (reading: ReplicaReading) => number | null) => {
-    const known = readings.map(pick).filter((value): value is number => value !== null);
+  const statuses = answering.map((replica) => replica.status);
+  const sum = (pick: (status: SystemStatus) => number) =>
+    statuses.reduce((total, status) => total + pick(status), 0);
+  const slowest = (pick: (status: SystemStatus) => number | null) => {
+    const known = statuses.map(pick).filter((value): value is number => value !== null);
     return known.length === 0 ? null : Math.max(...known);
   };
-  const cacheHits = sum((reading) => reading.cacheHits);
-  const cacheMisses = sum((reading) => reading.cacheMisses);
+  const cacheHits = sum((status) => status.cache.hits);
+  const cacheMisses = sum((status) => status.cache.misses);
   const lookups = cacheHits + cacheMisses;
   return {
-    replicas: named.map(([name]) => name),
-    uptimeSeconds: Math.min(...readings.map((reading) => reading.uptimeSeconds)),
-    requestCount: sum((reading) => reading.requestCount),
-    p50: slowest((reading) => reading.p50),
-    p95: slowest((reading) => reading.p95),
+    shared: first.status,
+    answered: answering.map((replica) => replica.name),
+    silent: replicas.filter((replica) => replica.status === null).map((replica) => replica.name),
+    uptimeSeconds: Math.min(...statuses.map((status) => status.uptimeSeconds)),
+    requestCount: sum((status) => status.http.requestCount),
+    p50: slowest((status) => status.http.latencyMs.p50),
+    p95: slowest((status) => status.http.latencyMs.p95),
     cacheHits,
     cacheMisses,
     hitRatio: lookups === 0 ? null : cacheHits / lookups,

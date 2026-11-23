@@ -312,3 +312,8 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
 - [x] Project cards and "Next project" no longer prefetch either: each card on screen asked the
       API for its project's title, so one home-page visit counted several requests. ESLint now
       fails a `<Link>` without a `prefetch` prop (the regression guard for both fixes)
+- [x] Bug (owner's feedback): the requests chart dipped (12, then 7, then 15) while the real
+      count went 9 → 15. Each poll reached one replica through Caddy, and the page forgot the
+      other after 30 s without a turn. The web server now asks every replica directly each poll
+      (`API_REPLICA_URLS`, DESIGN.md §8.6); a replica that does not answer is named in the
+      banner instead of silently leaving the total

@@ -1,6 +1,5 @@
 'use client';
 
-import type { SystemStatus } from '@portfolio/shared';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   appendSample,
@@ -10,23 +9,19 @@ import {
   formatMs,
   formatRatio,
   formatUptime,
+  healthProblems,
   overallHealth,
-  recordReplica,
   secondsAgo,
-  type Replicas,
+  type CombinedStatus,
+  type Health,
   type Sample,
 } from '@/lib/status';
 import { CacheCard } from './admin/cache-card';
 import { QueueCard } from './admin/queue-card';
 import { LiveChart } from './live-chart';
 
-/** The API caches its status for 5 s, so polling faster would only repeat the same numbers. */
+/** The API caches its status for 5 s, so polling faster would only repeat the same combined. */
 const POLL_MS = 5_000;
-/**
- * The second poll comes this soon after the first: Caddy hands it to the other API replica, so
- * the combined numbers are complete from the start, and the charts begin with it.
- */
-const WARM_UP_MS = 1_000;
 
 /** What each datastore holds, so "postgres: down" says what stops working. */
 const DEPENDENCY_ROLES: Partial<Record<string, string>> = {
@@ -40,12 +35,12 @@ const STATUS_URL = '/admin/system-status';
  * The owner's live system dashboard, on /admin (DESIGN.md §7.7, §8.7). Polls every 5 s,
  * pauses while the tab is hidden, and keeps showing the last good numbers (marked stale) if
  * the API stops answering. Each API replica reports only its own requests, latency and cache
- * counts, so the page keeps every replica's latest reading and shows them combined
- * (`combineReplicas`). The charts cover the last 30 minutes this page was open.
+ * counts, so every poll gets all the replicas' reports (the web server asks each one) and the
+ * page shows them combined (`combineReplicas`). The charts cover the last 30 minutes this page
+ * was open.
  */
 export function StatusDashboard() {
-  const [status, setStatus] = useState<SystemStatus | null>(null);
-  const [replicas, setReplicas] = useState<Replicas>({});
+  const [combined, setCombined] = useState<CombinedStatus | null>(null);
   const [history, setHistory] = useState<Sample[]>([]);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
@@ -55,11 +50,9 @@ export function StatusDashboard() {
     let timer: number | undefined;
     let stopped = false;
     let controller: AbortController | null = null;
-    let latest: Replicas = {};
-    let answered = 0;
 
-    const schedule = (delay = POLL_MS) => {
-      if (!stopped) timer = window.setTimeout(() => void poll(), delay);
+    const schedule = () => {
+      if (!stopped) timer = window.setTimeout(() => void poll(), POLL_MS);
     };
     async function poll() {
       if (document.visibilityState === 'hidden') {
@@ -67,43 +60,33 @@ export function StatusDashboard() {
         return;
       }
       controller = new AbortController();
-      let delay = POLL_MS;
       try {
-        const next = await fetchStatus({
+        const replicas = await fetchStatus({
           url: STATUS_URL,
           fetch: window.fetch.bind(window),
           signal: controller.signal,
         });
         const at = Date.now();
-        latest = recordReplica(latest, next, at);
-        const combined = combineReplicas(latest);
-        answered += 1;
-        if (answered === 1) delay = WARM_UP_MS;
-        setStatus(next);
-        setReplicas(latest);
-        setUpdatedAt(at);
-        setFailed(false);
-        if (answered >= 2 && combined !== null) {
+        const next = combineReplicas(replicas);
+        if (next === null) {
+          setFailed(true); // no replica answered: keep the last numbers on screen, marked stale
+        } else {
+          setCombined(next);
+          setUpdatedAt(at);
+          setFailed(false);
           setHistory((h) =>
-            appendSample(
-              h,
-              { at, p95: combined.p95, requests: combined.requestCount },
-              CHART_WINDOW_MS,
-            ),
+            appendSample(h, { at, p95: next.p95, requests: next.requestCount }, CHART_WINDOW_MS),
           );
         }
       } catch {
         if (!stopped) setFailed(true); // keep the last numbers on screen, marked stale
       }
-      schedule(delay);
+      schedule();
     }
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         window.clearTimeout(timer);
-        // Back on the tab: refresh at once, and start afresh as on page load (the replicas'
-        // readings may have gone stale meanwhile), so the charts resume with both.
-        answered = 0;
-        void poll();
+        void poll(); // back on the tab: refresh at once
       }
     };
 
@@ -121,8 +104,7 @@ export function StatusDashboard() {
     };
   }, []);
 
-  const numbers = combineReplicas(replicas);
-  if (status === null || numbers === null) {
+  if (combined === null) {
     return (
       <p className="font-mono text-sm text-muted" role="status">
         {failed ? (
@@ -134,38 +116,39 @@ export function StatusDashboard() {
     );
   }
 
-  const health = overallHealth(status);
+  const status = combined.shared;
+  const health = overallHealth(status, combined.silent);
   const age = updatedAt === null ? 0 : secondsAgo(updatedAt, now);
 
   return (
     <div className="space-y-6">
-      <Banner failed={failed} level={health.level} down={health.down} age={age} />
+      <Banner failed={failed} health={health} age={age} />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Tile
           label="uptime"
-          value={formatUptime(numbers.uptimeSeconds)}
+          value={formatUptime(combined.uptimeSeconds)}
           description="Time since the API last started (its most recently started replica). A restart or deploy resets it, along with the request and cache counts."
         />
         <Tile
           label="requests · 5 min"
-          value={String(numbers.requestCount)}
+          value={String(combined.requestCount)}
           description="Requests the API answered in the last 5 minutes, all replicas together: content for page loads, analytics from browsers, contact messages. This dashboard's own checks are left out."
         />
         <Tile
           label="latency p50"
-          value={formatMs(numbers.p50)}
+          value={formatMs(combined.p50)}
           description="Typical response time: at least half of those requests were answered faster than this."
         />
         <Tile
           label="latency p95"
-          value={formatMs(numbers.p95)}
+          value={formatMs(combined.p95)}
           description="The slow end: at least 95 in 100 requests were faster than this. It is what the unluckiest visitors feel."
         />
         <Tile
           label="cache hit ratio"
-          value={formatRatio(numbers.hitRatio)}
-          note={`${String(numbers.cacheHits)} hits · ${String(numbers.cacheMisses)} misses`}
+          value={formatRatio(combined.hitRatio)}
+          note={`${String(combined.cacheHits)} hits · ${String(combined.cacheMisses)} misses`}
           description="Share of content reads answered from Redis without asking the database. Explained below."
         />
         <Tile
@@ -175,7 +158,7 @@ export function StatusDashboard() {
               ? '—'
               : String(status.analytics.pageViewsLast24h)
           }
-          description="Page views saved to the database in the last 24 hours, crawlers included, so it can differ from the Visitors numbers. If people visit but this stands still, saving is stuck."
+          description="Page views saved to the database in the last 24 hours, crawlers included, so it can differ from the Visitors combined. If people visit but this stands still, saving is stuck."
         />
       </div>
 
@@ -214,9 +197,9 @@ export function StatusDashboard() {
 
         <CacheCard
           cache={{
-            hits: numbers.cacheHits,
-            misses: numbers.cacheMisses,
-            hitRatio: numbers.hitRatio,
+            hits: combined.cacheHits,
+            misses: combined.cacheMisses,
+            hitRatio: combined.hitRatio,
           }}
         />
       </div>
@@ -224,11 +207,11 @@ export function StatusDashboard() {
       <QueueCard queues={status.queues} />
 
       <p className="font-mono text-xs leading-relaxed text-faint">
-        {numbers.replicas.length === 1 ? 'one API replica' : 'API replicas'}{' '}
-        <span className="text-muted">{numbers.replicas.join(', ')}</span>, combined: requests and
-        cache counts added up, latency from the slower one · polled every 5 s while this tab is open
-        · requests and latency cover the last 5 minutes, cache counts the time since each replica
-        started
+        {combined.answered.length === 1 ? 'one API replica' : 'API replicas'}{' '}
+        <span className="text-muted">{combined.answered.join(', ')}</span>, each asked every 5 s
+        while this tab is open and combined: requests and cache counts added up, latency from the
+        slower one · requests and latency cover the last 5 minutes, cache counts the time since each
+        replica started
       </p>
     </div>
   );
@@ -254,20 +237,15 @@ function LiveChartSection({ history, now }: { history: Sample[]; now: number }) 
   );
 }
 
-function Banner(props: {
-  failed: boolean;
-  level: 'operational' | 'degraded';
-  down: string[];
-  age: number;
-}) {
+function Banner(props: { failed: boolean; health: Health; age: number }) {
   let tone = 'border-emerald-600/30 text-emerald-700';
   let text = '✓ All systems operational';
   if (props.failed) {
     tone = 'border-rose-500/40 text-rose-700';
     text = `✕ Lost contact with the API. Showing numbers from ${String(props.age)} s ago`;
-  } else if (props.level === 'degraded') {
+  } else if (props.health.level === 'degraded') {
     tone = 'border-amber-400/40 text-amber-700';
-    text = `! Degraded: ${props.down.join(', ')} ${props.down.length === 1 ? 'is' : 'are'} down`;
+    text = `! Degraded: ${healthProblems(props.health)}`;
   }
   return (
     <div
