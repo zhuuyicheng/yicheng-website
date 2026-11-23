@@ -278,6 +278,7 @@ sequenceDiagram
   participant C as Caddy
   participant W as web
   participant A as API
+  participant P as Prometheus
   B->>C: GET /admin
   C->>W: forward
   W->>W: proxy.ts checks the password (ADMIN_TOKEN)
@@ -285,10 +286,14 @@ sequenceDiagram
   C->>A: allowed on the internal port only
   A-->>W: visitor summary
   W-->>B: page (no-store, noindex)
-  loop every 5 s while the tab is visible
+  loop every 15 s while the tab is visible
     B->>W: GET /admin/system-status
-    W->>A: GET /api/v1/admin/system-status on api-1 and on api-2, directly, Bearer token
-    W-->>B: both reports; the page adds them up
+    par
+      W->>A: GET /api/v1/admin/system-status via Caddy, Bearer token (dependencies, queues)
+    and
+      W->>P: PromQL: requests, latency, cache, uptime, who answers, the charts (both replicas)
+    end
+    W-->>B: both halves, or the reason one is missing
   end
   opt you press "Show items" on a queue
     B->>W: GET /admin/queues/telemetryDeadLetter (for example)
@@ -302,7 +307,10 @@ Caddy refusing owner routes from outside. Your own browser is not counted as a v
 you have opened `/admin`.
 
 Code: [proxy.ts](../apps/web/src/proxy.ts), [lib/admin-auth.ts](../apps/web/src/lib/admin-auth.ts),
-[app/admin/page.tsx](../apps/web/src/app/admin/page.tsx),
+[app/admin/page.tsx](../apps/web/src/app/admin/page.tsx), the dashboard's poll
+[app/admin/system-status/route.ts](../apps/web/src/app/admin/system-status/route.ts) →
+[lib/dashboard-data.ts](../apps/web/src/lib/dashboard-data.ts) (with
+[lib/system-metrics.ts](../apps/web/src/lib/system-metrics.ts) for Prometheus),
 [lib/admin-api.ts](../apps/web/src/lib/admin-api.ts) →
 [admin.controller.ts](../apps/api/src/controllers/admin.controller.ts) →
 [visitor-insights.manager.ts](../apps/api/src/services/visitor-insights.manager.ts),
@@ -382,7 +390,8 @@ Code: [deploy.yml](../.github/workflows/deploy.yml), [deploy.sh](../deploy/deplo
 1. Pick a period (Today, 7, 30, 90 days).
 2. Read the totals, the daily visitors chart and the lists: where visitors came from, tagged
    links, organisations, places, devices, pages, clicks, and the 50 latest visits.
-3. Below: the live system dashboard (health, latency, cache, queues), refreshed every 5 s.
+3. Below: the live system dashboard (health, latency, cache, queues), refreshed every 15 s:
+   the numbers and charts come from Prometheus, so they start full and survive deploys.
 
 **To learn who opened a link**, share a tagged link such as `https://<name>.duckdns.org/?ref=acme`.
 That visit then shows `acme` under "Tagged links" and in its row of "Recent visits".

@@ -122,9 +122,8 @@ services:
     environment:
       # Caddy's internal listener, so the server's API calls are load balanced too.
       API_BASE_URL: http://caddy:8080
-      # Except the dashboard's: it asks each replica, since each counts only its own requests
-      # (DESIGN.md §8.6). Keep in step with the api-N services.
-      API_REPLICA_URLS: http://api-1:4000,http://api-2:4000
+      # /admin's per-process numbers and charts: Prometheus has every replica's (DESIGN.md §15.5).
+      PROMETHEUS_URL: http://prometheus:9090
       ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN in deploy/.env}
     healthcheck:
       # A static file, so it checks the web server alone.

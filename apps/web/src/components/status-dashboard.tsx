@@ -2,43 +2,38 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  appendSample,
-  CHART_WINDOW_MS,
-  combineReplicas,
-  fetchStatus,
+  fetchDashboard,
   formatMs,
   formatRatio,
   formatUptime,
-  healthProblems,
   overallHealth,
   secondsAgo,
-  type CombinedStatus,
+  type DashboardData,
   type Health,
-  type Sample,
 } from '@/lib/status';
+import { CHART_STEP_SECONDS, CHART_WINDOW_MS, type SystemMetrics } from '@/lib/system-metrics';
 import { CacheCard } from './admin/cache-card';
 import { QueueCard } from './admin/queue-card';
 import { LiveChart } from './live-chart';
 
-/** The API caches its status for 5 s; polling faster would repeat the same numbers. */
-const POLL_MS = 5_000;
+/** Prometheus reads every process every 15 s; polling faster would repeat the same numbers. */
+const POLL_MS = CHART_STEP_SECONDS * 1000;
 
 /** So "postgres: down" says what stops working. */
 const DEPENDENCY_ROLES: Partial<Record<string, string>> = {
   postgres: 'The database: content, visits and contact messages, kept for good.',
   redis: 'In-memory store: the content cache, the queues below and the contact-form limit.',
 };
-/** The owner-only route that asks each API replica (app/admin/system-status). */
+/** The owner-only route that asks the API and Prometheus (app/admin/system-status). */
 const STATUS_URL = '/admin/system-status';
 
 /**
- * The live system dashboard on /admin (DESIGN.md §7.7, §8.7). Polls every 5 s while the tab is
- * visible, combining every replica's report; keeps the last numbers, marked stale, if the API
- * stops answering. Charts cover the last 30 minutes the page was open.
+ * The live system dashboard on /admin (DESIGN.md §8.6, §15.5). Polls every 15 s while the tab is
+ * visible: the API's status, and Prometheus's numbers for both replicas, charts included, so
+ * they are full from the start. Keeps the last poll, marked stale, if this site stops answering.
  */
 export function StatusDashboard() {
-  const [combined, setCombined] = useState<CombinedStatus | null>(null);
-  const [history, setHistory] = useState<Sample[]>([]);
+  const [data, setData] = useState<DashboardData | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -58,23 +53,14 @@ export function StatusDashboard() {
       }
       controller = new AbortController();
       try {
-        const replicas = await fetchStatus({
+        const next = await fetchDashboard({
           url: STATUS_URL,
           fetch: window.fetch.bind(window),
           signal: controller.signal,
         });
-        const at = Date.now();
-        const next = combineReplicas(replicas);
-        if (next === null) {
-          setFailed(true); // no replica answered: keep the last numbers, marked stale
-        } else {
-          setCombined(next);
-          setUpdatedAt(at);
-          setFailed(false);
-          setHistory((h) =>
-            appendSample(h, { at, p95: next.p95, requests: next.requestCount }, CHART_WINDOW_MS),
-          );
-        }
+        setData(next);
+        setUpdatedAt(Date.now());
+        setFailed(false);
       } catch {
         if (!stopped) setFailed(true); // keep the last numbers, marked stale
       }
@@ -101,11 +87,11 @@ export function StatusDashboard() {
     };
   }, []);
 
-  if (combined === null) {
+  if (data === null) {
     return (
       <p className="font-mono text-sm text-muted" role="status">
         {failed ? (
-          <span className="text-rose-700">✕ The API is not answering. Retrying every 5 s…</span>
+          <span className="text-rose-700">✕ No answer from this site. Retrying every 15 s…</span>
         ) : (
           'connecting…'
         )}
@@ -113,8 +99,10 @@ export function StatusDashboard() {
     );
   }
 
-  const status = combined.shared;
-  const health = overallHealth(status, combined.silent);
+  const { status, metrics } = data;
+  const uptime = metrics?.uptimeSeconds ?? null;
+  const pageViews = status?.analytics.pageViewsLast24h ?? null;
+  const health = overallHealth(data);
   const age = updatedAt === null ? 0 : secondsAgo(updatedAt, now);
 
   return (
@@ -124,43 +112,43 @@ export function StatusDashboard() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Tile
           label="uptime"
-          value={formatUptime(combined.uptimeSeconds)}
-          description="Time since the API last started (its most recently started replica). A restart or deploy resets it, along with the request and cache counts."
+          value={uptime === null ? '—' : formatUptime(uptime)}
+          description="Time since the API last started (its most recently started replica). A deploy restarts it; the numbers below carry on."
         />
         <Tile
           label="requests · 5 min"
-          value={String(combined.requestCount)}
-          description="Requests the API answered in the last 5 minutes, all replicas together: content for page loads, analytics from browsers, contact messages. This dashboard's own checks are left out."
+          value={metrics === null ? '—' : String(Math.round(metrics.requests))}
+          description="Requests the API answered in the last 5 minutes, both replicas together: content for page loads, analytics from browsers, contact messages. Health checks, Prometheus and this dashboard are left out. Prometheus estimates it from its readings every 15 s, so it can be a little off."
         />
         <Tile
           label="latency p50"
-          value={formatMs(combined.p50)}
+          value={formatMs(metrics?.p50Ms ?? null)}
           description="Typical response time: at least half of those requests were answered faster than this."
         />
         <Tile
           label="latency p95"
-          value={formatMs(combined.p95)}
+          value={formatMs(metrics?.p95Ms ?? null)}
           description="The slow end: at least 95 in 100 requests were faster than this. It is what the unluckiest visitors feel."
         />
         <Tile
-          label="cache hit ratio"
-          value={formatRatio(combined.hitRatio)}
-          note={`${String(combined.cacheHits)} hits · ${String(combined.cacheMisses)} misses`}
-          description="Share of content reads answered from Redis without asking the database. Explained below."
+          label="cache hit ratio · 24 h"
+          value={formatRatio(metrics?.hitRatio ?? null)}
+          {...(metrics === null
+            ? {}
+            : {
+                note: `${String(Math.round(metrics.cacheHits))} hits · ${String(Math.round(metrics.cacheMisses))} misses`,
+              })}
+          description="Share of content reads in the last 24 hours answered from Redis without asking the database. Explained below."
         />
         <Tile
           label="page views · 24 h"
-          value={
-            status.analytics.pageViewsLast24h === null
-              ? '—'
-              : String(status.analytics.pageViewsLast24h)
-          }
+          value={pageViews === null ? '—' : String(pageViews)}
           description="Page views saved to the database in the last 24 hours, crawlers included, so it can differ from the Visitors combined. If people visit but this stands still, saving is stuck."
         />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <LiveChartSection history={history} now={now} />
+        <LiveChartSection charts={metrics?.charts ?? null} now={now} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -169,8 +157,11 @@ export function StatusDashboard() {
             The two datastores the API needs: whether each answers, and how long one round trip
             took.
           </p>
+          {status === null && (
+            <p className="font-mono text-sm text-muted">unknown: the API is not answering</p>
+          )}
           <ul className="space-y-3">
-            {Object.entries(status.dependencies).map(([name, dependency]) => (
+            {Object.entries(status?.dependencies ?? {}).map(([name, dependency]) => (
               <li key={name}>
                 <div className="flex items-center justify-between font-mono text-sm">
                   <span className="text-body">{name}</span>
@@ -194,39 +185,49 @@ export function StatusDashboard() {
 
         <CacheCard
           cache={{
-            hits: combined.cacheHits,
-            misses: combined.cacheMisses,
-            hitRatio: combined.hitRatio,
+            hits: Math.round(metrics?.cacheHits ?? 0),
+            misses: Math.round(metrics?.cacheMisses ?? 0),
+            hitRatio: metrics?.hitRatio ?? null,
           }}
         />
       </div>
 
-      <QueueCard queues={status.queues} />
+      <QueueCard queues={status?.queues ?? null} />
 
       <p className="font-mono text-xs leading-relaxed text-faint">
-        {combined.answered.length === 1 ? 'one API replica' : 'API replicas'}{' '}
-        <span className="text-muted">{combined.answered.join(', ')}</span>, each asked every 5 s
-        while this tab is open and combined: requests and cache counts added up, latency from the
-        slower one · requests and latency cover the last 5 minutes, cache counts the time since each
-        replica started
+        Prometheus reads each process every 15 s:{' '}
+        {metrics === null
+          ? 'unknown'
+          : metrics.targets.map((target, index) => (
+              <span key={target.name}>
+                {index > 0 && ', '}
+                <span className={target.up ? 'text-muted' : 'text-rose-700'}>
+                  {target.name} {target.up ? '●' : '✕'}
+                </span>
+              </span>
+            ))}{' '}
+        · requests and latency cover the last 5 minutes of both replicas, the cache 24 hours, the
+        charts 30 minutes · dependencies, queues and page views come from the API · refreshed every
+        15 s while this tab is open
       </p>
     </div>
   );
 }
 
-function LiveChartSection({ history, now }: { history: Sample[]; now: number }) {
-  const axis = { end: now, windowMs: CHART_WINDOW_MS, maxGapMs: 3 * POLL_MS };
+function LiveChartSection(props: { charts: SystemMetrics['charts'] | null; now: number }) {
+  // A missing point or two (Prometheus restarting) still draws one line.
+  const axis = { end: props.now, windowMs: CHART_WINDOW_MS, maxGapMs: 3 * POLL_MS };
   return (
     <>
       <LiveChart
-        title="Latency p95 (ms), slower replica"
-        points={history.map((sample) => ({ at: sample.at, value: sample.p95 }))}
+        title="Latency p95 (ms), both replicas"
+        points={props.charts?.p95Ms ?? []}
         format={formatMs}
         {...axis}
       />
       <LiveChart
-        title="Requests in the last 5 min, all replicas"
-        points={history.map((sample) => ({ at: sample.at, value: sample.requests }))}
+        title="Requests in the last 5 min, both replicas"
+        points={props.charts?.requests ?? []}
         format={(value) => (value === null ? '—' : String(Math.round(value)))}
         {...axis}
       />
@@ -239,10 +240,13 @@ function Banner(props: { failed: boolean; health: Health; age: number }) {
   let text = '✓ All systems operational';
   if (props.failed) {
     tone = 'border-rose-500/40 text-rose-700';
-    text = `✕ Lost contact with the API. Showing numbers from ${String(props.age)} s ago`;
+    text = `✕ No answer from this site. Showing numbers from ${String(props.age)} s ago`;
+  } else if (props.health.level === 'down') {
+    tone = 'border-rose-500/40 text-rose-700';
+    text = `✕ ${props.health.problems.join(' · ')}`;
   } else if (props.health.level === 'degraded') {
     tone = 'border-amber-400/40 text-amber-700';
-    text = `! Degraded: ${healthProblems(props.health)}`;
+    text = `! Degraded: ${props.health.problems.join(' · ')}`;
   }
   return (
     <div

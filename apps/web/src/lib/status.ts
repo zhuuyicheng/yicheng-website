@@ -1,141 +1,83 @@
-import { systemStatusSchema, type SystemStatus } from '@portfolio/shared';
+import { systemStatusSchema } from '@portfolio/shared';
 import { z } from 'zod';
 import { fetchOwnerData } from './owner-fetch';
-
-/** The /admin system dashboard: fetch each replica's report (DESIGN.md §7.7) and shape it. */
+import { systemMetricsSchema } from './system-metrics';
 
 /**
- * What app/admin/system-status/route.ts answers: each API replica's status by name, `null` if
- * it didn't answer. Each replica counts only its own requests, so the page needs them all.
+ * The /admin system dashboard (DESIGN.md §8.6, §15.5): the API's status for what lives in the
+ * datastores, Prometheus for the per-process numbers.
  */
-export const replicaStatusesSchema = z.object({
-  replicas: z
-    .array(z.object({ name: z.string().min(1), status: systemStatusSchema.nullable() }))
-    .min(1),
-});
-export type ReplicaStatuses = z.infer<typeof replicaStatusesSchema>;
-export type ReplicaStatus = ReplicaStatuses['replicas'][number];
 
-/** The replicas' statuses, each checked against the shared contract. */
-export async function fetchStatus(options: {
+/**
+ * The API's status as the dashboard reads it: without its per-process numbers (`instance`,
+ * `uptimeSeconds`, `http`, `cache`), which now come from Prometheus. The API still sends them
+ * until the next release (DESIGN.md §15.6); an object schema just ignores keys it doesn't name.
+ */
+export const dashboardStatusSchema = systemStatusSchema.omit({
+  instance: true,
+  uptimeSeconds: true,
+  http: true,
+  cache: true,
+});
+export type DashboardStatus = z.infer<typeof dashboardStatusSchema>;
+
+/**
+ * What app/admin/system-status/route.ts answers: each source, or `null` with the reason it
+ * couldn't be read, so one failing never hides the other.
+ */
+export const dashboardDataSchema = z.object({
+  status: dashboardStatusSchema.nullable(),
+  statusProblem: z.string().nullable(),
+  metrics: systemMetricsSchema.nullable(),
+  metricsProblem: z.string().nullable(),
+});
+export type DashboardData = z.infer<typeof dashboardDataSchema>;
+
+/** One poll, checked against the schema above. */
+export function fetchDashboard(options: {
   url: string;
   fetch: typeof globalThis.fetch;
   signal?: AbortSignal;
-}): Promise<ReplicaStatus[]> {
-  const statuses = await fetchOwnerData({ ...options, schema: replicaStatusesSchema });
-  return statuses.replicas;
+}): Promise<DashboardData> {
+  return fetchOwnerData({ ...options, schema: dashboardDataSchema });
 }
 
 export interface Health {
-  level: 'operational' | 'degraded';
-  /** Names of the dependencies that are down, e.g. `["redis"]`. */
-  down: string[];
-  /** Names of the API replicas that did not answer, e.g. `["api-2"]`. */
-  silent: string[];
+  /** `down`: the API isn't answering. `degraded`: something else needs a look. */
+  level: 'operational' | 'degraded' | 'down';
+  /** For the banner, in plain words. */
+  problems: string[];
 }
 
-/** Operational when every dependency is up and every replica answered. */
-export function overallHealth(status: SystemStatus, silent: readonly string[] = []): Health {
-  const down = Object.entries(status.dependencies)
-    .filter(([, health]) => health.status === 'down')
-    .map(([name]) => name);
-  const healthy = down.length === 0 && silent.length === 0;
-  return { level: healthy ? 'operational' : 'degraded', down, silent: [...silent] };
-}
-
-/** For the banner: `redis is down · api-2 is not answering (…)`. */
-export function healthProblems(health: Health): string {
-  const verb = (names: readonly string[]) => (names.length === 1 ? 'is' : 'are');
+/** Operational when the API answers with every dependency up, and every process answers. */
+export function overallHealth(data: DashboardData): Health {
   const problems: string[] = [];
-  if (health.down.length > 0) {
-    problems.push(`${health.down.join(', ')} ${verb(health.down)} down`);
+  const are = (names: readonly string[]) => (names.length === 1 ? 'is' : 'are');
+
+  if (data.status === null) {
+    problems.push(`the API is not answering (${data.statusProblem ?? 'no reason given'})`);
+  } else {
+    const down = Object.entries(data.status.dependencies)
+      .filter(([, dependency]) => dependency.status === 'down')
+      .map(([name]) => name);
+    if (down.length > 0) problems.push(`${down.join(', ')} ${are(down)} down`);
   }
-  if (health.silent.length > 0) {
+
+  if (data.metrics === null) {
     problems.push(
-      `${health.silent.join(', ')} ${verb(health.silent)} not answering (left out of the numbers)`,
+      `Prometheus is not answering (${data.metricsProblem ?? 'no reason given'}): no traffic numbers`,
     );
+  } else {
+    const silent = data.metrics.targets.filter((target) => !target.up).map(({ name }) => name);
+    if (silent.length > 0) problems.push(`${silent.join(', ')} ${are(silent)} not answering`);
   }
-  return problems.join(' · ');
+
+  if (data.status === null) return { level: 'down', problems };
+  return { level: problems.length > 0 ? 'degraded' : 'operational', problems };
 }
 
-/** The whole API's numbers, from one poll's answers. */
-export interface CombinedStatus {
-  /** Dependencies, queues and page views, from the first replica that answered (they're shared). */
-  shared: SystemStatus;
-  /** By name. */
-  answered: string[];
-  silent: string[];
-  /** The most recently started replica's. */
-  uptimeSeconds: number;
-  /** Added up: every request reaches exactly one replica. */
-  requestCount: number;
-  /**
-   * The slower replica's: not the exact percentile of all requests (that needs every duration),
-   * but a safe upper bound.
-   */
-  p50: number | null;
-  p95: number | null;
-  cacheHits: number;
-  cacheMisses: number;
-  /** hits ÷ (hits + misses); `null` before the first lookup. */
-  hitRatio: number | null;
-}
-
-/**
- * One poll's answers combined; `null` if none answered. A silent replica is named, not guessed;
- * while it's down Caddy sends everyone to the others, so their counts hold nearly everything.
- */
-export function combineReplicas(replicas: readonly ReplicaStatus[]): CombinedStatus | null {
-  const answering = replicas.flatMap((replica) =>
-    replica.status === null ? [] : [{ name: replica.name, status: replica.status }],
-  );
-  const first = answering[0];
-  if (first === undefined) {
-    return null;
-  }
-  const statuses = answering.map((replica) => replica.status);
-  const sum = (pick: (status: SystemStatus) => number) =>
-    statuses.reduce((total, status) => total + pick(status), 0);
-  const slowest = (pick: (status: SystemStatus) => number | null) => {
-    const known = statuses.map(pick).filter((value): value is number => value !== null);
-    return known.length === 0 ? null : Math.max(...known);
-  };
-  const cacheHits = sum((status) => status.cache.hits);
-  const cacheMisses = sum((status) => status.cache.misses);
-  const lookups = cacheHits + cacheMisses;
-  return {
-    shared: first.status,
-    answered: answering.map((replica) => replica.name),
-    silent: replicas.filter((replica) => replica.status === null).map((replica) => replica.name),
-    uptimeSeconds: Math.min(...statuses.map((status) => status.uptimeSeconds)),
-    requestCount: sum((status) => status.http.requestCount),
-    p50: slowest((status) => status.http.latencyMs.p50),
-    p95: slowest((status) => status.http.latencyMs.p95),
-    cacheHits,
-    cacheMisses,
-    hitRatio: lookups === 0 ? null : cacheHits / lookups,
-  };
-}
-
-/** One chart point: the status at `at` (ms since epoch). */
-export interface Sample {
-  at: number;
-  p95: number | null;
-  requests: number;
-}
-
-/** The charts' axis: the last 30 minutes, a tick every 5. */
-export const CHART_WINDOW_MS = 30 * 60_000;
+/** The charts' ticks: every 5 minutes. */
 export const CHART_TICK_MS = 5 * 60_000;
-
-/** Adds `sample` and drops those older than `windowMs`. */
-export function appendSample(
-  history: readonly Sample[],
-  sample: Sample,
-  windowMs: number,
-): Sample[] {
-  return [...history, sample].filter((kept) => kept.at > sample.at - windowMs);
-}
 
 /** `93784` → `1d 2h`, `3720` → `1h 2m`, `42` → `42s`: the two largest units. */
 export function formatUptime(totalSeconds: number): string {

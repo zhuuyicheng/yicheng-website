@@ -491,21 +491,25 @@ Open http://localhost:3000/admin (API, worker and web running) next to the termi
 browser asks for a login: any username, and `ADMIN_TOKEN` from your `.env` as the password.
 The system dashboard is at the bottom of the page, under the visitor summary.
 
-1. **It polls.** The Network tab shows `GET /admin/system-status` every 5 s: a route on the
-   web server, which asks the API with the token (the browser never sees it). "updated N s
-   ago" counts up between polls. The charts cover the last 30 minutes, with a time label
-   every 5 minutes; hover (or touch) a chart for the exact value at that moment. In the
-   Response tab, `replicas` lists each API replica's own report (one locally).
+1. **It polls.** The Network tab shows `GET /admin/system-status` every 15 s: a route on the
+   web server, which asks the API with the token (the browser never sees it) and Prometheus
+   (`npm run infra:up` starts it). "updated N s ago" counts up between polls. The charts cover
+   the last 30 minutes, with a time label every 5 minutes, and are full at once: Prometheus
+   kept the history. Hover (or touch) a chart for the exact value at that moment. In the
+   Response tab, `status` comes from the API, `metrics` from Prometheus; a `…Problem` says why
+   one is missing.
 2. **Make traffic.** Reload the home page a few times in another tab: "requests · 5 min" and
    the requests chart rise, the cache hit ratio climbs (the first load was a miss), and
    "page views · 24 h" goes up once the worker has flushed your page views.
 3. **It saves work when nobody looks.** Switch to another tab for a minute: the polls stop.
-   Come back: one poll at once, then every 5 s again.
-4. **An outage.** `docker compose stop redis`: within 5 s the banner turns amber
+   Come back: one poll at once, then every 15 s again.
+4. **An outage.** `docker compose stop redis`: within 15 s the banner turns amber
    ("! Degraded: redis is down"), Redis shows "✕ down", and the queues read "unknown". The
    page itself keeps working: that is when you need it most. Start Redis again.
-   Then stop `dev:api`: the banner turns red ("Lost contact… from N s ago") and the last
-   numbers stay on screen. Start it again and the page recovers by itself.
+   Then stop `dev:api`: the banner turns red ("the API is not answering (unreachable)"), and
+   within a scrape the line at the bottom marks `api ✕`; Prometheus's numbers still show.
+   Start it again and the page recovers by itself. `docker compose stop prometheus` does the
+   opposite: the API's half stays, the tiles read "—", the banner says why.
 5. **A dead letter.** `RPUSH telemetry:events:dlq '{"x":1}'` in the Redis CLI panel: the
    telemetry dead-letter row says "needs attention". Press **Show items** under it: the
    entry is listed as one that cannot be read, with its text (`{"x":1}`). Delete the key
@@ -536,11 +540,12 @@ What to watch:
    reads (`GET cache:v3:profile`…) arrive from two different client addresses: api-1 and
    api-2 share one cache, so a hit on one is a hit on both (DESIGN.md §14.5).
 2. **Both replicas, every poll.** On https://localhost/admin, the line at the bottom of the
-   system status names `api-1, api-2`: each poll asks both directly (not through Caddy's round
-   robin) and the page adds up their requests and cache counts (DESIGN.md §8.6).
-3. **A replica stops.** `$C stop api-1`, keep reloading the site: nothing fails, and within 5 s
-   the banner turns amber ("api-1 is not answering (left out of the numbers)") and the bottom
-   line names only `api-2`. `$C up -d --wait api-1` brings it back.
+   system status lists every process Prometheus reads (`api-1 ●, api-2 ●, node-exporter ●,
+worker ●`): Prometheus reads each replica directly, not through Caddy's round robin, and
+   adds their requests up (DESIGN.md §15.5).
+3. **A replica stops.** `$C stop api-1`, keep reloading the site: nothing fails, and within a
+   scrape (15 s) the banner turns amber ("api-1 is not answering") and the bottom line marks
+   `api-1 ✕`. `$C up -d --wait api-1` brings it back.
 4. **Caddy's view.** `$C exec caddy wget -qO- http://127.0.0.1:2019/reverse_proxy/upstreams`
    lists each replica with the requests it is handling right now.
 

@@ -85,9 +85,8 @@ copy of that one in your password manager.)
 
 **Each container gets only what it needs.** The compose file passes variables one by one
 instead of handing every container the whole file: the web server gets `API_BASE_URL`,
-`API_REPLICA_URLS` (the `/admin` dashboard asks each API replica; not a secret, so it is
-written in the compose file) and `ADMIN_TOKEN`, nothing else, so it never sees the database
-password.
+`PROMETHEUS_URL` (where `/admin`'s numbers come from; not a secret, so it is written in the
+compose file) and `ADMIN_TOKEN`, nothing else, so it never sees the database password.
 
 ---
 

@@ -11,33 +11,22 @@ export function serverApiBaseUrl(): string {
 
 export const PUBLIC_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? LOCAL_API;
 
-/** One replica at its own address: `{ name: 'api-1', url: 'http://api-1:4000' }`. */
-export interface ApiReplica {
-  name: string;
-  url: string;
-}
+/** The development Prometheus of `npm run infra:up`. */
+const LOCAL_PROMETHEUS = 'http://localhost:9090';
 
 /**
- * Every API replica (API_REPLICA_URLS), for the dashboard: each counts only its own requests,
- * and Caddy would reach one per poll (DESIGN.md §8.6). Unset: API_BASE_URL alone. Bad ones throw.
+ * Prometheus (PROMETHEUS_URL), for the /admin dashboard's numbers (DESIGN.md §15.5). Server only,
+ * read per request. A malformed address throws: the dashboard then says why.
  */
-export function apiReplicas(): ApiReplica[] {
-  const listed = (process.env.API_REPLICA_URLS ?? '')
-    .split(',')
-    .map((url) => url.trim())
-    .filter((url) => url !== '');
-  const urls = listed.length > 0 ? listed : [serverApiBaseUrl()];
-  const parsed = urls.map((url) => {
-    // `new URL('api-1:4000')` parses (scheme `api-1:`), so check the result.
-    const { protocol, hostname, host } = new URL(url);
-    if ((protocol !== 'http:' && protocol !== 'https:') || hostname === '') {
-      throw new Error(`API_REPLICA_URLS: "${url}" is not an http:// address`);
-    }
-    return { hostname, host, url: url.replace(/\/+$/, '') };
-  });
-  // `api-1`, or `localhost:4001` when two replicas share a host (two local APIs).
-  const shared = (hostname: string) => parsed.filter((p) => p.hostname === hostname).length > 1;
-  return parsed.map((p) => ({ name: shared(p.hostname) ? p.host : p.hostname, url: p.url }));
+export function prometheusUrl(): string {
+  const configured = process.env.PROMETHEUS_URL;
+  const url = configured === undefined || configured === '' ? LOCAL_PROMETHEUS : configured;
+  // `new URL('prometheus:9090')` parses (scheme `prometheus:`), so check the result.
+  const { protocol, hostname } = new URL(url);
+  if ((protocol !== 'http:' && protocol !== 'https:') || hostname === '') {
+    throw new Error(`PROMETHEUS_URL: "${url}" is not an http:// address`);
+  }
+  return url.replace(/\/+$/, '');
 }
 
 /** The /admin password and API bearer token (DESIGN.md §8.7). Server only; unset = no /admin. */

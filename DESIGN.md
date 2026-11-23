@@ -338,7 +338,7 @@ Empty strings are treated as "unset" so `API_PORT=` cannot silently become port 
 | `API_BASE_URL`                      | 5     | `http://localhost:4000` | Web app → API (server side, read at request time).                        |
 | `NEXT_PUBLIC_API_BASE_URL`          | 5     | `http://localhost:4000` | Browser → API. Baked in at `next build`. Empty = same origin (§14.5).     |
 | `ADMIN_TOKEN`                       | 6     | unset                   | ≥ 32 chars. Owner area (§8.7): API bearer token and /admin password.      |
-| `API_REPLICA_URLS`                  | 6     | `API_BASE_URL`          | Comma-separated `http://` addresses: the dashboard asks each (§8.6).      |
+| `PROMETHEUS_URL`                    | 7     | `http://localhost:9090` | Web server → Prometheus, for `/admin`'s numbers and charts (§15.5).       |
 | `WORKER_METRICS_PORT`               | 7     | `4001`                  | The worker's `GET /metrics`, on `API_HOST` (§15.2). `0` = ephemeral.      |
 
 The web variables are read by Next.js from the environment or from `apps/web/.env*` files
@@ -978,8 +978,9 @@ of request durations (Prometheus histograms are cumulative, not rolling). Reques
 `/health`, `/health/live` (the load balancer's check), `/metrics` and the owner endpoints are
 left out of it (Prometheus still counts them), or a dashboard polling every few seconds would
 mostly measure itself. `cache` counts content-cache lookups since the process started. Values
-are per API instance; `instance` (the container hostname) says which one answered. With two
-replicas (§14.5) the dashboard asks each one directly and combines their numbers (§8.6).
+are per API instance; `instance` (the container hostname) says which one answered. Since
+Phase 7 the dashboard reads these per-process numbers from Prometheus instead (§15.5); they
+leave this report in the release after (§15.6).
 
 `/metrics` logs at `warn` only (Prometheus reads it every 15 s, §15.2). The worker serves the
 same endpoint, with the same token rule, on its own port (§15.2).
@@ -1384,33 +1385,29 @@ Singapore, where the owner edits (`formatDay` in `lib/format.ts`), inside a `<ti
 with the exact moment. The not-found and error pages have no content of their own, so no date.
 
 **Live system dashboard** (on `/admin`, §8.7; `components/status-dashboard.tsx`, logic in
-`lib/status.ts`). The browser polls `/admin/system-status` every 5 s (the API's own cache
-period), a web-server route that asks every API replica with the admin token; each replica's
-report is validated with the shared schema. Polling pauses while the tab is hidden and resumes at once when it is
-shown. If the API stops answering, the last numbers stay on screen under a "lost contact"
-banner instead of disappearing. It shows a health banner (icon + words, never colour alone),
-stat tiles (uptime, requests, p50/p95, cache hit ratio, page views), two charts and
-dependencies and queue lengths (a non-empty dead-letter queue is flagged "needs attention").
-**Replicas combined**: each API replica reports only what it answered, so the whole API's
-numbers need all of them. The web server's route asks each replica at its own address
-(`API_REPLICA_URLS`, `http://api-1:4000,http://api-2:4000` in production; unset, the one API
-of `API_BASE_URL`), in parallel with a 3 s limit each, and answers
-`{ data: { replicas: [{ name, status | null }] } }` (`getReplicaStatuses` in
-`lib/admin-api.ts`, schema in `lib/status.ts`: web-internal, not the API's contract). Through
-Caddy each poll would reach one replica: showing each answer as it came made every number
-flip between the two (a quiet site's request chart jumped 0, 1, 0, 1), and keeping each
-replica's last answer instead (forgetting one after 30 s without a turn) still made the
-total dip whenever the turns skipped a replica. The page shows requests and cache counts
-added up, uptime from the most recently started replica, and p50/p95 from the slower one: not
-the exact percentile of all requests, but a safe upper bound. Dependencies, queues and page
-views are shared, so they come from the first replica that answered. A replica that does not
-answer turns the banner amber ("api-2 is not answering (left out of the numbers)") and the
-totals cover the others: while one is down Caddy sends every visitor to the rest, so they hold
-nearly all recent requests. No replica answering is "lost contact". The web server logs
-nothing for a silent replica (it has no logger); the banner is the signal, while it lasts.
-The charts (p95 latency and request count, one measure each) cover the last 30 minutes the
-page was open, placed by time: a labelled tick every 5 minutes on the viewer's clock, a 2 px
-line that breaks where polling paused (a hidden tab), crosshair and tooltip on hover or touch.
+`lib/status.ts`; since Phase 7, §15.5). The browser polls `/admin/system-status` every 15 s
+(Prometheus's own pace), a web-server route that asks two sources side by side: the API's
+status once, through Caddy like every owner read (dependencies, queues and page views live in
+the datastores, so any replica answers the same), and Prometheus for the per-process numbers of
+both replicas at once (`lib/system-metrics.ts`). It answers
+`{ data: { status, statusProblem, metrics, metricsProblem } }` (web-internal, not the API's
+contract): a source that fails is `null` with a reason in a few words ("unreachable", "no answer
+within 3 s", "HTTP 503"), and the other still shows. Polling pauses while the tab is hidden and
+resumes at once when it is shown; if this site itself stops answering, the last poll stays on
+screen under a red "No answer from this site" banner. The health banner (icon + words, never
+colour alone) is green when the API answers with every dependency up and every process answers
+Prometheus; amber with a dependency down, a process silent ("api-2 is not answering", from
+`up`), or Prometheus not answering (its tiles and charts then show "—"); red when the API does
+not answer. Stat tiles: uptime, requests and p50/p95 over the last 5 minutes, the cache hit
+ratio over 24 hours (Prometheus), page views (the API). Two charts (p95 latency, requests in the
+last 5 minutes) cover the last 30 minutes with a point every 15 s, read from Prometheus, so they
+are full when the page opens and carry on across deploys: a labelled tick every 5 minutes on the
+viewer's clock, a 2 px line that breaks where data is missing, crosshair and tooltip on hover or
+touch. Below: dependencies, the content cache card and queue lengths (a non-empty dead-letter
+queue is flagged "needs attention"), and a line listing every process Prometheus reads, each
+marked answering or not. Until Phase 7 the route asked each replica at its own address and the
+page added their numbers up, and the charts only covered the time the page had been open
+(ROADMAP.md, "two chart fixes").
 Nothing on the public site links to it.
 
 ### 8.7 The owner area (`/admin`, Phase 6)
@@ -1575,7 +1572,9 @@ matters most for deploys: the old worker empties the buffer before the new one s
 - Web (`apps/web/test/lib`, Vitest, no browser). (P5) Beacon session ids, referrer filtering,
   path trimming, time zone fallback, interaction names; contact validation and every API
   answer (202/400/429/503/garbage); date formatting; dashboard fetching/validation, health
-  summary, uptime and "—" formatting, chart path (gaps break the line) and scale. (P6) The
+  summary, uptime and "—" formatting, chart path (gaps break the line) and scale. (P7) The
+  Prometheus client (queries, NaN as unknown, refusals, its time limit), the dashboard's
+  numbers from its answers, each source failing alone with a reason, `PROMETHEUS_URL`. (P6) The
   owner's login check, the visitor summary, `shouldRecord`, the photo carousel, scrollspy,
   section scrolling, project-page anchors, chart time ticks, the hover marker's height. (After
   launch) Queue items: fetching/validation, what each dead-letter reason says to fix, visit
@@ -1819,8 +1818,8 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
   `NOTIFIER_DRIVER=discord` with `DISCORD_WEBHOOK_URL`, `ADMIN_TOKEN` (the same value in the
   API and web containers, §8.7), and for the web container
   `API_BASE_URL=http://caddy:8080` (Caddy's internal listener, §14.5) and
-  `API_REPLICA_URLS=http://api-1:4000,http://api-2:4000` (the dashboard, §8.6), built with an
-  empty `NEXT_PUBLIC_API_BASE_URL` (§14.2).
+  `PROMETHEUS_URL=http://prometheus:9090` (the dashboard, §15.5), built with an empty
+  `NEXT_PUBLIC_API_BASE_URL` (§14.2).
 - **Memory**: each API replica holds ~140 MB of GeoIP data (§8.2); the VM is sized for two
   replicas (§14.5), or the country-only file would halve that.
 
@@ -1874,8 +1873,7 @@ https://<host>/*       →  web
   needs no hostname (§14.2).
 - Only `/api/*` reaches the API from outside. `/health`, `/health/live` and `/metrics` are not
   routed publicly: Caddy calls `/health/live` on each replica directly, the deploy job checks
-  `/health` from the host, and a Prometheus server (not set up yet) would scrape each replica
-  directly.
+  `/health` from the host, and Prometheus (§15) scrapes each replica directly.
 - One certificate and one DNS record to manage.
 
 **Pause switch** ([docs/CD.md §5](docs/CD.md#5-pausing-the-site)). While the file
@@ -1960,7 +1958,9 @@ pages from inside the web container and expects the back-soon page at the public
 
 `API_BASE_URL` (the web server's calls) is `http://caddy:8080`, so those calls are balanced too
 without leaving the server or paying for TLS. The one exception is the `/admin` dashboard's
-status poll, which must reach every replica, not one: it uses `API_REPLICA_URLS` (§8.6). The worker and web stay single instances.
+status poll did not fit, since each replica counted only its own traffic: until Phase 7 it asked
+each replica at its own address; now Prometheus does that (§15.5). The worker and web stay single
+instances.
 
 Two settings come from the failover test (`deploy/failover-test.sh`, which fails if a single
 request fails while one replica is stopped and while both are replaced in turn):
@@ -1983,7 +1983,7 @@ so `caddy reload` would silently reload old rules. With the folder, a change is 
 ports (80, 443, 443/udp); Postgres and Redis are reachable only on the Compose network.
 Variables come from `deploy/.env` on the host (gitignored, template `deploy/.env.example`) and
 are passed per container (least privilege: the web server gets `API_BASE_URL`,
-`API_REPLICA_URLS` and `ADMIN_TOKEN` only, Prometheus `METRICS_TOKEN` only, as a file); a
+`PROMETHEUS_URL` and `ADMIN_TOKEN` only, Prometheus `METRICS_TOKEN` only, as a file); a
 missing required one stops Compose with its name (`${VAR:?…}`). The
 replicas' Docker health check is `GET /health` (readiness), so `up --wait` means "ready to
 serve"; the web's is a static file. `migrate`, `seed` and `replay-dlq` are services in the
@@ -2002,10 +2002,9 @@ long-running service restarts `unless-stopped` and keeps at most 3 × 10 MB of l
 | Single-flight (§8.1)                      | Per process                  | At most one Postgres query per key **per replica**: harmless      |
 | Metrics, rolling percentiles, status (P5) | Per process                  | Each replica reports its own numbers (see below)                  |
 
-Per-process numbers: a Prometheus server (an open item in ROADMAP.md) must scrape each replica
-directly (`api-1:4000`, `api-2:4000`), never through Caddy, which would hand it a random
-replica each time. The system status includes `instance` (§7.7), so the dashboard can tell the
-replicas apart and combine their numbers (§8.6).
+Per-process numbers: Prometheus scrapes each replica directly (`api-1:4000`, `api-2:4000`), never
+through Caddy, which would hand it a random replica each time (§15.2), and the dashboard reads
+them from Prometheus (§15.5).
 
 **The load balancer must not use `/health`.** `/health` returns `503` when Redis is down, on
 both replicas at once. Caddy would then remove both and answer every request with an error, even
@@ -2273,20 +2272,38 @@ queues and page views, the same on every replica) and asks Prometheus (`PROMETHE
 
 The browser polls every 15 s, Prometheus's own pace. The charts are full as soon as the page
 opens and survive deploys. If Prometheus does not answer, those tiles and charts show "—" under
-an amber banner while dependencies and queues still work. p50 and p95 now cover every request
-of both replicas (before: the slower replica's own).
+an amber banner while dependencies and queues still work; if the API does not answer, the
+banner turns red and the Prometheus half still shows. p50 and p95 now cover every request of
+both replicas (before: the slower replica's own). Code: `lib/prometheus.ts` (the HTTP API,
+3 s limit), `lib/system-metrics.ts` (the questions above, `or vector(0)` so a fresh start reads
+0, not unknown), `lib/dashboard-data.ts` (both sources side by side, failures in a few words).
+
+**What the numbers can't know.** Prometheus counts a counter's growth between its readings, so
+what happened before the first reading of a series is not counted: after a restart (up to 15 s
+of requests), or the first request of a new route and status. `increase()` also extrapolates
+across its 5-minute window. The requests tile is an estimate and says so; at this site's traffic
+it can be a few requests off.
+
+**Drilled** (2026-11-24): in development (the dev API and worker, `next dev`) and on the
+desktop's stack with the new web image: 60 requests through Caddy, split 30/30 across the
+replicas, read as about 59; a stopped worker or api-1 named within one scrape (10–14 s) while
+the status kept coming through Caddy; a stopped Prometheus left the status in place with
+"unreachable"; a malformed `PROMETHEUS_URL` is named in the reason. An `/admin` tab left open
+across this release keeps the old page's code, which reads the new answer as "No answer from
+this site" until reloaded.
 
 ### 15.6 What goes away
 
 Prometheus already reads every replica and adds them up, so `/admin` stops doing it itself:
 
-- **In Phase 7** (the web server only): asking each replica (`API_REPLICA_URLS`,
+- **In Phase 7** (the web server only, done in 7e): asking each replica (`API_REPLICA_URLS`,
   `getReplicaStatuses`, `combineReplicas`) and the chart history kept by the browser.
 - **In the next release** (the API's contract): the status report's per-process numbers
   (`instance`, `uptimeSeconds`, `http`, `cache`) and the rolling latency window
-  (`infra/rolling-latency.ts`). Expand → contract, as for migrations (§14.4): in Phase 7 the
-  shared schema makes them optional and the web stops reading them; the release after removes
-  them. Removing them at once would break the old web server during the rolling update, which
+  (`infra/rolling-latency.ts`). Expand → contract, as for migrations (§14.4): in Phase 7 the web
+  reads the status with those fields omitted (`dashboardStatusSchema` in `lib/status.ts`), so it
+  neither needs nor uses them; the release after removes them from the shared schema and the
+  API. Removing them at once would break the old web server during the rolling update, which
   replaces the API first.
 
 ### 15.7 Cost

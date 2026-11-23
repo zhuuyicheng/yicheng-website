@@ -1,10 +1,10 @@
 import { checkOwner, OWNER_CHALLENGE } from '@/lib/admin-auth';
-import { getReplicaStatuses } from '@/lib/admin-api';
 import { adminToken } from '@/lib/config';
+import { readDashboardData } from '@/lib/dashboard-data';
 
 /**
- * The dashboard's poll (every 5 s): each API replica's own status, which the page adds up. The
- * browser sends the owner's password; ADMIN_TOKEN stays on this server.
+ * The dashboard's poll (every 15 s): the API's status and Prometheus's numbers (DESIGN.md
+ * §15.5). The browser sends the owner's password; ADMIN_TOKEN stays on this server.
  */
 export async function GET(request: Request) {
   const check = await checkOwner(request.headers.get('authorization'), adminToken());
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     return new Response(null, { status: 401, headers: { 'www-authenticate': OWNER_CHALLENGE } });
   }
 
-  // A replica that doesn't answer is listed as such; with none, the page shows "lost contact".
-  const statuses = await getReplicaStatuses();
-  return Response.json({ data: statuses }, { headers: { 'cache-control': 'no-store' } });
+  // Always 200 for the owner: a source that didn't answer is `null`, with the reason.
+  const data = await readDashboardData();
+  return Response.json({ data }, { headers: { 'cache-control': 'no-store' } });
 }

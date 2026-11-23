@@ -1,9 +1,11 @@
 import type { SystemStatus } from '@portfolio/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getReplicaStatuses } from '@/lib/admin-api';
+import { getSystemStatus } from '@/lib/admin-api';
+import { ApiUnavailableError } from '@/lib/api';
 
+/** What the API sends until the next release: the per-process numbers too (DESIGN.md §15.6). */
 const STATUS: SystemStatus = {
-  generatedAt: '2026-11-23T12:00:00.000Z',
+  generatedAt: '2026-11-24T12:00:00.000Z',
   instance: 'api-1',
   uptimeSeconds: 60,
   dependencies: { postgres: { status: 'up', latencyMs: 2 }, redis: { status: 'up', latencyMs: 1 } },
@@ -13,31 +15,30 @@ const STATUS: SystemStatus = {
   queues: null,
 };
 
+/** What the dashboard keeps: the rest come from Prometheus. */
+const SHARED = {
+  generatedAt: STATUS.generatedAt,
+  dependencies: STATUS.dependencies,
+  analytics: STATUS.analytics,
+  queues: STATUS.queues,
+};
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
-describe('getReplicaStatuses', () => {
-  it('asks every replica at its own address, with the token and a time limit', async () => {
+describe('getSystemStatus', () => {
+  it('asks the API once, through API_BASE_URL, with the token and a time limit', async () => {
     vi.stubEnv('ADMIN_TOKEN', 'token');
-    vi.stubEnv('API_REPLICA_URLS', 'http://api-1:4000,http://api-2:4000');
-    const fetch = vi.fn((url: string) =>
-      Promise.resolve(
-        Response.json({ data: { ...STATUS, instance: new URL(url).hostname } }, { status: 200 }),
-      ),
-    );
+    vi.stubEnv('API_BASE_URL', 'http://caddy:8080');
+    const fetch = vi.fn((_url: string) => Promise.resolve(Response.json({ data: STATUS })));
     vi.stubGlobal('fetch', fetch);
 
-    const { replicas } = await getReplicaStatuses();
+    const status = await getSystemStatus();
 
-    expect(replicas.map((replica) => [replica.name, replica.status?.instance])).toEqual([
-      ['api-1', 'api-1'],
-      ['api-2', 'api-2'],
-    ]);
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
-      'http://api-1:4000/api/v1/admin/system-status',
-      'http://api-2:4000/api/v1/admin/system-status',
+      'http://caddy:8080/api/v1/admin/system-status',
     ]);
     expect(fetch).toHaveBeenCalledWith(
       expect.any(String),
@@ -46,27 +47,27 @@ describe('getReplicaStatuses', () => {
         signal: expect.any(AbortSignal) as unknown,
       }),
     );
+    // Dependencies, queues and page views; the per-process numbers are dropped.
+    expect(status).toEqual(SHARED);
   });
 
-  it('lists a replica that fails as silent, and still returns the others', async () => {
+  it('accepts a status without the per-process numbers, as the next release sends', async () => {
     vi.stubEnv('ADMIN_TOKEN', 'token');
-    vi.stubEnv('API_REPLICA_URLS', 'http://api-1:4000,http://api-2:4000,http://api-3:4000');
     vi.stubGlobal(
       'fetch',
-      vi.fn((url: string) => {
-        if (url.startsWith('http://api-1')) return Promise.reject(new TypeError('fetch failed'));
-        if (url.startsWith('http://api-2'))
-          return Promise.resolve(new Response('', { status: 503 }));
-        return Promise.resolve(Response.json({ data: STATUS }));
-      }),
+      vi.fn(() => Promise.resolve(Response.json({ data: SHARED }))),
     );
 
-    const { replicas } = await getReplicaStatuses();
+    expect(await getSystemStatus()).toEqual(SHARED);
+  });
 
-    expect(replicas.map((replica) => [replica.name, replica.status !== null])).toEqual([
-      ['api-1', false],
-      ['api-2', false],
-      ['api-3', true],
-    ]);
+  it('throws when the API fails, so the dashboard can say why', async () => {
+    vi.stubEnv('ADMIN_TOKEN', 'token');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('', { status: 503 }))),
+    );
+
+    await expect(getSystemStatus()).rejects.toBeInstanceOf(ApiUnavailableError);
   });
 });

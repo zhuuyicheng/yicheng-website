@@ -1,14 +1,11 @@
 import type { SystemStatus } from '@portfolio/shared';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  appendSample,
-  combineReplicas,
-  fetchStatus,
+  fetchDashboard,
   formatClock,
   formatMs,
   formatRatio,
   formatUptime,
-  healthProblems,
   nearestPoint,
   niceCeiling,
   overallHealth,
@@ -16,15 +13,14 @@ import {
   timeLinePath,
   timeTicks,
   valueDepth,
+  type DashboardData,
+  type DashboardStatus,
 } from '@/lib/status';
+import type { SystemMetrics } from '@/lib/system-metrics';
 
-const STATUS: SystemStatus = {
-  generatedAt: '2026-11-18T12:00:00.000Z',
-  instance: 'api-1',
-  uptimeSeconds: 3_720,
+const STATUS: DashboardStatus = {
+  generatedAt: '2026-11-24T12:00:00.000Z',
   dependencies: { postgres: { status: 'up', latencyMs: 2 }, redis: { status: 'up', latencyMs: 1 } },
-  http: { windowSeconds: 300, requestCount: 12, latencyMs: { p50: 3.1, p95: 18.4 } },
-  cache: { hits: 9, misses: 1, hitRatio: 0.9 },
   analytics: { pageViewsLast24h: 41 },
   queues: {
     telemetryBuffer: 0,
@@ -35,25 +31,58 @@ const STATUS: SystemStatus = {
   },
 };
 
+const METRICS: SystemMetrics = {
+  requests: 12,
+  p50Ms: 3.1,
+  p95Ms: 18.4,
+  cacheHits: 9,
+  cacheMisses: 1,
+  hitRatio: 0.9,
+  uptimeSeconds: 3_720,
+  targets: [
+    { name: 'api-1', job: 'api', up: true },
+    { name: 'api-2', job: 'api', up: true },
+    { name: 'worker', job: 'worker', up: true },
+  ],
+  charts: { requests: [{ at: 1_000, value: 12 }], p95Ms: [{ at: 1_000, value: null }] },
+};
+
+const DATA: DashboardData = {
+  status: STATUS,
+  statusProblem: null,
+  metrics: METRICS,
+  metricsProblem: null,
+};
+
 const respond = (status: number, body: unknown) =>
   vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), { status })));
 
-describe('fetchStatus', () => {
-  it("returns every replica's status, each checked against the shared contract", async () => {
-    const replicas = [
-      { name: 'api-1', status: STATUS },
-      { name: 'api-2', status: null },
-    ];
-    const fetch = respond(200, { data: { replicas } });
+describe('fetchDashboard', () => {
+  it('returns one poll, checked against its schema', async () => {
+    const fetch = respond(200, { data: DATA });
 
-    expect(await fetchStatus({ url: '/admin/system-status', fetch })).toEqual(replicas);
+    expect(await fetchDashboard({ url: '/admin/system-status', fetch })).toEqual(DATA);
     expect(fetch).toHaveBeenCalledWith('/admin/system-status', { cache: 'no-store' });
   });
 
-  it('throws on an error status or an unexpected body, so the page shows "lost contact"', async () => {
-    await expect(fetchStatus({ url: '/s', fetch: respond(503, {}) })).rejects.toThrow('503');
-    for (const data of [STATUS, { replicas: [] }, { replicas: [{ name: 'api-1', status: 1 }] }]) {
-      await expect(fetchStatus({ url: '/s', fetch: respond(200, { data }) })).rejects.toThrow(
+  it("takes the API's status with or without its per-process numbers, and drops them", async () => {
+    // The API sends them until the next release (DESIGN.md §15.6); Prometheus has them now.
+    const old: SystemStatus = {
+      ...STATUS,
+      instance: 'api-1',
+      uptimeSeconds: 60,
+      http: { windowSeconds: 300, requestCount: 4, latencyMs: { p50: 3, p95: 9 } },
+      cache: { hits: 1, misses: 1, hitRatio: 0.5 },
+    };
+    const fetch = respond(200, { data: { ...DATA, status: old } });
+
+    expect((await fetchDashboard({ url: '/s', fetch })).status).toEqual(STATUS);
+  });
+
+  it('throws on an error status or an unexpected body, so the page says so', async () => {
+    await expect(fetchDashboard({ url: '/s', fetch: respond(503, {}) })).rejects.toThrow('503');
+    for (const data of [STATUS, { ...DATA, metrics: { requests: 'many' } }, { replicas: [] }]) {
+      await expect(fetchDashboard({ url: '/s', fetch: respond(200, { data }) })).rejects.toThrow(
         'unexpected',
       );
     }
@@ -61,25 +90,46 @@ describe('fetchStatus', () => {
 });
 
 describe('overallHealth', () => {
-  const redisDown = {
-    ...STATUS,
-    dependencies: { ...STATUS.dependencies, redis: { status: 'down' as const, latencyMs: 2000 } },
-  };
-
-  it('is operational when every dependency is up, and names the ones that are down', () => {
-    expect(overallHealth(STATUS)).toEqual({ level: 'operational', down: [], silent: [] });
-    expect(overallHealth(redisDown)).toEqual({ level: 'degraded', down: ['redis'], silent: [] });
-    expect(healthProblems(overallHealth(redisDown))).toBe('redis is down');
+  it('is operational when the API answers with every dependency up, and every process answers', () => {
+    expect(overallHealth(DATA)).toEqual({ level: 'operational', problems: [] });
   });
 
-  it('is degraded while a replica does not answer, and says its numbers are left out', () => {
-    const health = overallHealth(STATUS, ['api-2']);
+  it('is degraded with a dependency down or a process not answering, naming them', () => {
+    const redisDown: DashboardData = {
+      ...DATA,
+      status: {
+        ...STATUS,
+        dependencies: { ...STATUS.dependencies, redis: { status: 'down', latencyMs: 2000 } },
+      },
+    };
+    expect(overallHealth(redisDown)).toEqual({ level: 'degraded', problems: ['redis is down'] });
 
-    expect(health).toEqual({ level: 'degraded', down: [], silent: ['api-2'] });
-    expect(healthProblems(health)).toBe('api-2 is not answering (left out of the numbers)');
-    expect(healthProblems(overallHealth(redisDown, ['api-1', 'api-2']))).toBe(
-      'redis is down · api-1, api-2 are not answering (left out of the numbers)',
-    );
+    const silent = (...names: string[]): DashboardData => ({
+      ...DATA,
+      metrics: {
+        ...METRICS,
+        targets: METRICS.targets.map((target) => ({ ...target, up: !names.includes(target.name) })),
+      },
+    });
+    expect(overallHealth(silent('worker')).problems).toEqual(['worker is not answering']);
+    expect(overallHealth(silent('api-1', 'api-2')).problems).toEqual([
+      'api-1, api-2 are not answering',
+    ]);
+  });
+
+  it('is degraded when Prometheus does not answer, saying why the numbers are missing', () => {
+    const health = overallHealth({ ...DATA, metrics: null, metricsProblem: 'unreachable' });
+
+    expect(health).toEqual({
+      level: 'degraded',
+      problems: ['Prometheus is not answering (unreachable): no traffic numbers'],
+    });
+  });
+
+  it('is down when the API does not answer, and says why', () => {
+    const health = overallHealth({ ...DATA, status: null, statusProblem: 'HTTP 503' });
+
+    expect(health).toEqual({ level: 'down', problems: ['the API is not answering (HTTP 503)'] });
   });
 });
 
@@ -104,115 +154,7 @@ describe('formatting', () => {
   });
 });
 
-describe('combining the API replicas', () => {
-  /** api-1's status, or another replica's with some numbers changed. */
-  function statusOf(
-    instance: string,
-    numbers: {
-      uptime?: number;
-      requests?: number;
-      p50?: number | null;
-      p95?: number | null;
-      hits?: number;
-      misses?: number;
-    } = {},
-  ): SystemStatus {
-    return {
-      ...STATUS,
-      instance,
-      uptimeSeconds: numbers.uptime ?? STATUS.uptimeSeconds,
-      http: {
-        ...STATUS.http,
-        requestCount: numbers.requests ?? STATUS.http.requestCount,
-        latencyMs: {
-          p50: numbers.p50 === undefined ? STATUS.http.latencyMs.p50 : numbers.p50,
-          p95: numbers.p95 === undefined ? STATUS.http.latencyMs.p95 : numbers.p95,
-        },
-      },
-      cache: {
-        hits: numbers.hits ?? STATUS.cache.hits,
-        misses: numbers.misses ?? STATUS.cache.misses,
-        hitRatio: null, // recomputed from the counts
-      },
-    };
-  }
-
-  const poll = (...statuses: (SystemStatus | null)[]) =>
-    statuses.map((status, index) => ({ name: `api-${String(index + 1)}`, status }));
-
-  it('adds up requests and cache counts, and takes the slower latency', () => {
-    const combined = combineReplicas(
-      poll(
-        statusOf('api-1', { requests: 1, p50: 4, p95: 20 }),
-        statusOf('api-2', { requests: 0, p50: null, p95: null, hits: 3, misses: 3 }),
-      ),
-    );
-
-    expect(combined).toMatchObject({
-      answered: ['api-1', 'api-2'],
-      silent: [],
-      uptimeSeconds: STATUS.uptimeSeconds,
-      requestCount: 1,
-      p50: 4, // api-2 answered nothing: no latency to count
-      p95: 20,
-      cacheHits: 12,
-      cacheMisses: 4,
-      hitRatio: 0.75,
-    });
-    expect(combined?.shared.instance).toBe('api-1');
-  });
-
-  it('totals one poll, so a replica reached less often never drops out of the count', () => {
-    // Regression: each poll reached one replica, added to the other's last answer, which was
-    // forgotten after 30 s: 9 then 6 more showed as 12, 7, 15. Each poll now has both.
-    const total = (first: number, second: number) =>
-      combineReplicas(
-        poll(statusOf('api-1', { requests: first }), statusOf('api-2', { requests: second })),
-      )?.requestCount;
-
-    expect(total(4, 5)).toBe(9);
-    expect(total(7, 8)).toBe(15);
-  });
-
-  it('shows the most recent start as the uptime', () => {
-    const combined = combineReplicas(
-      poll(statusOf('api-1', { uptime: 7_200 }), statusOf('api-2', { uptime: 30 })),
-    );
-
-    expect(combined?.uptimeSeconds).toBe(30);
-  });
-
-  it('names a replica that did not answer, and counts the ones that did', () => {
-    expect(combineReplicas(poll(null, statusOf('api-2', { requests: 3 })))).toMatchObject({
-      answered: ['api-2'],
-      silent: ['api-1'],
-      requestCount: 3,
-    });
-  });
-
-  it('has nothing to show when no replica answered', () => {
-    expect(combineReplicas(poll(null, null))).toBeNull();
-    expect(combineReplicas([])).toBeNull();
-  });
-
-  it('has no latency and no hit ratio while nothing was counted', () => {
-    const combined = combineReplicas(
-      poll(statusOf('api-1', { requests: 0, p50: null, p95: null, hits: 0, misses: 0 })),
-    );
-
-    expect(combined).toMatchObject({ p50: null, p95: null, hitRatio: null });
-  });
-});
-
 describe('chart helpers', () => {
-  it('keeps only the samples inside the time window', () => {
-    const history = [1_000, 2_000, 3_000].map((at) => ({ at, p95: 1, requests: 1 }));
-
-    const kept = appendSample(history, { at: 4_000, p95: 1, requests: 1 }, 2_500);
-
-    expect(kept.map((sample) => sample.at)).toEqual([2_000, 3_000, 4_000]);
-  });
-
   it('places ticks on whole multiples of the step, inside the axis', () => {
     const minute = 60_000;
     expect(timeTicks(2 * minute, 17 * minute, 5 * minute)).toEqual([

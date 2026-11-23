@@ -348,9 +348,12 @@ asking each replica, with the custom code that fed them removed; Grafana at
       Drilled on the desktop's stack: guests and wrong passwords get 401, sign-up 401, `/grafana`
       open while paused, 5 wrong passwords lock the account for about 5 minutes. Grafana uses
       about 260 MB, the four monitoring containers about 320 MB together
-- [ ] 7e `/admin` reads Prometheus: tiles and charts from PromQL (the charts start full), `up`
+- [x] 7e `/admin` reads Prometheus: tiles and charts from PromQL (the charts start full), `up`
       names a replica or worker that stopped answering. Removed: asking each replica
-      (`API_REPLICA_URLS`) and the chart history kept by the browser
+      (`API_REPLICA_URLS`) and the chart history kept by the browser. Each source fails alone,
+      with the reason ("unreachable", "HTTP 503"). Drilled in development and on the desktop's
+      stack: requests across both replicas added up by Prometheus, a stopped worker or api-1
+      named within one scrape, a stopped Prometheus leaves the API's half in place
 - [ ] 7f Deploy: `deploy.sh` checks the new configuration first and reloads it after;
       `GRAFANA_ADMIN_PASSWORD` in `deploy/.env`; guides; memory measured on the server
 - [ ] PR merged and deployed
