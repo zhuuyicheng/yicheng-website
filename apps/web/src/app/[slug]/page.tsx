@@ -128,6 +128,7 @@ function BackToProjects() {
   return (
     <Link
       href="/#projects"
+      prefetch={false} // why: components/section-link.tsx
       className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line-strong bg-surface px-5 py-2.5 text-sm font-medium text-ink transition hover:border-brand/60 hover:text-ink"
     >
       <ArrowLeft aria-hidden className="size-4" />

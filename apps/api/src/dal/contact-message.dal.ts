@@ -34,6 +34,8 @@ export interface ContactMessageDal {
   claimStalePending: (olderThanSeconds: number, limit: number) => Promise<StalePendingMessage[]>;
   /** `dlq:replay`: puts a FAILED message back to PENDING with 0 attempts, to try again. */
   reopenFailed: (id: string) => Promise<void>;
+  /** Owner's queue card: the messages with these ids that exist, in no particular order. */
+  findByIds: (ids: readonly string[]) => Promise<ContactMessage[]>;
 }
 
 // Matches dao/contact-message.dao.ts, minus `ip_hash`: nothing that reads a message needs it.
@@ -131,6 +133,18 @@ export function createContactMessageDal(pool: PostgresPool): ContactMessageDal {
           WHERE id = $1 AND status = 'FAILED'`,
         [id],
       );
+    },
+
+    async findByIds(ids) {
+      if (ids.length === 0) {
+        return [];
+      }
+      // One query for the whole list (the primary key's index), however many jobs it covers.
+      const result = await pool.query<ReadRow>(
+        `SELECT ${COLUMNS} FROM contact_messages WHERE id = ANY($1::uuid[])`,
+        [ids],
+      );
+      return result.rows.map(toContactMessage);
     },
   };
 }

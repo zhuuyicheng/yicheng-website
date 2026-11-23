@@ -1,4 +1,6 @@
-import type { SystemStatus } from '@portfolio/shared';
+import type { QueueName, SystemStatus } from '@portfolio/shared';
+import { replayCommands } from '@/lib/queue-items';
+import { QueueItemsPanel } from './queue-items';
 
 type QueueDepths = NonNullable<SystemStatus['queues']>;
 
@@ -9,15 +11,15 @@ interface QueueInfo {
   description: string;
   /** Dead letters failed for good: anything above 0 needs the owner (DESIGN.md §8.2, §8.3). */
   deadLetter: boolean;
-  /** For dead letters: the command that retries them once the cause is fixed. */
-  replay?: string;
+  /** For dead letters: which retry command brings them back once the cause is fixed. */
+  replay?: 'telemetry' | 'notifications';
 }
 
 /**
  * What each queue holds, in the order the work flows. A `Record` over the contract's fields,
  * so a queue added to the status report without an explanation here fails the typecheck.
  */
-const QUEUES: Record<keyof QueueDepths, QueueInfo> = {
+const QUEUES: Record<QueueName, QueueInfo> = {
   telemetryBuffer: {
     name: 'Analytics waiting to be saved',
     key: 'telemetry:events:buffer',
@@ -29,9 +31,9 @@ const QUEUES: Record<keyof QueueDepths, QueueInfo> = {
     name: 'Analytics that could not be saved',
     key: 'telemetry:events:dlq',
     description:
-      'Events the database refused, or that were unreadable. They are kept rather than lost; fix the cause, then retry them with:',
+      'Events the database refused, or that could not be read. They are kept rather than lost, but they are missing from the visitor numbers until retried. Show items says why each one failed and what to fix first.',
     deadLetter: true,
-    replay: 'npm run dlq:replay -- telemetry',
+    replay: 'telemetry',
   },
   notificationsReady: {
     name: 'Contact notifications to send',
@@ -51,15 +53,16 @@ const QUEUES: Record<keyof QueueDepths, QueueInfo> = {
     name: 'Contact notifications that gave up',
     key: 'jobs:notifications:dlq',
     description:
-      'Refused outright, or every retry failed. The message is safe in the database; you just were not told. Fix the cause, then retry them with:',
+      'Refused outright, or every retry failed. The message is safe in the database; you just were not told. Show items shows each message and why telling you failed.',
     deadLetter: true,
-    replay: 'npm run dlq:replay -- notifications',
+    replay: 'notifications',
   },
 };
 
 /**
  * The Redis queues between the API and the worker, each with what it holds and what a normal
- * number looks like. `null` queues: Redis did not answer, so the depths are unknown.
+ * number looks like, and "Show items" to see what is in it. `null` queues: Redis did not
+ * answer, so the depths are unknown.
  */
 export function QueueCard({ queues }: { queues: QueueDepths | null }) {
   return (
@@ -77,41 +80,58 @@ export function QueueCard({ queues }: { queues: QueueDepths | null }) {
         <p className="mt-4 text-sm text-rose-700">Unknown: Redis did not answer.</p>
       ) : (
         <ul className="mt-4 divide-y divide-line">
-          {(Object.keys(QUEUES) as (keyof QueueDepths)[]).map((field) => (
-            <QueueRow key={field} info={QUEUES[field]} count={queues[field]} />
+          {(Object.keys(QUEUES) as QueueName[]).map((queue) => (
+            <QueueRow key={queue} queue={queue} info={QUEUES[queue]} count={queues[queue]} />
           ))}
         </ul>
       )}
 
       <p className="mt-3 text-xs leading-relaxed text-muted">
-        Not shown: the one batch or job the worker is handling at that moment
-        (telemetry:events:inflight, jobs:notifications:processing).
+        Not shown: the batch or job the worker is handling at that moment
+        (telemetry:events:inflight, jobs:notifications:processing). They hold work for a moment
+        only; after a crash, the worker puts it back when it starts again.
       </p>
     </section>
   );
 }
 
-function QueueRow({ info, count }: { info: QueueInfo; count: number }) {
+function QueueRow({ queue, info, count }: { queue: QueueName; info: QueueInfo; count: number }) {
   const attention = info.deadLetter && count > 0;
+  const commands = info.replay === undefined ? null : replayCommands(info.replay);
   return (
-    <li className="flex items-start justify-between gap-4 py-3">
-      <div className="min-w-0">
-        <p className="text-sm text-ink">
-          {info.name}
-          {info.deadLetter && <span className="ml-2 text-xs text-muted">dead letters</span>}
+    <li className="py-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm text-ink">
+            {info.name}
+            {info.deadLetter && <span className="ml-2 text-xs text-muted">dead letters</span>}
+          </p>
+          <p className="font-mono text-[11px] break-all text-muted">{info.key}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted">{info.description}</p>
+          {commands !== null && (
+            <div className="mt-1.5 space-y-1 text-xs leading-relaxed text-muted">
+              <p>Once the cause is fixed, retry them on the server (after ssh portfolio):</p>
+              <Command text={commands.server} />
+              <p>
+                or on your computer: <Command text={commands.local} />
+              </p>
+            </div>
+          )}
+        </div>
+        <p className="shrink-0 text-right font-mono text-lg text-ink tabular-nums">
+          {count}
+          {attention && <span className="block text-xs text-amber-700">needs attention</span>}
         </p>
-        <p className="font-mono text-[11px] break-all text-muted">{info.key}</p>
-        <p className="mt-1 text-xs leading-relaxed text-muted">{info.description}</p>
-        {info.replay !== undefined && (
-          <code className="mt-1 inline-block rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-body">
-            {info.replay}
-          </code>
-        )}
       </div>
-      <p className="shrink-0 text-right font-mono text-lg text-ink tabular-nums">
-        {count}
-        {attention && <span className="block text-xs text-amber-700">needs attention</span>}
-      </p>
+      <QueueItemsPanel queue={queue} count={count} />
     </li>
+  );
+}
+
+function Command({ text }: { text: string }) {
+  return (
+    <code className="inline-block rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] break-all text-body">
+      {text}
+    </code>
   );
 }

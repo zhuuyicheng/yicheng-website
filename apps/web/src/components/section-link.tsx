@@ -7,6 +7,11 @@ import { browserScrollEnvironment, scrollToSection } from '@/lib/section-scroll'
 /**
  * A link to a home-page section that works on every click (lib/section-scroll.ts explains the
  * bug it fixes). On another page it is an ordinary link to `/#id`.
+ *
+ * `prefetch={false}`, like every link to the home page: it is rendered per request, so Next.js
+ * would prefetch only its title, which costs an API request (the profile) whenever such a link
+ * is on screen. Every page shows one in the header, so each visit to /admin added a request to
+ * its own dashboard. Following the link is no slower: the page is fetched on click either way.
  */
 export function SectionLink(props: {
   id: string;
@@ -18,6 +23,7 @@ export function SectionLink(props: {
   return (
     <Link
       href={`/#${props.id}`}
+      prefetch={false}
       className={props.className}
       onClick={(event) => {
         props.onNavigate?.();

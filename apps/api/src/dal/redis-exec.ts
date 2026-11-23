@@ -23,3 +23,16 @@ export async function execOrThrow(batch: ChainableCommander): Promise<unknown[]>
     return result;
   });
 }
+
+/** A batch result that must be a list of strings (LRANGE, ZRANGE): anything else is a bug. */
+export function stringList(result: unknown): string[] {
+  if (!Array.isArray(result)) {
+    throw new Error('Redis answered something other than a list');
+  }
+  return result.map((item: unknown) => {
+    if (typeof item !== 'string') {
+      throw new Error('Redis answered a list that is not all strings');
+    }
+    return item;
+  });
+}

@@ -108,9 +108,14 @@ Then GitHub emails you: **Actions** → the **Deploy** run → **Review deployme
 - **Contact messages** arrive in Discord, and are kept in the database
   ([PROJECT-GUIDE.md §4.4](PROJECT-GUIDE.md#44-the-contact-form)).
 - **"Dead letters" on `/admin`'s queue card**: visits or notifications that failed for good.
-  Once the cause is fixed, retry them on the server with `$C run --rm replay-dlq telemetry` (or
-  `notifications`); the card's `npm run dlq:replay` is the same on your computer
-  ([PRODUCTION-STACK.md §7](PRODUCTION-STACK.md#7-operating-it)).
+  **Show items** under the list says what each one was, why it failed, and what to fix before
+  retrying. Once the cause is fixed, retry them on the server with
+  `$C run --rm replay-dlq telemetry` (or `notifications`); `npm run dlq:replay` is the same on
+  your computer. The fixes, reason by reason:
+  [PROJECT-GUIDE.md §8](PROJECT-GUIDE.md#8-making-sense-of-the-data) ("A dead-letter queue is
+  not empty?").
+- **What is waiting in a queue** (visits not saved yet, messages you have not been told about):
+  `/admin` → queue card → **Show items**.
 - **Look inside the database or Redis**: on your computer, in VS Code
   ([DATA-TOOLS.md](DATA-TOOLS.md)); ready-made queries in [docs/sql/](sql/).
 - **Backups**, all in [BACKUPS.md](BACKUPS.md):
@@ -199,7 +204,7 @@ Then GitHub emails you: **Actions** → the **Deploy** run → **Review deployme
 | Tests fail on your computer                 | [TESTING.md §6](TESTING.md#6-troubleshooting)                                                                                     |
 | `ssh portfolio` fails                       | [HOSTING.md, Troubleshooting](HOSTING.md#troubleshooting)                                                                         |
 | `content:seed` refuses `portfolio.json`     | It lists every problem and where; the JSON pitfalls in [EDITING-THE-SITE.md §1](EDITING-THE-SITE.md#1-your-content-portfoliojson) |
-| Contact messages stop arriving in Discord   | `/admin`'s queue card: dead letters? Then [section 4](#4-visitors-messages-and-backups)                                           |
+| Contact messages stop arriving in Discord   | `/admin`'s queue card: dead letters? **Show items** says why; then [section 4](#4-visitors-messages-and-backups)                  |
 | An Oracle bill that isn't $0                | Cost Analysis; your $1 budget alert emails you first                                                                              |
 
 ---

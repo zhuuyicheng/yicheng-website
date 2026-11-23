@@ -1,6 +1,9 @@
 import {
+  queueItemsSchema,
   systemStatusSchema,
   visitorSummarySchema,
+  type QueueItems,
+  type QueueName,
   type SystemStatus,
   type VisitorSummary,
 } from '@portfolio/shared';
@@ -41,4 +44,8 @@ export function getVisitorSummary(days: number): Promise<VisitorSummary> {
 
 export function getSystemStatus(): Promise<SystemStatus> {
   return getOwnerData('/api/v1/admin/system-status', systemStatusSchema);
+}
+
+export function getQueueItems(queue: QueueName, limit: number): Promise<QueueItems> {
+  return getOwnerData(`/api/v1/admin/queues/${queue}?limit=${String(limit)}`, queueItemsSchema);
 }

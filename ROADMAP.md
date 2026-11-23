@@ -290,4 +290,22 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
       the merge of PR #13). Its shutdown closed the blocking Redis connection with `QUIT` right
       after the consumer had cut it, while ioredis still reported it `ready`. Now it is only
       disconnected (`closeInterruptedRedis`; regression test `redis-close.test.ts`). The worker
-      test now prints the worker's log when it fails, and waits for that log to be complete
+      test now prints the worker's log when it fails, and waits for that log to be complete.
+
+### What is in a queue, and two chart fixes (2026-11-23)
+
+- [x] "Show items" on `/admin`'s queue card: what waits in each queue, read on request (newest
+      20; the retries by due time) without taking anything out. Visits: when, which page or
+      click, who. Notifications: who wrote, the message, which try, when the next is due. Dead
+      letters: why, when, the exact error, and "Before retrying", one fix per reason.
+      `GET /api/v1/admin/queues/:queue` (DESIGN.md §7.8), `queue-items.manager.ts`, DAL peeks
+- [x] The card's retry commands work on the server (`docker compose … run --rm replay-dlq`), not
+      only `npm run dlq:replay` on a computer; the fixes per reason are in PROJECT-GUIDE.md §8
+- [x] Bug (owner's feedback): the chart's hover dot sat below the axis for a 0, and too low for
+      every other value: it was placed in a box that also held the time labels. The plot box is
+      now exactly the chart's size, and the line and the dot share `valueDepth` (regression
+      test in `status.test.ts`)
+- [x] Bug (owner's feedback): each load of `/admin` added one request to its own "requests ·
+      5 min". Next.js prefetched the home page's title for the header's links, which asks the
+      API for the profile (reproduced against a production build). Links to the home page no
+      longer prefetch (`prefetch={false}`, DESIGN.md §8.6)

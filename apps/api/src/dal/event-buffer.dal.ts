@@ -1,6 +1,8 @@
 import type { Redis } from '../infra/redis.js';
+import type { QueuePeek } from '../schema/queue-items.schema.js';
 import { BOUNDED_ENQUEUE_SCRIPT } from './lua/bounded-enqueue.lua.js';
 import { CLAIM_BATCH_SCRIPT } from './lua/claim-batch.lua.js';
+import { execOrThrow, stringList } from './redis-exec.js';
 
 /** Redis keys of the telemetry pipeline (DESIGN.md §6.2). Data, not cache: none has a TTL. */
 export const TELEMETRY_BUFFER_KEYS = {
@@ -28,11 +30,22 @@ export interface EventBufferDal {
   listDeadLetters: () => Promise<string[]>;
   /** `npm run dlq:replay`: puts `payload` back in the buffer and removes its DLQ `entry`. */
   replayDeadLetter: (entry: string, payload: string) => Promise<void>;
+  /** Owner's queue card: how many events wait, and the newest `limit`, newest first. */
+  peekBuffer: (limit: number) => Promise<QueuePeek>;
+  /** Owner's queue card: how many dead letters there are, and the newest `limit`, newest first. */
+  peekDeadLetters: (limit: number) => Promise<QueuePeek>;
 }
 
 export function createEventBufferDal(redis: Redis): EventBufferDal {
   for (const script of [BOUNDED_ENQUEUE_SCRIPT, CLAIM_BATCH_SCRIPT]) {
     redis.defineCommand(script.name, { numberOfKeys: script.numberOfKeys, lua: script.lua });
+  }
+
+  /** Reads without removing anything. Both lists grow on the right, so the newest are last. */
+  async function peekNewest(key: string, limit: number): Promise<QueuePeek> {
+    // MULTI: the count and the entries describe the same moment.
+    const [total, newestLast] = await execOrThrow(redis.multi().llen(key).lrange(key, -limit, -1));
+    return { total: Number(total), entries: stringList(newestLast).reverse() };
   }
 
   return {
@@ -72,6 +85,14 @@ export function createEventBufferDal(redis: Redis): EventBufferDal {
       // because the insert skips ids it already has.
       await redis.rpush(TELEMETRY_BUFFER_KEYS.buffer, payload);
       await redis.lrem(TELEMETRY_BUFFER_KEYS.deadLetter, 1, entry);
+    },
+
+    peekBuffer(limit) {
+      return peekNewest(TELEMETRY_BUFFER_KEYS.buffer, limit);
+    },
+
+    peekDeadLetters(limit) {
+      return peekNewest(TELEMETRY_BUFFER_KEYS.deadLetter, limit);
     },
   };
 }

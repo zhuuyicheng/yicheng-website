@@ -507,7 +507,14 @@ The system dashboard is at the bottom of the page, under the visitor summary.
    Then stop `dev:api`: the banner turns red ("Lost contact… from N s ago") and the last
    numbers stay on screen. Start it again and the page recovers by itself.
 5. **A dead letter.** `RPUSH telemetry:events:dlq '{"x":1}'` in the Redis CLI panel: the
-   telemetry dead-letter row says "needs attention". Delete the key afterwards.
+   telemetry dead-letter row says "needs attention". Press **Show items** under it: the
+   entry is listed as one that cannot be read, with its text (`{"x":1}`). Delete the key
+   afterwards.
+6. **What is waiting.** Stop `dev:worker`, send yourself a message with the contact form, and
+   reload the home page: the ready and buffer rows go to 1 or more. **Show items** under the
+   notifications row shows your name, email and message; under the analytics row, your page
+   view. Nothing is taken out by looking: start the worker again and both empty within
+   seconds (press **Reload** to see).
 
 ### 7.6 Phase 6b: the production stack on your laptop
 

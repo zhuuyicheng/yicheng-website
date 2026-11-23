@@ -1,6 +1,7 @@
 import type { Redis } from '../infra/redis.js';
+import type { DelayedEntry, QueuePeek } from '../schema/queue-items.schema.js';
 import { PROMOTE_DUE_JOBS_SCRIPT } from './lua/promote-due-jobs.lua.js';
-import { execOrThrow } from './redis-exec.js';
+import { execOrThrow, stringList } from './redis-exec.js';
 
 /** Redis keys of the notification job queue (DESIGN.md §6.2). Data, not cache: none has a TTL. */
 export const NOTIFICATION_QUEUE_KEYS = {
@@ -44,6 +45,13 @@ export interface NotificationQueueDal {
   listDeadLetters: () => Promise<string[]>;
   /** `npm run dlq:replay`: queues `jobJson` and removes its DLQ `entry`. */
   replayDeadLetter: (entry: string, jobJson: string) => Promise<void>;
+  // The owner's queue card reads these without taking anything out (DESIGN.md §7.8).
+  /** How many jobs are ready, and the newest `limit`, newest first. */
+  peekReady: (limit: number) => Promise<QueuePeek>;
+  /** How many retries wait out their delay, and the `limit` due soonest, soonest first. */
+  peekDelayed: (limit: number) => Promise<QueuePeek<DelayedEntry>>;
+  /** How many dead letters there are, and the newest `limit`, newest first. */
+  peekDeadLetters: (limit: number) => Promise<QueuePeek>;
 }
 
 /**
@@ -116,6 +124,47 @@ export function createNotificationQueueDal(
       // skips once the message is SENT. Never a lost one.
       await redis.lpush(keys.ready, jobJson);
       await redis.lrem(keys.deadLetter, 1, entry);
+    },
+
+    // Each peek is one MULTI, so the count and the entries describe the same moment.
+
+    async peekReady(limit) {
+      // LPUSH adds on the left: the newest are first already.
+      const [total, entries] = await execOrThrow(
+        redis
+          .multi()
+          .llen(keys.ready)
+          .lrange(keys.ready, 0, limit - 1),
+      );
+      return { total: Number(total), entries: stringList(entries) };
+    },
+
+    async peekDelayed(limit) {
+      const [total, flat] = await execOrThrow(
+        // ioredis types ZRANGE's `stop` as a string only.
+        redis
+          .multi()
+          .zcard(keys.delayed)
+          .zrange(keys.delayed, 0, String(limit - 1), 'WITHSCORES'),
+      );
+      // WITHSCORES answers [job, score, job, score, …], lowest score (due soonest) first.
+      const memberThenScore = stringList(flat);
+      const entries: DelayedEntry[] = [];
+      for (let i = 0; i < memberThenScore.length; i += 2) {
+        const entry = memberThenScore[i];
+        const score = memberThenScore[i + 1];
+        if (entry === undefined || score === undefined) break;
+        entries.push({ entry, dueAtMs: Number(score) });
+      }
+      return { total: Number(total), entries };
+    },
+
+    async peekDeadLetters(limit) {
+      // RPUSH adds on the right: the newest are last.
+      const [total, newestLast] = await execOrThrow(
+        redis.multi().llen(keys.deadLetter).lrange(keys.deadLetter, -limit, -1),
+      );
+      return { total: Number(total), entries: stringList(newestLast).reverse() };
     },
   };
 }
