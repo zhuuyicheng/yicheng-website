@@ -15,6 +15,7 @@ import {
   secondsAgo,
   timeLinePath,
   timeTicks,
+  valueDepth,
 } from '@/lib/status';
 
 const STATUS: SystemStatus = {
@@ -237,6 +238,17 @@ describe('chart helpers', () => {
       ),
     ).toBe('M0.0,25.0 M60.0,25.0');
     expect(timeLinePath([], scale)).toBe('');
+  });
+
+  it('puts the hover marker at the line’s height: zero on the axis, the ceiling at the top', () => {
+    // Regression: the marker was placed in a box that also held the time labels, so a zero sat
+    // below the axis. Both now use this fraction of the plot's height (live-chart.tsx).
+    expect(valueDepth(0, 1)).toBe(1);
+    expect(valueDepth(1, 1)).toBe(0);
+    expect(valueDepth(5, 20)).toBe(0.75);
+    expect(valueDepth(30, 20)).toBe(0); // above the scale: pinned to the top
+    const scale = { start: 0, end: 10, width: 10, height: 80, ceiling: 20, maxGapMs: 1 };
+    expect(timeLinePath([{ at: 0, value: 5 }], scale)).toBe(`M0.0,${(0.75 * 80).toFixed(1)}`);
   });
 
   it('finds the point nearest in time to the pointer', () => {

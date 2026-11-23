@@ -289,6 +289,10 @@ sequenceDiagram
     B->>W: GET /admin/system-status
     W->>A: GET /api/v1/admin/system-status, Bearer token
   end
+  opt you press "Show items" on a queue
+    B->>W: GET /admin/queues/telemetryDeadLetter (for example)
+    W->>A: GET /api/v1/admin/queues/telemetryDeadLetter, Bearer token
+  end
   Note over C: /api/v1/admin/* from the internet gets 404
 ```
 
@@ -301,7 +305,11 @@ Code: [proxy.ts](../apps/web/src/proxy.ts), [lib/admin-auth.ts](../apps/web/src/
 [lib/admin-api.ts](../apps/web/src/lib/admin-api.ts) →
 [admin.controller.ts](../apps/api/src/controllers/admin.controller.ts) →
 [visitor-insights.manager.ts](../apps/api/src/services/visitor-insights.manager.ts),
-[system-status.manager.ts](../apps/api/src/services/system-status.manager.ts).
+[system-status.manager.ts](../apps/api/src/services/system-status.manager.ts),
+[queue-items.manager.ts](../apps/api/src/services/queue-items.manager.ts) (what is in a queue;
+on the page: [queue-card.tsx](../apps/web/src/components/admin/queue-card.tsx),
+[queue-items.tsx](../apps/web/src/components/admin/queue-items.tsx),
+[lib/queue-items.ts](../apps/web/src/lib/queue-items.ts)).
 
 ### 4.6 Health and metrics
 
@@ -311,6 +319,7 @@ Code: [proxy.ts](../apps/web/src/proxy.ts), [lib/admin-auth.ts](../apps/web/src/
 | `GET /health/live`            | Alive? (the process answers)                      | Caddy, every 5 s, to pick replicas |
 | `GET /metrics`                | Prometheus counters and histograms (token)        | Monitoring (not public)            |
 | `/api/v1/admin/system-status` | JSON report: latency, cache, queues, dependencies | The `/admin` dashboard             |
+| `/api/v1/admin/queues/<name>` | What waits in one queue, newest 20 first          | The queue card's "Show items"      |
 
 Why two health checks: if Redis is down, `/health` fails on _both_ replicas. Caddy using it
 would take the whole site down, although content still works from Postgres. So Caddy uses the
@@ -463,9 +472,27 @@ docker compose -f ~/portfolio/deploy/compose.prod.yml exec postgres sh -c 'psql 
 # then paste a query from docs/sql/telemetry.sql, e.g. "Most viewed pages in the last 7 days"
 ```
 
-**A dead-letter queue is not empty?** Find out why (`docker compose … logs worker`), fix it,
-then replay: `docker compose -f ~/portfolio/deploy/compose.prod.yml run --rm replay-dlq telemetry`
-(or `notifications`).
+**A dead-letter queue is not empty?** It is never lost data: a dead visit is kept in Redis,
+and a contact message is always saved in the database first (a notification dead letter only
+means you were not told). Fix the cause first, then retry:
+
+1. **See what failed.** `/admin` → the queue card → **Show items** under the dead-letter list:
+   each item says what it was (the visit, or who wrote), why it failed and the exact error, and
+   "Before retrying" says what to fix for each reason.
+2. **Fix the cause**, depending on the reason:
+
+   | Reason               | Means                                                        | Fix                                                                                                                                     |
+   | -------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+   | `insert_failed`      | The database refused a visit (the error code names the rule) | A bug: the API accepted something the database does not allow. Fix the code, merge, deploy                                              |
+   | `rejected`           | Discord refused the message: a wrong or deleted webhook      | New webhook URL in the server's `~/portfolio/deploy/.env`, then redeploy the same release ([START-HERE §5](START-HERE.md#5-the-server)) |
+   | `attempts_exhausted` | Discord was down or slow through every retry                 | Nothing, once Discord works again                                                                                                       |
+   | `invalid_payload`    | The stored entry cannot be read                              | A bug; retrying cannot help (the retry leaves it in place)                                                                              |
+
+3. **Retry**, on the server (after `ssh portfolio`):
+   `docker compose -f ~/portfolio/deploy/compose.prod.yml run --rm replay-dlq telemetry`
+   (or `notifications`). A visit that still fails goes back to the dead letters; a notification
+   is sent again with a full set of tries. The worker's log says more:
+   `docker compose -f ~/portfolio/deploy/compose.prod.yml logs --tail 50 worker`.
 
 Locally, the same data is visible in VS Code's PostgreSQL and Redis panels:
 [DATA-TOOLS.md](DATA-TOOLS.md).

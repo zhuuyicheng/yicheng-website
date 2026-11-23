@@ -11,6 +11,7 @@ export default function NotFound() {
       <p className="mt-4 text-muted">This page doesn&apos;t exist, or it has moved.</p>
       <Link
         href="/"
+        prefetch={false} // why: components/section-link.tsx
         className="mt-8 inline-flex min-h-11 items-center gap-2 rounded-full border border-line-strong px-5 py-2.5 text-sm font-medium text-ink transition hover:border-brand/60 hover:text-ink"
       >
         <span aria-hidden>←</span>

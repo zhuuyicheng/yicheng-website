@@ -169,7 +169,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── events.controller.ts          (P3) telemetry ingestion
 │   │   │   │   ├── contact.controller.ts         (P4)
 │   │   │   │   ├── system.controller.ts          (P5) /metrics
-│   │   │   │   └── admin.controller.ts           (P6) owner routes: system status, visitor summary
+│   │   │   │   └── admin.controller.ts           (P6) owner routes: system status, visitors, queue items
 │   │   │   ├── services/                 business rules ("managers")
 │   │   │   │   ├── health.manager.ts
 │   │   │   │   ├── cache-aside.manager.ts        (P2) generic cache-aside + single-flight + TTL jitter
@@ -183,17 +183,18 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── notification.manager.ts       (P4) one job: send → sent / retry / DLQ; promote; reconcile
 │   │   │   │   ├── notification-dlq.manager.ts   (P4) dead-letter replay: reopen FAILED messages
 │   │   │   │   ├── system-status.manager.ts      (P5) status JSON (5 s cache) + Prometheus text
-│   │   │   │   └── visitor-insights.manager.ts   (P6) ranks visits for the owner's summary
+│   │   │   │   ├── visitor-insights.manager.ts   (P6) ranks visits for the owner's summary
+│   │   │   │   └── queue-items.manager.ts        (after launch) what waits in each queue, readable
 │   │   │   ├── dal/                      the only datastore code
 │   │   │   │   ├── content.dal.ts                (P2) Postgres
 │   │   │   │   ├── content-cache.dal.ts          (P2) Redis
 │   │   │   │   ├── analytics-event.dal.ts        (P3) Postgres: bulk insert with unnest
-│   │   │   │   ├── event-buffer.dal.ts           (P3) Redis: buffer, in-flight batch, DLQ
+│   │   │   │   ├── event-buffer.dal.ts           (P3) Redis: buffer, in-flight batch, DLQ (+ peeks)
 │   │   │   │   ├── telemetry-salt.dal.ts         (P3) Redis
 │   │   │   │   ├── ip-location.dal.ts            (P3) local GeoIP files: IP → organisation, location
 │   │   │   │   ├── contact-message.dal.ts        (P4) Postgres
 │   │   │   │   ├── rate-limit.dal.ts             (P4) Redis
-│   │   │   │   ├── notification-queue.dal.ts     (P4) Redis
+│   │   │   │   ├── notification-queue.dal.ts     (P4) Redis (+ peeks for the queue card)
 │   │   │   │   ├── queue-depth.dal.ts            (P5) Redis: LLEN/ZCARD of every queue, one round trip
 │   │   │   │   ├── visitor-insights.dal.ts       (P6) Postgres: visits grouped by session
 │   │   │   │   ├── redis-exec.ts                 (P4) MULTI/pipeline that throws if any command failed
@@ -213,7 +214,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── contact-message.schema.ts     (P4)
 │   │   │   │   ├── notification-job.schema.ts    (P4)
 │   │   │   │   ├── system-status.schema.ts       (P5)
-│   │   │   │   └── visitor-insights.schema.ts    (P6)
+│   │   │   │   ├── visitor-insights.schema.ts    (P6)
+│   │   │   │   └── queue-items.schema.ts         (after launch) + QueuePeek, the DALs' peek result
 │   │   │   ├── views/
 │   │   │   │   ├── data.view.ts          (P3) the { data } envelope type
 │   │   │   │   ├── error.view.ts         { error: { code, message, requestId } }
@@ -221,7 +223,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── telemetry.view.ts     (P3) { data: { eventId } }
 │   │   │   │   ├── contact.view.ts       (P4) { data: { id, status } }
 │   │   │   │   ├── system-status.view.ts (P5) { data: { … } } for the dashboard
-│   │   │   │   └── visitor-insights.view.ts (P6) { data: VisitorSummary }
+│   │   │   │   ├── visitor-insights.view.ts (P6) { data: VisitorSummary }
+│   │   │   │   └── queue-items.view.ts   (after launch) { data: QueueItems }
 │   │   │   ├── workers/                  (P3/P4) background loops started by worker.ts
 │   │   │   │   ├── telemetry-flusher.worker.ts   (P3) when to flush: interval, backoff, drain on stop
 │   │   │   │   ├── notification-consumer.worker.ts (P4) one job after another; backoff on outages
@@ -270,7 +273,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │       │   │   ├── layout.tsx            header, footer, page-view beacon
 │       │   │   ├── page.tsx              home: hero, about, experience, projects, outside work, contact
 │       │   │   ├── [slug]/               one project, at /<slug> (old /projects/* links redirect)
-│       │   │   ├── admin/                (P6) owner dashboard + its status route (password-protected)
+│       │   │   ├── admin/                (P6) owner dashboard + its status and queue routes (password)
 │       │   │   ├── error.tsx             "This page couldn't load" + Try again
 │       │   │   ├── not-found.tsx
 │       │   │   ├── icon.svg, apple-icon.png   browser-tab and home-screen icons
@@ -281,12 +284,13 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │       │   └── lib/                      logic without React: api (server fetch), telemetry
 │       │                                 (beacon), contact, status, carousel, scroll-spy,
 │       │                                 section-scroll, project-page, format, config,
-│       │                                 (P6) admin-auth, admin-api, visitors
+│       │                                 (P6) admin-auth, admin-api, visitors, owner-fetch,
+│       │                                 queue-items
 │       └── test/lib/                     unit tests mirroring src/lib
 └── packages/
     └── shared/                           (P5) the API contract: Zod schemas for every public
         ├── package.json                  request/response (content, contact, events, system
-        ├── tsconfig.json / .build.json   status, (P6) visitors, error envelope). Built to dist/
+        ├── tsconfig.json / .build.json   status, (P6) visitors, queue items, error envelope). Built to dist/
         └── src/                          (`build:shared`, run by postinstall, dev:*, typecheck, test)
 ```
 
@@ -1003,6 +1007,28 @@ field, place, network and device in time order; the manager
 day only, because the visitor hash changes every day (§8.2). Crawlers (`device_type = 'bot'`)
 and `/admin` pages are never counted.
 
+`GET /api/v1/admin/queues/:queue?limit=20` (after launch) → `200 { "data": QueueItems }`: what
+waits in one queue, for the queue card's "Show items" (§8.7). `queue` is a field of the status
+report's `queues` (`telemetryBuffer`, `telemetryDeadLetter`, `notificationsReady`,
+`notificationsDelayed`, `notificationsDeadLetter`), `limit` 1–100 (default 20); anything else
+is a `400`. The answer is the queue's `total` and up to `limit` `items`, newest first
+(`notificationsDelayed`: the next due first), read in one `MULTI` (`LLEN`/`ZCARD` and
+`LRANGE`/`ZRANGE … WITHSCORES`) that takes nothing out, so looking cannot change what the
+worker does. An item is `{ kind: "event", event, deadLetter, raw }` or
+`{ kind: "notification", attempt, dueAt, message, deadLetter, raw }`:
+
+- `event`: the buffered event as the owner reads it (when, page or click, referrer, place,
+  organisation, device); `message`: the contact message the job is about (name, email, text,
+  status, last error), looked up in Postgres with one query for the whole list, since a job
+  holds ids only (§8.3); `null` if it no longer exists;
+- `deadLetter`, in the dead-letter lists: `{ reason, error, errorCode, failedAt }`, with
+  Postgres' SQLSTATE as `errorCode` for a refused visit;
+- `raw`: an entry (or a dead letter's payload) that cannot be read, cut to 300 characters.
+  Unreadable entries the worker did not write are logged by position, never by content.
+
+The in-flight batch and the job being processed are not readable here: they hold work for a
+moment only, and the worker puts them back after a crash (§8.2, §8.3).
+
 ---
 
 ## 8. Module Behaviour
@@ -1245,7 +1271,16 @@ routes such as `/admin` take precedence, the content file refuses slugs that wou
 with them (`admin`, `projects`, `privacy`), a path that cannot be a slug is a 404 without
 asking the API, and `next.config.ts` redirects the old `/projects` and `/projects/<slug>`
 addresses permanently (and the removed `/privacy` to the home page). There is no separate
-projects list: the home page's Projects section is the list.
+projects list: the home page's Projects section is the list. Links to the home page (the
+header's name and section links, the footer, "Back to projects", the 404 page) and to a
+project (the cards, "Next project") do not prefetch (`prefetch={false}`): for a page rendered
+per request, Next.js 16 prefetches only its title, and that runs `generateMetadata`, an API
+request (the profile, or the project) whenever such a link is on screen, clicked or not. Every
+page's header has one, so each load of `/admin` added a request to its own dashboard, and each
+project card that scrolled into view added another. The click is no slower: a page rendered
+per request is fetched on click either way. ESLint (`no-restricted-syntax` in
+`eslint.config.mjs`) fails any `<Link>` without a `prefetch` prop, so a new link decides on
+purpose; the period picker keeps `"auto"` because `/admin`'s title is fixed.
 
 **Page-view beacon** (`components/page-view-beacon.tsx`, logic in `lib/telemetry.ts`):
 
@@ -1390,10 +1425,19 @@ holds the fine print: a visit is a tab's session id, reloads are page views but 
 are not, only links leaving the site are clicks, unique visitors are per UTC day (why there is
 no period total), and what is never counted. Under the status tiles, a "content cache" card
 explains hit and miss (§8.1) and why a low ratio is normal at low traffic, and the queue card
-names each queue in plain words with its Redis key, what it holds, that 0 is normal, and the
-`dlq:replay` command for the two dead-letter lists. The queue texts are a `Record` over the
-contract's queue fields (`components/admin/queue-card.tsx`), so a queue added to §7.7 without
-an explanation fails the typecheck. Texts quote the default settings (cache copies kept about
+names each queue in plain words with its Redis key, what it holds, that 0 is normal, and, for
+the two dead-letter lists, the retry command on the server and on the owner's computer. The
+queue texts are a `Record` over the contract's queue fields (`components/admin/queue-card.tsx`),
+so a queue added to §7.7 without an explanation fails the typecheck.
+
+**What is in a queue.** "Show items" under a non-empty queue reads its newest 20 entries
+(`components/admin/queue-items.tsx`, through the web route `/admin/queues/<queue>`, which
+calls §7.8's endpoint with the token): for visits, when, which page or click, and who as far as
+known; for notifications, who wrote (name, email, the message, "Show all" past 280
+characters), which try, and when a retry is due. A dead letter adds why it failed, when, and
+the error as reported, and the list opens with "Before retrying": one plain-words fix per
+reason present (`lib/queue-items.ts`, a `Record` over the contract's reasons). It is read when
+asked, not with the 5-second poll, and stays on screen until "Reload". Texts quote the default settings (cache copies kept about
 5 minutes).
 
 **The owner is not a visitor.** The page-view beacon never sends `/admin` pages, and opening
@@ -1501,13 +1545,17 @@ matters most for deploys: the old worker empties the buffer before the new one s
   manager (5 s cache, single-flight, unreadable sources → `null` + metric, hit ratio, queue
   gauges reset when Redis is down); CORS origin and metrics token config.
 - (P6) Visitor-insights manager (ranking, day filling); the content file's rules for project
-  sections.
+  sections. (After launch) Queue-items manager: each queue's items in the DAL's order, dead
+  letters with their reason and error, unreadable entries as clipped text (logged by
+  position), one message lookup per list, missing messages.
 - Web (`apps/web/test/lib`, Vitest, no browser). (P5) Beacon session ids, referrer filtering,
   path trimming, time zone fallback, interaction names; contact validation and every API
   answer (202/400/429/503/garbage); date formatting; dashboard fetching/validation, health
   summary, uptime and "—" formatting, chart path (gaps break the line) and scale. (P6) The
   owner's login check, the visitor summary, `shouldRecord`, the photo carousel, scrollspy,
-  section scrolling, project-page anchors, chart time ticks.
+  section scrolling, project-page anchors, chart time ticks, the hover marker's height. (After
+  launch) Queue items: fetching/validation, what each dead-letter reason says to fix, visit
+  descriptions, which items a list shows, retry commands.
 
 **Integration tests** (`apps/api/test/integration`, real Postgres + Redis from docker
 compose, run serially):
@@ -1535,7 +1583,10 @@ compose, run serially):
   other origins refused.
 - (P6) Owner endpoints: 401 without the token, 200 with it, 404 when `ADMIN_TOKEN` is unset,
   answers match the contract; the visitor summary's aggregation (bots, `/admin` and older
-  events left out); `/health/live`; a project's detail with and without sections.
+  events left out); `/health/live`; a project's detail with and without sections. (After
+  launch) Queue items written by the real producers: newest first (ready jobs `LPUSH`, the
+  rest `RPUSH`), retries by due time, senders from Postgres, `limit`, nothing taken out,
+  unknown queue or limit → 400.
 
 **CI** (from Phase 2): GitHub Actions runs `format:check`, `lint`, `typecheck` and the full
 test suite (API unit + integration, web unit) against Postgres and Redis service containers,

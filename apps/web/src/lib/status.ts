@@ -1,4 +1,5 @@
 import { systemStatusSchema, type SystemStatus } from '@portfolio/shared';
+import { fetchOwnerData } from './owner-fetch';
 
 /**
  * The owner's live system dashboard (on /admin): fetch the API's self-report (DESIGN.md §7.7)
@@ -10,26 +11,12 @@ import { systemStatusSchema, type SystemStatus } from '@portfolio/shared';
  * (app/admin/system-status/route.ts), which asks the API with the admin token. Validated
  * against the shared contract.
  */
-export async function fetchStatus(options: {
+export function fetchStatus(options: {
   url: string;
   fetch: typeof globalThis.fetch;
   signal?: AbortSignal;
 }): Promise<SystemStatus> {
-  const response = await options.fetch(options.url, {
-    cache: 'no-store',
-    ...(options.signal ? { signal: options.signal } : {}),
-  });
-  if (!response.ok) {
-    throw new Error(`status endpoint answered ${String(response.status)}`);
-  }
-  const body: unknown = await response.json();
-  const parsed = systemStatusSchema.safeParse(
-    typeof body === 'object' && body !== null && 'data' in body ? body.data : undefined,
-  );
-  if (!parsed.success) {
-    throw new Error('status endpoint answered something unexpected');
-  }
-  return parsed.data;
+  return fetchOwnerData({ ...options, schema: systemStatusSchema });
 }
 
 export interface Health {
@@ -224,6 +211,14 @@ export function timeTicks(start: number, end: number, stepMs: number): number[] 
 }
 
 /**
+ * How far down the plot `value` sits, as a fraction of its height: 0 at the top (`ceiling` or
+ * more), 1 at the bottom (zero). The line and the hover marker both use it, so they agree.
+ */
+export function valueDepth(value: number, ceiling: number): number {
+  return 1 - Math.min(Math.max(value, 0), ceiling) / ceiling;
+}
+
+/**
  * An SVG path through `points`, placed by time (x) and scaled from 0 (bottom) to `ceiling`
  * (top). The line breaks at unknown values and at gaps longer than `maxGapMs` (polling pauses
  * while the tab is hidden) instead of drawing a straight line across time it knows nothing of.
@@ -243,7 +238,7 @@ export function timeLinePath(
     }
     const continues = previousAt !== null && point.at - previousAt <= maxGapMs;
     const x = timeX(point.at, options);
-    const y = height - (Math.min(point.value, ceiling) / ceiling) * height;
+    const y = valueDepth(point.value, ceiling) * height;
     path += `${continues ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)} `;
     previousAt = point.at;
   }

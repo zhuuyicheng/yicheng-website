@@ -106,6 +106,7 @@ export default async function ProjectPage(props: ProjectPageProps) {
         {next && (
           <Link
             href={`/${next.slug}`}
+            prefetch={false} // why: components/section-link.tsx
             className="group rounded-xl border border-line px-5 py-4 transition hover:border-brand/50 hover:bg-surface sm:text-right"
           >
             <span className="block text-xs text-muted">Next project</span>
@@ -128,6 +129,7 @@ function BackToProjects() {
   return (
     <Link
       href="/#projects"
+      prefetch={false} // why: components/section-link.tsx
       className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line-strong bg-surface px-5 py-2.5 text-sm font-medium text-ink transition hover:border-brand/60 hover:text-ink"
     >
       <ArrowLeft aria-hidden className="size-4" />

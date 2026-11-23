@@ -2,6 +2,7 @@ import { hostname } from 'node:os';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import type { AppConfig } from './config/env.js';
 import {
+  ADMIN_QUEUE_ITEMS_PATH,
   ADMIN_SYSTEM_STATUS_PATH,
   ADMIN_VISITORS_PATH,
   registerAdminController,
@@ -40,6 +41,7 @@ import { createCacheAsideManager } from './services/cache-aside.manager.js';
 import { createContactManager } from './services/contact.manager.js';
 import { createContentManager } from './services/content.manager.js';
 import { createHealthManager } from './services/health.manager.js';
+import { createQueueItemsManager } from './services/queue-items.manager.js';
 import { createRateLimiterManager } from './services/rate-limiter.manager.js';
 import { createSystemStatusManager } from './services/system-status.manager.js';
 import { createTelemetryManager } from './services/telemetry.manager.js';
@@ -97,6 +99,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       METRICS_PATH,
       ADMIN_SYSTEM_STATUS_PATH,
       ADMIN_VISITORS_PATH,
+      ADMIN_QUEUE_ITEMS_PATH,
     ],
   });
 
@@ -121,8 +124,9 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   });
   registerContentController(app, contentManager);
 
+  const eventBufferDal = createEventBufferDal(redis);
   const telemetryManager = createTelemetryManager({
-    bufferDal: createEventBufferDal(redis),
+    bufferDal: eventBufferDal,
     saltDal: createTelemetrySaltDal(redis),
     visitorDetails: createVisitorDetailsManager({
       ipLocationDal: createIpLocationDal(ipDatabases),
@@ -141,9 +145,11 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     max: config.contact.rateLimitMax,
     windowSeconds: config.contact.rateLimitWindowSeconds,
   });
+  const contactMessageDal = createContactMessageDal(postgres);
+  const notificationQueueDal = createNotificationQueueDal(redis);
   const contactManager = createContactManager({
-    contactMessageDal: createContactMessageDal(postgres),
-    notificationQueueDal: createNotificationQueueDal(redis),
+    contactMessageDal,
+    notificationQueueDal,
     hashIp,
     metrics,
   });
@@ -166,9 +172,14 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     const visitorInsightsManager = createVisitorInsightsManager({
       insightsDal: createVisitorInsightsDal(postgres),
     });
+    const queueItemsManager = createQueueItemsManager({
+      bufferDal: eventBufferDal,
+      queueDal: notificationQueueDal,
+      contactMessageDal,
+    });
     registerAdminController(
       app,
-      { systemStatusManager, visitorInsightsManager },
+      { systemStatusManager, visitorInsightsManager, queueItemsManager },
       { adminToken: config.admin.token },
     );
   }

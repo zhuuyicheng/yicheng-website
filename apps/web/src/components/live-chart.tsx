@@ -9,6 +9,7 @@ import {
   timeLinePath,
   timeTicks,
   timeX,
+  valueDepth,
   type TimePoint,
 } from '@/lib/status';
 
@@ -56,8 +57,8 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
   const hover = hoverAt === null ? null : nearestPoint(visible, hoverAt);
   const hoverX = hover === null ? 0 : timeX(hover.at, scale);
   const hoverValue = hover?.value ?? null;
-  const hoverY =
-    hoverValue === null ? null : HEIGHT - (Math.min(hoverValue, ceiling) / ceiling) * HEIGHT;
+  // A fraction of the plot's height, the same one the line uses (valueDepth).
+  const hoverDepth = hoverValue === null ? null : valueDepth(hoverValue, ceiling);
   const percent = (x: number) => `${String((x / WIDTH) * 100)}%`;
 
   return (
@@ -67,6 +68,11 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
         <span className="text-sm text-ink tabular-nums">{format(latest)}</span>
       </figcaption>
 
+      {/*
+        The plot: this box is exactly the SVG's size, so the marker's and tooltip's percentages
+        mean the same as the line's coordinates. (With the time labels inside it, the box was
+        taller than the SVG and the marker sat too low: a zero showed under the axis.)
+      */}
       <div className="relative mt-4">
         <span className="absolute -top-1 left-0 text-[10px] text-faint tabular-nums">
           {format(ceiling)}
@@ -74,7 +80,7 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
         <svg
           viewBox={`0 0 ${String(WIDTH)} ${String(HEIGHT)}`}
           preserveAspectRatio="none"
-          className="h-32 w-full touch-none overflow-visible"
+          className="block h-32 w-full touch-none overflow-visible"
           role="img"
           aria-label={`${title}, last ${String(windowMs / 60_000)} minutes: latest ${format(latest)}`}
           onPointerMove={onPointer}
@@ -137,11 +143,11 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
         </svg>
 
         {/* The marker is HTML, so it stays round although the SVG stretches. */}
-        {hoverY !== null && (
+        {hoverDepth !== null && (
           <span
             aria-hidden
             className="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand ring-2 ring-surface"
-            style={{ left: percent(hoverX), top: `${String((hoverY / HEIGHT) * 100)}%` }}
+            style={{ left: percent(hoverX), top: `${String(hoverDepth * 100)}%` }}
           />
         )}
         {hover !== null && (
@@ -159,20 +165,20 @@ export function LiveChart({ title, points, end, windowMs, maxGapMs, format }: Li
             Collecting samples…
           </p>
         )}
+      </div>
 
-        {/* The time axis: a label under every 5-minute tick, inside the figure's height. */}
-        <div aria-hidden className="relative mt-2 h-4 text-[10px] text-muted tabular-nums">
-          {ticks.map((at) => {
-            const x = timeX(at, scale);
-            // Too close to an edge, a centred label would stick out of the card.
-            if (x < WIDTH * 0.04 || x > WIDTH * 0.96) return null;
-            return (
-              <span key={at} className="absolute -translate-x-1/2" style={{ left: percent(x) }}>
-                {formatClock(at)}
-              </span>
-            );
-          })}
-        </div>
+      {/* The time axis, below the plot: a label under every 5-minute tick. */}
+      <div aria-hidden className="relative mt-2 h-4 text-[10px] text-muted tabular-nums">
+        {ticks.map((at) => {
+          const x = timeX(at, scale);
+          // Too close to an edge, a centred label would stick out of the card.
+          if (x < WIDTH * 0.04 || x > WIDTH * 0.96) return null;
+          return (
+            <span key={at} className="absolute -translate-x-1/2" style={{ left: percent(x) }}>
+              {formatClock(at)}
+            </span>
+          );
+        })}
       </div>
     </figure>
   );

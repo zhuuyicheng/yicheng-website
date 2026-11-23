@@ -56,6 +56,7 @@ export function SiteHeader() {
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         <Link
           href="/"
+          prefetch={false} // why: section-link.tsx
           className="flex items-center gap-3 font-display text-lg font-semibold tracking-tight text-ink"
           onClick={(event) => {
             setMenuOpen(false);
