@@ -319,6 +319,7 @@ on the page: [queue-card.tsx](../apps/web/src/components/admin/queue-card.tsx),
 | `GET /health`                 | Ready? (Postgres and Redis answer)                | Docker health checks, the deploy   |
 | `GET /health/live`            | Alive? (the process answers)                      | Caddy, every 5 s, to pick replicas |
 | `GET /metrics`                | Prometheus counters and histograms (token)        | Monitoring (not public)            |
+| Worker `:4001/metrics`        | The worker's own counters (token)                 | Monitoring (not public)            |
 | `/api/v1/admin/system-status` | JSON report: latency, cache, queues, dependencies | The `/admin` dashboard             |
 | `/api/v1/admin/queues/<name>` | What waits in one queue, newest 20 first          | The queue card's "Show items"      |
 

@@ -20,6 +20,7 @@ import {
 import { createGracefulShutdown, registerProcessHandlers } from './lifecycle/graceful-shutdown.js';
 import { createNotificationManager } from './services/notification.manager.js';
 import { createTelemetryFlushManager } from './services/telemetry-flush.manager.js';
+import { buildWorkerApp } from './worker-app.js';
 import { createNotificationConsumer } from './workers/notification-consumer.worker.js';
 import { createPeriodicWorker } from './workers/periodic.worker.js';
 import { createTelemetryFlusher } from './workers/telemetry-flusher.worker.js';
@@ -98,6 +99,9 @@ const notificationReconciler = createPeriodicWorker({
   logger,
 });
 
+// GET /metrics for Prometheus (DESIGN.md §15.2).
+const metricsApp = buildWorkerApp({ config, logger, metrics });
+
 // Stop every loop while connections are open (the flusher drains with the time left),
 // then close them.
 const gracefulShutdown = createGracefulShutdown({
@@ -116,6 +120,8 @@ const gracefulShutdown = createGracefulShutdown({
     { name: 'redis-blocking', close: () => closeInterruptedRedis(blockingRedis) },
     { name: 'redis', close: () => closeRedis(redis) },
     { name: 'postgres', close: () => postgres.end() },
+    // Last: Prometheus may still read the drain's counts.
+    { name: 'metrics-server', close: () => metricsApp.close() },
   ],
 });
 registerProcessHandlers(gracefulShutdown, logger);
@@ -123,6 +129,10 @@ registerProcessHandlers(gracefulShutdown, logger);
 try {
   // Like the API: no point starting the loops without both datastores.
   await Promise.all([connectRedis(redis), connectRedis(blockingRedis), pingPostgres(postgres)]);
+  const metricsAddress = await metricsApp.listen({
+    host: config.server.host,
+    port: config.worker.metricsPort,
+  });
   telemetryFlusher.start();
   notificationConsumer.start();
   notificationPromoter.start();
@@ -132,6 +142,7 @@ try {
       batchSize: config.telemetry.batchSize,
       flushIntervalMs: config.telemetry.flushIntervalMs,
       notifier: config.notifications.notifier.driver,
+      metricsAddress,
       nodeEnv: config.nodeEnv,
     },
     'worker started',

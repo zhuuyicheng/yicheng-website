@@ -29,6 +29,7 @@ describe('loadConfig', () => {
       redis: { url: REQUIRED_ENV.REDIS_URL },
       cache: { ttlSeconds: 300 },
       telemetry: { bufferMaxLength: 100_000, batchSize: 50, flushIntervalMs: 5_000 },
+      worker: { metricsPort: 4001 },
       ipLookup: { asnDbPath: null, locationDbPath: null },
       ipHash: { secret: REQUIRED_ENV.IP_HASH_SECRET },
       contact: { rateLimitMax: 3, rateLimitWindowSeconds: 600 },
@@ -62,25 +63,29 @@ describe('loadConfig', () => {
       ...REQUIRED_ENV,
       TELEMETRY_BATCH_SIZE: '200',
       TELEMETRY_FLUSH_INTERVAL_MS: '1000',
+      WORKER_METRICS_PORT: '9464',
       GEOIP_ASN_DB_PATH: 'data/geoip/dbip-asn-lite.mmdb',
       GEOIP_LOCATION_DB_PATH: '/srv/geoip/city.mmdb',
     });
 
     expect(config.telemetry).toMatchObject({ batchSize: 200, flushIntervalMs: 1_000 });
+    expect(config.worker).toEqual({ metricsPort: 9464 });
     expect(config.ipLookup).toEqual({
       asnDbPath: 'data/geoip/dbip-asn-lite.mmdb',
       locationDbPath: '/srv/geoip/city.mmdb',
     });
-    // A batch must fit one INSERT; a 0 ms interval would spin.
+    // A batch must fit one INSERT; a 0 ms interval would spin; ports end at 65535.
     expect(
       captureConfigError({
         ...REQUIRED_ENV,
         TELEMETRY_BATCH_SIZE: '5000',
         TELEMETRY_FLUSH_INTERVAL_MS: '0',
+        WORKER_METRICS_PORT: '70000',
       }).problems,
     ).toEqual([
       expect.stringMatching(/^TELEMETRY_BATCH_SIZE:/),
       expect.stringMatching(/^TELEMETRY_FLUSH_INTERVAL_MS:/),
+      expect.stringMatching(/^WORKER_METRICS_PORT:/),
     ]);
   });
 

@@ -6,14 +6,9 @@ import type { RollingLatency } from '../infra/rolling-latency.js';
 import { withTimeout } from '../infra/with-timeout.js';
 import type { QueueDepths, SystemStatus } from '../schema/system-status.schema.js';
 import type { HealthManager } from './health.manager.js';
+import { renderMetricsText, type MetricsText } from './metrics-text.manager.js';
 
 const READ_TIMEOUT_MS = 2_000;
-
-/** The Prometheus text and its content-type header. */
-export interface MetricsText {
-  contentType: string;
-  body: string;
-}
 
 /**
  * The system's report on itself (DESIGN.md §7.7, §8.5): JSON for /admin, Prometheus text for
@@ -135,7 +130,7 @@ export function createSystemStatusManager(
 
     async getMetricsText(log) {
       setQueueGauges(await orNull('queue_depths', () => queueDepthDal.readDepths(), log));
-      return { contentType: metrics.registry.contentType, body: await metrics.registry.metrics() };
+      return renderMetricsText(metrics);
     },
   };
 }

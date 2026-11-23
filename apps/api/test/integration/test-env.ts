@@ -10,4 +10,6 @@ export const integrationTestEnv = {
   REDIS_URL: process.env.TEST_REDIS_URL ?? 'redis://localhost:6379/1',
   IP_HASH_SECRET: 'integration-test-ip-hash-secret-0123456789',
   ADMIN_TOKEN: 'integration-test-admin-token-0123456789abcdef',
+  // Any free port for a worker's /metrics: a development worker may hold 4001.
+  WORKER_METRICS_PORT: '0',
 } as const;
