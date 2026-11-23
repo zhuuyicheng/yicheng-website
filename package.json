@@ -39,7 +39,8 @@
     "stack:restore": "bash deploy/restore.sh",
     "infra:up": "docker compose up -d --wait",
     "infra:down": "docker compose down",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test"
+    "monitoring:check": "bash deploy/prometheus/check.sh",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run monitoring:check"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

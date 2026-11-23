@@ -331,8 +331,10 @@ asking each replica, with the custom code that fed them removed; Grafana at
       saved, dead letters, notifications, loop failures) were never readable. `/metrics` logs
       quietly, like `/health` (a scrape every 15 s would add two log lines each time). Latency
       buckets from 1 ms, so the percentiles Prometheus estimates stay close at this site's speed
-- [ ] 7b Prometheus (every 15 s, 30 days, 2 GB cap) and node-exporter in the production stack;
-      Prometheus in `npm run infra:up` for development; configuration checked in CI (`promtool`)
+- [x] 7b Prometheus (every 15 s, 30 days, 2 GB cap) and node-exporter in the production stack;
+      Prometheus in `npm run infra:up` for development; configuration checked in CI (`promtool`).
+      Tried on the desktop's stack: api-1, api-2, worker and node-exporter all answer, with the
+      token; Prometheus about 30 MB and node-exporter 8 MB at start; no `/metrics` log lines
 - [ ] 7c Alerts: rules with unit tests (`promtool test rules`), Alertmanager → the Discord
       channel; backups record their time for the "backup too old" alert; drill on the laptop stack
 - [ ] 7d Grafana at `/grafana` (its own login, open while the site is paused), data source and

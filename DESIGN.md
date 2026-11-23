@@ -134,8 +134,10 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 ├── deploy/                               (P6) the production stack (docs/PRODUCTION-STACK.md):
 │                                         compose.prod.yml, caddy/ (Caddyfile, back-soon.html),
 │                                         .env.example (→ gitignored .env), deploy.sh,
-│                                         backup.sh, restore.sh, pull-backups.sh, failover-test.sh
-├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests
+│                                         backup.sh, restore.sh, pull-backups.sh, failover-test.sh,
+│                                         (P7) prometheus/ (prometheus.yml, prometheus.dev.yml,
+│                                         check.sh: npm run monitoring:check)
+├── docker-compose.yml                    Postgres 16 + Redis 7 for local dev & tests, (P7) Prometheus
 ├── eslint.config.mjs                     one flat config for the whole repo
 ├── package.json                          npm workspaces + repo-wide scripts
 ├── tsconfig.base.json                    strict compiler options shared by all packages
@@ -345,7 +347,7 @@ The web variables are read by Next.js from the environment or from `apps/web/.en
 built, so changing one means rebuilding.
 
 Docker Compose additionally reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
-`POSTGRES_PORT`, `REDIS_PORT` (all with local-dev defaults).
+`POSTGRES_PORT`, `REDIS_PORT`, `PROMETHEUS_PORT` (all with local-dev defaults).
 
 ---
 
@@ -1610,8 +1612,9 @@ compose, run serially):
 
 **CI** (from Phase 2): GitHub Actions runs `format:check`, `lint`, `typecheck` and the full
 test suite (API unit + integration, web unit) against Postgres and Redis service containers,
-then (P5) `next build` for the website, which must succeed without the API running, and (P6)
-builds both Docker images for `linux/arm64`. It runs on every pull request, and on every
+then (P5) `next build` for the website, which must succeed without the API running, (P6)
+builds both Docker images for `linux/arm64`, and (P7) checks the Prometheus configuration with
+the image's own `promtool` (`npm run monitoring:check`). It runs on every pull request, and on every
 commit to `main` inside the Deploy workflow (§14.3); `main` only accepts pull requests that
 passed it. See [docs/CI.md](docs/CI.md).
 
@@ -1821,7 +1824,8 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
 
 **Server: one Oracle Cloud Always Free Arm VM** (`VM.Standard.A1.Flex`, Ubuntu 24.04 LTS, in the
 account's home region) running `deploy/compose.prod.yml`: Postgres, Redis, **two API
-replicas**, worker, web, and Caddy for automatic HTTPS and load balancing. It is an ordinary
+replicas**, worker, web, Caddy for automatic HTTPS and load balancing, and (Phase 7) the
+monitoring of §15. It is an ordinary
 Linux server, so it mirrors local development, keeps Redis configuration under our control (§14.4),
 and costs nothing. The deploy job connects over SSH (key stored as an Environment secret),
 copies `deploy/` and runs `deploy/deploy.sh`, which pulls the new tag and does the rolling
@@ -1971,7 +1975,8 @@ so `caddy reload` would silently reload old rules. With the folder, a change is 
 ports (80, 443, 443/udp); Postgres and Redis are reachable only on the Compose network.
 Variables come from `deploy/.env` on the host (gitignored, template `deploy/.env.example`) and
 are passed per container (least privilege: the web server gets `API_BASE_URL`,
-`API_REPLICA_URLS` and `ADMIN_TOKEN` only); a missing required one stops Compose with its name (`${VAR:?…}`). The
+`API_REPLICA_URLS` and `ADMIN_TOKEN` only, Prometheus `METRICS_TOKEN` only, as a file); a
+missing required one stops Compose with its name (`${VAR:?…}`). The
 replicas' Docker health check is `GET /health` (readiness), so `up --wait` means "ready to
 serve"; the web's is a static file. `migrate`, `seed` and `replay-dlq` are services in the
 `tools` profile (`docker compose run --rm migrate`), so `up` never starts them. Every
@@ -2112,8 +2117,13 @@ prometheus ────────────────► api-1:4000, api-2
 | `worker`        | Also serves `/metrics`, on port 4001 (§15.2)                            | The compose network only          |
 
 In development, `npm run infra:up` also starts Prometheus (on `127.0.0.1:9090`, scraping the
-API and worker running on the host), so `/admin` works locally. Alertmanager and Grafana run
-in the production stack: on the server, and on the laptop with `npm run stack:up`.
+API and worker running on the host through `host.docker.internal`), so `/admin` works locally.
+Alertmanager and Grafana run in the production stack: on the server, and on the laptop with
+`npm run stack:up`.
+
+Images: `prom/prometheus:v3.13.5`, from the line Prometheus keeps patching alongside newer
+releases (long-term support, like 3.5 before it), and `prom/node-exporter:v1.13.1`.
+Development runs the same Prometheus image: `npm run monitoring:check` fails otherwise.
 
 ### 15.2 Scraping
 
@@ -2133,6 +2143,16 @@ in the production stack: on the server, and on the laptop with `npm run stack:up
   log lines each time, per process.
 - Kept 30 days or 2 GB, whichever comes first (expected well under 1 GB: a few thousand series
   every 15 s). Not backed up: losing old graphs costs nothing, and the configuration is in Git.
+- **node-exporter** sees the host, not its container: `pid: host` (so `/proc` is the host's)
+  and `/` mounted read-only at `/host`. Only the collectors the dashboard and alerts use (CPU,
+  memory, load, filesystems, kernel version), and Docker Desktop's doubled mounts left out (on
+  your computers they logged an error on every scrape). On Docker Desktop the root disk is a type
+  node-exporter skips, so the disk panel stays empty there; the server's ext4 root is counted.
+- **Checked before it runs**: `npm run monitoring:check` (CI, and `npm run check`) runs both
+  files through the image's own `promtool`, with a placeholder token file (promtool insists
+  the file exists). From a terminal, ask the live one:
+  `docker compose -f deploy/compose.prod.yml exec prometheus promtool query instant http://localhost:9090 up`
+  (1 = answers, 0 = down), or open http://localhost:9090 in development.
 - Latency buckets start at 1 ms (`0.001, 0.0025, 0.005, …, 5`). Prometheus estimates a
   percentile inside the bucket it falls in, so with a first bucket of 5 ms every fast response
   read as "about 2.5 ms".

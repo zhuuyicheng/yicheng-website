@@ -33,7 +33,7 @@ Requires Node 24 (via [nvm](https://github.com/nvm-sh/nvm)) and Docker.
 nvm use                  # Node 24 from .nvmrc
 npm install
 cp .env.example .env
-npm run infra:up         # Postgres 16 + Redis 7 in Docker
+npm run infra:up         # Postgres 16, Redis 7 and Prometheus in Docker
 npm run db:migrate       # create the tables
 npm run content:seed     # load apps/api/content/portfolio.json
 npm run geoip:download   # free IP → organisation/location files (~65 MB)

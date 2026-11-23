@@ -10,11 +10,11 @@ merging; green ✅ means safe to merge. Minutes are free because the repository 
 
 The workflow is [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
-| Job           | Runs on                         | Does                                                                         |
-| ------------- | ------------------------------- | ---------------------------------------------------------------------------- |
-| `check`       | `ubuntu-latest`                 | `npm ci`, format check, lint, typecheck, all tests, `next build` of the site |
-| `image (api)` | `ubuntu-24.04-arm` (GitHub Arm) | builds the API image for the server's Arm CPU (pushes nothing)               |
-| `image (web)` | `ubuntu-24.04-arm`              | builds the web image                                                         |
+| Job           | Runs on                         | Does                                                                                                  |
+| ------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `check`       | `ubuntu-latest`                 | `npm ci`, format check, lint, typecheck, all tests, Prometheus config check, `next build` of the site |
+| `image (api)` | `ubuntu-24.04-arm` (GitHub Arm) | builds the API image for the server's Arm CPU (pushes nothing)                                        |
+| `image (web)` | `ubuntu-24.04-arm`              | builds the web image                                                                                  |
 
 | Locally            | In CI                                                               |
 | ------------------ | ------------------------------------------------------------------- |
@@ -70,6 +70,7 @@ gh run rerun --failed          # retry (e.g. a flaky network error)
 | Integration tests only fail in CI | The test depends on local data or timing               | Make the test create its own data         |
 | Lint or types only fail in CI     | A gitignored generated file exists only on your laptop | Check a fresh clone (below)               |
 | `image (api)` / `image (web)`     | A Dockerfile step fails                                | `npm run image:api` / `npm run image:web` |
+| `monitoring:check`                | A Prometheus file promtool refuses, or two versions    | `npm run monitoring:check` names it       |
 
 **"It passes on my laptop"**: your folder has files CI never sees (`node_modules`, `.next/`,
 generated files like `apps/web/next-env.d.ts`). Once, photo imports got their types only from

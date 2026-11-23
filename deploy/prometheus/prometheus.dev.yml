@@ -1,0 +1,21 @@
+# Prometheus for development (DESIGN.md §15.1), started by `npm run infra:up`. It reads the API
+# and worker running on this computer (npm run dev:api, npm run dev:worker); a target that is
+# not running just shows as down. Its own pages: http://localhost:9090
+#
+# The same job names as production (prometheus.yml), so /admin asks both the same questions.
+
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # host.docker.internal is this computer, seen from a container. No token: METRICS_TOKEN stays
+  # unset in development (.env.example).
+  - job_name: api
+    static_configs:
+      - targets: [host.docker.internal:4000]
+        labels: { instance: api }
+
+  - job_name: worker
+    static_configs:
+      - targets: [host.docker.internal:4001]
+        labels: { instance: worker }

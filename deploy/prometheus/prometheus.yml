@@ -1,0 +1,37 @@
+# Prometheus in the production stack (DESIGN.md §15.2): on the server, and on the laptop with
+# `npm run stack:up`. Development uses prometheus.dev.yml. Check both: npm run monitoring:check
+#
+# Each process is read directly, never through Caddy, which would hand over a random replica.
+# After an edit (deploy.sh does this), reload without a restart:
+#   docker compose -f deploy/compose.prod.yml kill -s HUP prometheus
+# Ask it something from the terminal, e.g. which targets answer (1) and which don't (0):
+#   docker compose -f deploy/compose.prod.yml exec prometheus promtool query instant http://localhost:9090 up
+
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # The API's and the worker's /metrics need METRICS_TOKEN: a Compose secret from deploy/.env.
+  - job_name: api
+    authorization:
+      credentials_file: /run/secrets/metrics_token
+    static_configs:
+      - targets: [api-1:4000, api-2:4000]
+    # instance="api-1", not "api-1:4000": the name /admin and the alerts show.
+    relabel_configs: &instance-without-port
+      - source_labels: [__address__]
+        regex: '(.+):\d+'
+        target_label: instance
+
+  - job_name: worker
+    authorization:
+      credentials_file: /run/secrets/metrics_token
+    static_configs:
+      - targets: [worker:4001]
+    relabel_configs: *instance-without-port
+
+  # The VM itself: CPU, memory and disk.
+  - job_name: node
+    static_configs:
+      - targets: [node-exporter:9100]
+    relabel_configs: *instance-without-port

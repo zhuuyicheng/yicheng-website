@@ -50,6 +50,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test # unit + integration (uses the service containers)
+      - run: npm run monitoring:check # Prometheus configuration, with its own promtool
       # Catches what typecheck can't, like a page needing the API at build time.
       # NEXT_TELEMETRY_DISABLED: no usage pings.
       - run: npm run build -w @portfolio/web

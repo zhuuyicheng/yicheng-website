@@ -22,27 +22,32 @@ themselves: [DOCKER.md](DOCKER.md).
                     │         │          worker
                     └────┬────┴────────────┘
                    postgres + redis      (all shared state lives here)
+
+   prometheus ── every 15 s ──► api-1, api-2, worker, node-exporter (the VM)   (monitoring)
 ```
 
 Everything is in [`deploy/`](../deploy/):
 
 | File                                                     | What                                                                              |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`compose.prod.yml`](../deploy/compose.prod.yml)         | the seven services, their settings and health checks                              |
+| [`compose.prod.yml`](../deploy/compose.prod.yml)         | the nine services, their settings and health checks                               |
+| [`prometheus/`](../deploy/prometheus/)                   | what Prometheus reads, and the check CI runs (DESIGN.md §15)                      |
 | [`caddy/Caddyfile`](../deploy/caddy/Caddyfile)           | HTTPS, routing, load balancing                                                    |
 | [`caddy/back-soon.html`](../deploy/caddy/back-soon.html) | what visitors see while the site is paused ([CD.md §5](CD.md#5-pausing-the-site)) |
 | [`.env.example`](../deploy/.env.example)                 | template for `deploy/.env`: hostname and secrets                                  |
 | [`failover-test.sh`](../deploy/failover-test.sh)         | the proof that load balancing works (section 6)                                   |
 | [`deploy.sh`](../deploy/deploy.sh)                       | a release, rolled out one service at a time ([CD.md](CD.md))                      |
 
-| Service                         | Image               | Reachable from your machine? | Health check                   |
-| ------------------------------- | ------------------- | ---------------------------- | ------------------------------ |
-| `caddy`                         | `caddy:2.11-alpine` | **yes**: ports 80 and 443    | none                           |
-| `api-1`, `api-2`                | `portfolio-api`     | no                           | `GET /health` every 30 s       |
-| `worker`                        | `portfolio-api`     | no                           | none (it serves no HTTP)       |
-| `web`                           | `portfolio-web`     | no                           | `GET /icon.svg` every 30 s     |
-| `postgres`, `redis`             | official images     | no                           | `pg_isready`, `redis-cli ping` |
-| `migrate`, `seed`, `replay-dlq` | `portfolio-api`     | no, run on demand            | (tools: they run and exit)     |
+| Service                         | Image                | Reachable from your machine? | Health check                   |
+| ------------------------------- | -------------------- | ---------------------------- | ------------------------------ |
+| `caddy`                         | `caddy:2.11-alpine`  | **yes**: ports 80 and 443    | none                           |
+| `api-1`, `api-2`                | `portfolio-api`      | no                           | `GET /health` every 30 s       |
+| `worker`                        | `portfolio-api`      | no                           | none (only `/metrics`, 4001)   |
+| `web`                           | `portfolio-web`      | no                           | `GET /icon.svg` every 30 s     |
+| `postgres`, `redis`             | official images      | no                           | `pg_isready`, `redis-cli ping` |
+| `prometheus`                    | `prom/prometheus`    | no                           | `promtool check ready`, 30 s   |
+| `node-exporter`                 | `prom/node-exporter` | no                           | none (Prometheus reads it)     |
+| `migrate`, `seed`, `replay-dlq` | `portfolio-api`      | no, run on demand            | (tools: they run and exit)     |
 
 Only Caddy publishes ports. The database and Redis are reachable only by the other
 containers, which is most of what keeps them safe on a server facing the internet.
@@ -204,6 +209,8 @@ $C ps                                  # what runs, and its health
 $C logs -f api-1 caddy                 # follow logs (JSON); Ctrl+C to stop following
 $C run --rm replay-dlq telemetry       # the CLIs: migrate, seed, replay-dlq <queue>
 $C exec caddy caddy reload --config /etc/caddy/Caddyfile   # apply a Caddyfile change
+$C exec prometheus promtool query instant http://localhost:9090 up   # who answers Prometheus
+$C kill -s HUP prometheus             # apply a prometheus/prometheus.yml change
 ```
 
 - **Logs are capped**: 3 files × 10 MB per container (Docker otherwise keeps them forever and a
@@ -223,6 +230,10 @@ $C exec caddy caddy reload --config /etc/caddy/Caddyfile   # apply a Caddyfile c
   database, so never there. Keep `caddy-data` too: it holds the certificates, and Let's
   Encrypt issues the same one only 5 times a week.
 - **Inside the datastores**: [DATA-TOOLS.md §7.6](DATA-TOOLS.md#76-phase-6b-the-production-stack-on-your-laptop).
+- **Monitoring** (DESIGN.md §15): Prometheus reads every process's `/metrics` every 15 s and
+  keeps 30 days in its own volume. `up` above prints `1` for each target that answers and `0`
+  for one that doesn't (stopped, or a wrong `METRICS_TOKEN`). On Docker Desktop the VM's disk
+  numbers are missing: its root disk is a type node-exporter skips (the server's is counted).
 
 ## 8. Troubleshooting
 
