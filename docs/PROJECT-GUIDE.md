@@ -39,6 +39,7 @@ A personal portfolio website with a production-style backend behind it.
 | Cache, queues, rate limit | Redis 7 (with Lua scripts)                        | Fast, and atomic scripts for counting and moving work      |
 | Web server                | Caddy                                             | Automatic HTTPS, load balancing over two API replicas      |
 | Delivery                  | Docker images, GitHub Actions, GHCR, SSH          | Every release is a tested, tagged image; one-click approve |
+| Monitoring                | Prometheus, Alertmanager, Grafana                 | 30 days of numbers, alerts on Discord, graphs              |
 | Tests                     | Vitest: unit + integration on real Postgres/Redis | Confidence to change code                                  |
 
 ---
@@ -62,8 +63,14 @@ flowchart LR
     W -->|"server-side API calls"| C
     A1 & A2 --> R & PG
     K --> R & PG
+    P["prometheus<br/>+ alertmanager"]
+    G["grafana"]
+    P -->|"reads /metrics every 15 s"| A1 & A2 & K
+    C -->|"/grafana"| G
+    G & W -->|"PromQL"| P
   end
   K -->|webhook| D[Discord]
+  P -->|alerts| D
   GH[GitHub Actions] -->|"deploy over SSH"| VM
 ```
 
@@ -75,10 +82,16 @@ flowchart LR
 | `worker`         | Background loops: write events to Postgres, send notifications, retry, repair           | [worker.ts](../apps/api/src/worker.ts)                               |
 | `postgres`       | Content, page views, contact messages                                                   | [migrations/](../apps/api/migrations)                                |
 | `redis`          | Content cache, event buffer, job queues, rate-limit windows                             | key list: [DESIGN.md §6.2](../DESIGN.md#62-key-catalog)              |
+| `prometheus`     | Reads every process's `/metrics` every 15 s, keeps 30 days, checks the alert rules      | [prometheus/](../deploy/prometheus)                                  |
+| `alertmanager`   | Turns firing alerts into Discord messages (only with `NOTIFIER_DRIVER=discord`)         | [alertmanager/](../deploy/alertmanager)                              |
+| `node-exporter`  | The VM's own CPU, memory and disk, and the last backup's time                           | [compose.prod.yml](../deploy/compose.prod.yml)                       |
+| `grafana`        | Graphs at `/grafana`, behind its own login                                              | [grafana/](../deploy/grafana)                                        |
 
 All shared state lives in Postgres and Redis, so the two API replicas need no coordination.
 Only Caddy is reachable from the internet (ports 80 and 443). Memory, measured on the server
-(2026-11-20): about 600 MB for all seven, mostly the two API replicas and `web` (~170 MB each).
+(2026-11-20): about 600 MB for the seven before Phase 7, mostly the two API replicas and `web`
+(~170 MB each). The monitoring adds about 320 MB (Grafana 260 MB), measured on the desktop's
+stack ([MONITORING.md](MONITORING.md)).
 
 ---
 
@@ -331,9 +344,44 @@ on the page: [queue-card.tsx](../apps/web/src/components/admin/queue-card.tsx),
 | `/api/v1/admin/system-status` | JSON report: latency, cache, queues, dependencies | The `/admin` dashboard             |
 | `/api/v1/admin/queues/<name>` | What waits in one queue, newest 20 first          | The queue card's "Show items"      |
 
+Since Phase 7 Prometheus reads `GET /metrics` on api-1, api-2 and the worker (its own port, 4001) every 15 s ([4.7](#47-monitoring)).
+
 Why two health checks: if Redis is down, `/health` fails on _both_ replicas. Caddy using it
 would take the whole site down, although content still works from Postgres. So Caddy uses the
 liveness check. Every retry, fallback and dead letter logs a line **and** bumps a metric.
+
+---
+
+### 4.7 Monitoring
+
+```mermaid
+sequenceDiagram
+  participant P as Prometheus
+  participant T as api-1, api-2, worker, node-exporter
+  participant M as Alertmanager
+  participant D as Discord
+  loop every 15 s
+    P->>T: GET /metrics (METRICS_TOKEN)
+    T-->>P: counters, histograms, gauges
+    P->>P: check the alert rules
+  end
+  P->>M: an alert that stayed true for its waiting time
+  M->>D: "Firing: TargetDown" (grouped, repeated every 12 h)
+  M->>D: "Resolved: TargetDown"
+```
+
+Grafana (`/grafana`) and `/admin`'s system status ask Prometheus for the history; neither reads
+the processes directly. What each alert means and what to do:
+[MONITORING.md §3](MONITORING.md#3-alerts).
+
+Code: [prometheus.yml](../deploy/prometheus/prometheus.yml) (what is read),
+[alerts.yml](../deploy/prometheus/alerts.yml) and its tests
+[alerts.test.yml](../deploy/prometheus/alerts.test.yml),
+[discord.yml](../deploy/alertmanager/discord.yml), the dashboard
+[portfolio.json](../deploy/grafana/dashboards/portfolio.json), the worker's endpoint
+[worker-app.ts](../apps/api/src/worker-app.ts), the backup's time in
+[backup.sh](../deploy/backup.sh), and the check CI runs,
+[check.sh](../deploy/prometheus/check.sh) (`npm run monitoring:check`).
 
 ---
 
@@ -532,20 +580,22 @@ go into a Redis buffer and a worker writes them to Postgres in batches, so a vis
 waits for the database and nothing is lost if a process crashes. The contact form has an
 atomic Lua rate limiter and sends notifications from a background queue with retries and a
 dead-letter queue. Every merge is tested, packaged as Docker images and, after I approve,
-rolled out to two API replicas one at a time with a smoke test and automatic rollback."
+rolled out to two API replicas one at a time with a smoke test and automatic rollback.
+Prometheus watches it all: unit-tested alert rules post to Discord, and Grafana shows 30 days
+of history."
 
 **Deep dives** (problem → what I did → trade-off):
 
-| Topic           | Problem                                      | What I did                                                     | Trade-off                                              |
-| --------------- | -------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------ |
-| Caching         | Every page read hit Postgres                 | Cache-aside, single-flight, jittered expiry, Redis optional    | Content can be up to 5 min stale (seed clears it)      |
-| Async ingestion | Analytics must not slow pages or lose events | Redis buffer + batch worker, at-least-once + idempotent insert | Events land ~5 s later; one worker only                |
-| Rate limiting   | Spam, even with simultaneous requests        | Sliding-window log in one Lua script, per hashed IP            | Fails closed when Redis is down (form unavailable)     |
-| Dual write      | Postgres and Redis can't share a transaction | Postgres first; a reconciler re-queues lost jobs               | A notification can arrive twice, never zero times      |
-| Failures        | Outage vs bad data need different handling   | Retry outages with backoff; dead-letter bad data; replay CLI   | Someone must look at the DLQ (dashboard flags it)      |
-| Deploys         | Updating without downtime on one VM          | Two replicas, liveness vs readiness, rolling update, rollback  | Pages blink < 1 s while the website container restarts |
-| Schema changes  | Old and new code run side by side            | Expand → contract migrations, versioned cache keys             | Renames take two releases                              |
-| Observability   | Know what's happening without guessing       | Request ids, structured logs, Prometheus metrics, `/admin`     | Metrics are per replica; no Prometheus server yet      |
+| Topic           | Problem                                      | What I did                                                      | Trade-off                                              |
+| --------------- | -------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------ |
+| Caching         | Every page read hit Postgres                 | Cache-aside, single-flight, jittered expiry, Redis optional     | Content can be up to 5 min stale (seed clears it)      |
+| Async ingestion | Analytics must not slow pages or lose events | Redis buffer + batch worker, at-least-once + idempotent insert  | Events land ~5 s later; one worker only                |
+| Rate limiting   | Spam, even with simultaneous requests        | Sliding-window log in one Lua script, per hashed IP             | Fails closed when Redis is down (form unavailable)     |
+| Dual write      | Postgres and Redis can't share a transaction | Postgres first; a reconciler re-queues lost jobs                | A notification can arrive twice, never zero times      |
+| Failures        | Outage vs bad data need different handling   | Retry outages with backoff; dead-letter bad data; replay CLI    | Someone must look at the DLQ (dashboard flags it)      |
+| Deploys         | Updating without downtime on one VM          | Two replicas, liveness vs readiness, rolling update, rollback   | Pages blink < 1 s while the website container restarts |
+| Schema changes  | Old and new code run side by side            | Expand → contract migrations, versioned cache keys              | Renames take two releases                              |
+| Observability   | Know what's happening without guessing       | Request ids, logs; Prometheus, tested alerts, Grafana, `/admin` | It runs on the same VM: a dead VM alerts nobody        |
 
 **Questions you may get**
 
@@ -589,14 +639,15 @@ add things, so the old code still works on the new schema.
 
 <details><summary>What would you do with more time?</summary>
 
-A Prometheus + Grafana server for history and alerts; a privacy notice before targeting
-EU/UK visitors; per-worker queues to run more than one worker; continuous deployment
-(no approval) once releases are routine.
+An uptime check from outside the VM (the monitoring dies with the server it watches); a
+privacy notice before targeting EU/UK visitors; per-worker queues to run more than one worker;
+continuous deployment (no approval) once releases are routine.
 
 </details>
 
-**Known limits** (say them before you're asked): one worker process by design; metrics are
-in-memory per replica; 1 OCPU (2 was refused for lack of capacity); IP addresses are kept
+**Known limits** (say them before you're asked): one worker process by design; the monitoring
+runs on the VM it watches, so a dead VM alerts nobody; 1 OCPU (2 was refused for lack of
+capacity); IP addresses are kept
 without a notice to visitors (owner's decision, [DESIGN.md §12](../DESIGN.md#12-security--privacy)).
 
 ---
@@ -616,3 +667,4 @@ without a notice to visitors (owner's decision, [DESIGN.md §12](../DESIGN.md#12
 | [DOCKER.md](DOCKER.md), [PRODUCTION-STACK.md](PRODUCTION-STACK.md) | The images, and the stack on your laptop                     |
 | [HOSTING.md](HOSTING.md), [CD.md](CD.md)                           | The server, and releasing to it                              |
 | [BACKUPS.md](BACKUPS.md)                                           | Weekly backups and restoring                                 |
+| [MONITORING.md](MONITORING.md)                                     | Grafana, the alerts and what to do about each                |

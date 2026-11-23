@@ -566,11 +566,42 @@ Try it on the laptop with `docker tag portfolio-api:dev portfolio-api:v2` (and t
    then deploy: at "publishing the content" the `cache:*` keys are deleted and written again
    (the seed's log line counts them: `cacheKeysCleared`). Afterwards
    `$C exec redis redis-cli --scan --pattern 'cache:*'` lists them again.
-4. **No API request is lost.** Keep https://localhost/admin open during a deploy: "answered
-   by" shows `api-2` while api-1 is replaced, then `api-1` while api-2 is. Only the `web` step
-   interrupts it, for under a second, and the dashboard keeps its last numbers meanwhile.
-   The worker's queue (`LLEN telemetry:events:buffer`) may grow while the worker is
-   replaced, then drains.
+4. **No API request is lost.** Keep https://localhost/admin open during a deploy: the status
+   keeps coming through whichever replica runs, and since Phase 7 the requests chart has no dip,
+   because Prometheus adds both replicas up. A replica being replaced may show `✕` on the
+   bottom line for one reading. Only the `web` step interrupts the page, for under a second,
+   and the dashboard keeps its last numbers meanwhile. The worker's queue
+   (`LLEN telemetry:events:buffer`) may grow while the worker is replaced, then drains.
+
+### 7.8 Phase 7: the monitoring
+
+Prometheus keeps the numbers the processes count (§7.3), so here you watch them over time. In
+development, `npm run infra:up` starts it at http://localhost:9090 (no login); the laptop's
+stack adds Grafana and Alertmanager ([MONITORING.md](MONITORING.md)).
+
+1. **What Prometheus reads.** With `dev:api` and `dev:worker` running, open
+   http://localhost:9090 → **Status** → **Target health**: `api` and `worker`, each `UP`, last
+   read a few seconds ago. Stop `dev:worker`: within 15 s it turns `DOWN`. The worker's own
+   page, new in Phase 7: `curl -s localhost:4001/metrics | grep flushed`.
+2. **A counter becomes a rate.** In the **Query** tab, graph
+   `sum(rate(http_requests_total{job="api"}[1m]))` and reload the home page a few times in
+   another tab: the line rises, then falls back. The counter only ever grows; `rate()` turns it
+   into "per second", and survives a restart (the counter starting again from 0).
+3. **Rules waiting their turn.** The **Alerts** tab lists every rule. Stop `dev:worker` and
+   watch `TargetDown`: `PENDING` at once, `FIRING` after 2 minutes. Nothing is sent: there is no
+   Alertmanager in development.
+4. **The stack, through Grafana.** `npm run stack:up`, then https://localhost/grafana (user
+   `admin`, `GRAFANA_ADMIN_PASSWORD` from `deploy/.env`). Visit the site in another tab: in
+   "Visits received and saved per minute" both lines rise, "saved" a few seconds later. Then
+   `$C stop worker`: "received" keeps rising, "saved" stays flat, and the "Queues" panel shows
+   `telemetry_buffer` growing. `$C start worker`: it drains within seconds.
+5. **An alert that stays home.** Still on the stack, `$C stop api-1`; after about 2 minutes,
+   `$C exec alertmanager amtool alert query --alertmanager.url=http://localhost:9093` lists
+   `TargetDown`, and your Discord stays quiet (`NOTIFIER_DRIVER=log`). `$C start api-1`: gone
+   within seconds.
+6. **The backup's heartbeat.** `BACKUP_DIR=/tmp/drill-backups npm run stack:backup` (a scratch
+   folder, so your real backups are untouched), then the "Last backup" panel reads seconds
+   instead of "—".
 
 ## 8. Troubleshooting
 

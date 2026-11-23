@@ -354,8 +354,14 @@ asking each replica, with the custom code that fed them removed; Grafana at
       with the reason ("unreachable", "HTTP 503"). Drilled in development and on the desktop's
       stack: requests across both replicas added up by Prometheus, a stopped worker or api-1
       named within one scrape, a stopped Prometheus leaves the API's half in place
-- [ ] 7f Deploy: `deploy.sh` checks the new configuration first and reloads it after;
-      `GRAFANA_ADMIN_PASSWORD` in `deploy/.env`; guides; memory measured on the server
-- [ ] PR merged and deployed
+- [x] 7f Deploy: `deploy.sh` checks the settings first, pulls any missing pinned image (Grafana's
+      is 1.9 GB) before anything changes, validates the Caddyfile, Prometheus's and
+      Alertmanager's files, and after a good rollout reloads the monitoring and reports each
+      part (a problem there is a warning, never a rollback). Tried on the desktop's stack: a
+      deploy in 46 s; a broken Alertmanager file stopped the next one before any change. Guides:
+      [MONITORING.md](docs/MONITORING.md) (new), CD, START-HERE, PROJECT-GUIDE, DATA-TOOLS §7.8
+- [ ] PR merged and deployed ([MONITORING.md §5](docs/MONITORING.md#5-switching-it-on-the-phase-7-deploy-once)):
+      `GRAFANA_ADMIN_PASSWORD` in the server's `deploy/.env` first, one backup by hand, the
+      server's memory measured
 - [ ] Follow-up release (the contract step, DESIGN.md §15.6): the API drops the status report's
       per-replica numbers and its rolling latency window

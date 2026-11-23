@@ -1754,8 +1754,10 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
    deploy job  [environment: production → waits for your approval]
      copy deploy/ to ~/portfolio/deploy (rsync; deploy/.env, caddy/paused excluded), then over SSH
      deploy/deploy.sh <sha>:
-       0. pull + check    pull the images (the job's own token, not stored); `compose config`
-                          (a missing .env value) and `caddy validate`: nothing has changed yet
+       0. check + pull    `compose config` (a missing .env value); pull the images (the job's
+                          own token, not stored) and any missing pinned one (Postgres, Redis,
+                          Caddy, the monitoring); `caddy validate`, `promtool check config`,
+                          `amtool check-config` (Phase 7): nothing has changed yet
        1. migrate         node dist/cli/migrate.js   (backward compatible, §14.4)
        2. seed content    node dist/cli/seed-content.js (idempotent)
        3. roll out        worker → api-1 → api-2 → web, one at a time (§14.5)
@@ -1765,6 +1767,9 @@ merge to main ─► CI (ci.yml) ─► publish: both images to GHCR (tag = SHA)
                           through Caddy, §14.5)
        5. on failure      (3 or 4) roll out the previous release the same way, seed its
                           content again, smoke test, fail the job
+       6. monitoring      (on success, Phase 7) Prometheus and Alertmanager reload their
+                          files; each monitoring service and /grafana reported, never failing
+                          the job: the site is already serving, and its alerts take over
      then from GitHub's machine: GET https://<host>/api/v1/projects and / (DNS, firewalls;
      paused: / must answer 503, the back-soon page)
 ```
@@ -1841,7 +1846,9 @@ What the free tier implies:
   failed with "out of host capacity" (2026-11-20), and one core is enough: images are built by
   GitHub, not on the server, and a quiet portfolio needs little CPU. Measured on the server
   (`docker stats`, 2026-11-20, idle): about 600 MB for all seven containers (each API replica
-  and web ~170 MB, worker 45 MB, Postgres 30 MB, Caddy 15 MB, Redis 5 MB).
+  and web ~170 MB, worker 45 MB, Postgres 30 MB, Caddy 15 MB, Redis 5 MB). Phase 7's
+  monitoring adds about 320 MB (§15.7), which also lifts the memory reading Oracle's idle rule
+  looks at.
 - **Idle reclamation**: Oracle may reclaim an Always Free VM whose CPU (95th percentile),
   network and memory use all stay below 20 % for 7 days. A quiet portfolio has low CPU and
   network use (CPU ~5 %), so memory has to stay above the line. 6 GB was chosen for an
