@@ -120,7 +120,8 @@ a command, a routine or a guide section it points to changes.
    pause switch (done: live since 2026-11-20; weekly backups on since 2026-11-22, copied home
    by hand; Oracle's memory metric is watched, ROADMAP.md)
 7. `feat/prometheus-monitoring`: the worker's `/metrics`, Prometheus (30 days), Alertmanager →
-   Discord, Grafana at `/grafana`, `/admin` reads Prometheus (in progress, DESIGN.md §15)
+   Discord, Grafana at `/grafana`, `/admin` reads Prometheus (done: live since 2026-11-24,
+   DESIGN.md §15; the contract follow-up dropped the status report's per-replica numbers)
 
 One phase per branch → pull request → CI green → merge. Stop for review between phases.
 Each phase adds a "what to watch" section to `docs/DATA-TOOLS.md` (Postgres/Redis VS Code views).

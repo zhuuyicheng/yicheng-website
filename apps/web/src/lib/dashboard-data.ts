@@ -1,13 +1,14 @@
+import type { SystemStatus } from '@portfolio/shared';
 import { getSystemStatus } from './admin-api';
 import { ApiUnavailableError } from './api';
 import { prometheusUrl } from './config';
 import { createPrometheusClient } from './prometheus';
-import type { DashboardData, DashboardStatus } from './status';
+import type { DashboardData } from './status';
 import { readSystemMetrics, type SystemMetrics } from './system-metrics';
 
 /** Where the dashboard's two halves come from; tests pass their own. */
 export interface DashboardSources {
-  status: () => Promise<DashboardStatus>;
+  status: () => Promise<SystemStatus>;
   metrics: () => Promise<SystemMetrics>;
 }
 

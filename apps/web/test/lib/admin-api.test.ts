@@ -3,24 +3,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getSystemStatus } from '@/lib/admin-api';
 import { ApiUnavailableError } from '@/lib/api';
 
-/** What the API sends until the next release: the per-process numbers too (DESIGN.md §15.6). */
 const STATUS: SystemStatus = {
   generatedAt: '2026-11-24T12:00:00.000Z',
-  instance: 'api-1',
-  uptimeSeconds: 60,
   dependencies: { postgres: { status: 'up', latencyMs: 2 }, redis: { status: 'up', latencyMs: 1 } },
-  http: { windowSeconds: 300, requestCount: 4, latencyMs: { p50: 3, p95: 9 } },
-  cache: { hits: 1, misses: 1, hitRatio: 0.5 },
   analytics: { pageViewsLast24h: 2 },
   queues: null,
 };
 
-/** What the dashboard keeps: the rest come from Prometheus. */
-const SHARED = {
-  generatedAt: STATUS.generatedAt,
-  dependencies: STATUS.dependencies,
-  analytics: STATUS.analytics,
-  queues: STATUS.queues,
+/** What the release before sent: the per-process numbers too (DESIGN.md §15.6). */
+const PREVIOUS_RELEASE = {
+  ...STATUS,
+  instance: 'api-1',
+  uptimeSeconds: 60,
+  http: { windowSeconds: 300, requestCount: 4, latencyMs: { p50: 3, p95: 9 } },
+  cache: { hits: 1, misses: 1, hitRatio: 0.5 },
 };
 
 afterEach(() => {
@@ -47,18 +43,17 @@ describe('getSystemStatus', () => {
         signal: expect.any(AbortSignal) as unknown,
       }),
     );
-    // Dependencies, queues and page views; the per-process numbers are dropped.
-    expect(status).toEqual(SHARED);
+    expect(status).toEqual(STATUS);
   });
 
-  it('accepts a status without the per-process numbers, as the next release sends', async () => {
+  it("still reads the previous release's answer during a rolling deploy, minus its extras", async () => {
     vi.stubEnv('ADMIN_TOKEN', 'token');
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(Response.json({ data: SHARED }))),
+      vi.fn(() => Promise.resolve(Response.json({ data: PREVIOUS_RELEASE }))),
     );
 
-    expect(await getSystemStatus()).toEqual(SHARED);
+    expect(await getSystemStatus()).toEqual(STATUS);
   });
 
   it('throws when the API fails, so the dashboard can say why', async () => {

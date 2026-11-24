@@ -26,15 +26,15 @@ processing, observability, and disciplined testing.
 
 **Tech stack**
 
-| Concern       | Choice                                                                         |
-| ------------- | ------------------------------------------------------------------------------ |
-| Runtime       | Node.js 24 LTS, TypeScript 6 (strict), ESM                                     |
-| Monorepo      | npm workspaces (`packages/shared`, `apps/api`, `apps/web`)                     |
-| API           | Fastify 5, Zod 4 validation, Pino logging                                      |
-| Web           | Next.js 16 (App Router), React 19, Tailwind CSS 4                              |
-| Datastores    | PostgreSQL 16 (`pg`, plain SQL migrations), Redis 7 (`ioredis`)                |
-| Observability | `prom-client`, Prometheus + Alertmanager + Grafana (§15), JSON status endpoint |
-| Quality       | Vitest 5 (unit + real-datastore integration), ESLint 10, Prettier, GH Actions  |
+| Concern       | Choice                                                                          |
+| ------------- | ------------------------------------------------------------------------------- |
+| Runtime       | Node.js 24 LTS, TypeScript 6 (strict), ESM                                      |
+| Monorepo      | npm workspaces (`packages/shared`, `apps/api`, `apps/web`)                      |
+| API           | Fastify 5, Zod 4 validation, Pino logging                                       |
+| Web           | Next.js 16 (App Router), React 19, Tailwind CSS 4                               |
+| Datastores    | PostgreSQL 16 (`pg`, plain SQL migrations), Redis 7 (`ioredis`)                 |
+| Observability | `@prometheus-io/client`, Prometheus + Alertmanager + Grafana (§15), status JSON |
+| Quality       | Vitest 5 (unit + real-datastore integration), ESLint 10, Prettier, GH Actions   |
 
 ---
 
@@ -240,7 +240,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── request-id.ts         x-request-id accept/generate/echo
 │   │   │   │   ├── error-handler.ts      maps any error to the error view
 │   │   │   │   ├── rate-limit.ts         (P4) onRequest hook: X-RateLimit-* headers, 429
-│   │   │   │   ├── http-metrics.ts       (P5) onResponse hook: duration histogram, counter, rolling window
+│   │   │   │   ├── http-metrics.ts       (P5) onResponse hook: duration histogram, request counter
 │   │   │   │   ├── bearer-token.ts       (P5) onRequest hook for /metrics, (P6) owner routes: constant-time check
 │   │   │   │   └── security.ts           (P5) Helmet headers + CORS allow-list
 │   │   │   ├── errors/app-error.ts       AppError + ErrorCode catalog
@@ -260,8 +260,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │   │   │   │   ├── ip-databases.ts       (P3) opens the GeoIP files at API startup
 │   │   │   │   ├── transient-error.ts    (P3) outage vs bug: 503 in the API, retry vs DLQ in the worker
 │   │   │   │   ├── ip-hash.ts            (P4) HMAC-SHA256(IP_HASH_SECRET, ip)
-│   │   │   │   ├── rolling-latency.ts    (P5) ring buffer of the last 5 min of durations → p50/p95
-│   │   │   │   ├── metrics.ts            (P2) prom-client registry + metric definitions
+│   │   │   │   ├── metrics.ts            (P2) the registry + metric definitions (@prometheus-io/client)
 │   │   │   │   └── notifiers/            (P4) log + Discord senders, NotificationError (retryable?)
 │   │   │   └── lifecycle/
 │   │   │       └── graceful-shutdown.ts  signal handling, ordered close, forced exit
@@ -944,18 +943,10 @@ then `timingSafeEqual`), so response timing reveals nothing about it.
 {
   "data": {
     "generatedAt": "2026-11-17T12:00:00.000Z",
-    "instance": "api-1",
-    "uptimeSeconds": 86400,
     "dependencies": {
       "postgres": { "status": "up", "latencyMs": 2 },
       "redis": { "status": "up", "latencyMs": 1 }
     },
-    "http": {
-      "windowSeconds": 300,
-      "requestCount": 1520,
-      "latencyMs": { "p50": 3.1, "p95": 18.4 }
-    },
-    "cache": { "hits": 940, "misses": 31, "hitRatio": 0.968 },
     "analytics": { "pageViewsLast24h": 412 },
     "queues": {
       "telemetryBuffer": 3,
@@ -973,14 +964,10 @@ Always `200`, even with a datastore down: a source that cannot be read becomes `
 `observability_read_errors_total{source}`; `dependencies` says which one is down. Each read
 has a 2 s timeout. Concurrent requests during a refresh share it (single-flight).
 
-Rolling percentiles come from an in-process ring buffer (10 000 samples) of the last 5 minutes
-of request durations (Prometheus histograms are cumulative, not rolling). Requests to
-`/health`, `/health/live` (the load balancer's check), `/metrics` and the owner endpoints are
-left out of it (Prometheus still counts them), or a dashboard polling every few seconds would
-mostly measure itself. `cache` counts content-cache lookups since the process started. Values
-are per API instance; `instance` (the container hostname) says which one answered. Since
-Phase 7 the dashboard reads these per-process numbers from Prometheus instead (§15.5); they
-leave this report in the release after (§15.6).
+Everything in it comes from the datastores, so any replica answers the same. Numbers that
+belong to one process (requests, p50/p95, cache hits, uptime) are Prometheus's (§15.5): until
+the release after Phase 7 the report carried them too (`instance`, `uptimeSeconds`, `http`,
+`cache`), with p50/p95 from an in-process ring buffer of the last 5 minutes (§15.6).
 
 `/metrics` logs at `warn` only (Prometheus reads it every 15 s, §15.2). The worker serves the
 same endpoint, with the same token rule, on its own port (§15.2).
@@ -1259,7 +1246,7 @@ time series, so raw URLs (or a bot guessing random paths) would grow them withou
 `queue_depth{queue}` (`telemetry_buffer`, `telemetry_dlq`, `notifications_ready`,
 `notifications_delayed`, `notifications_dlq`) is refreshed from Redis (one pipeline of
 `LLEN`/`ZCARD`) each time `/metrics` is read. It is one gauge with a `queue` label rather than
-one gauge per queue because prom-client reports a label-less gauge as `0` even after a reset:
+one gauge per queue because the client library reports a label-less gauge as `0` even after a reset:
 when Redis is down, the samples are removed, so Prometheus shows a gap ("unknown") instead of
 a false "empty".
 
@@ -1562,9 +1549,8 @@ matters most for deploys: the old worker empties the buffer before the new one s
   job in `processing`, reconciler); backoff/jitter bounds; Discord notifier status
   classification, timeout and payload (mentions off, truncation); consumer and periodic loops
   with a fake `sleep`; shutdown steps receive the time left.
-- (P5) Rolling percentile tracker (nearest rank, window expiry, fixed capacity); system status
-  manager (5 s cache, single-flight, unreadable sources → `null` + metric, hit ratio, queue
-  gauges reset when Redis is down); CORS origin and metrics token config.
+- (P5) System status manager (5 s cache, single-flight, unreadable sources → `null` + metric,
+  queue gauges reset when Redis is down); CORS origin and metrics token config.
 - (P6) Visitor-insights manager (ranking, day filling); the content file's rules for project
   sections. (After launch) Queue-items manager: each queue's items in the DAL's order, dead
   letters with their reason and error, unreadable entries as clipped text (logged by
@@ -2000,14 +1986,14 @@ long-running service restarts `unless-stopped` and keeps at most 3 × 10 MB of l
 
 **Why replicas need no code changes.** A replica keeps nothing important in its own memory:
 
-| State                                     | Lives in                     | With two replicas                                                 |
-| ----------------------------------------- | ---------------------------- | ----------------------------------------------------------------- |
-| Cache entries                             | Redis                        | Shared; a hit on one replica is a hit on both                     |
-| Rate-limit windows (P4)                   | Redis, one atomic Lua script | Shared; two replicas cannot both admit the request over the limit |
-| Telemetry salt (P3)                       | Redis `SET NX`               | Whoever creates it first wins; both use the same salt             |
-| GeoIP data (P3)                           | Per process, read-only       | Same files in the same image, so both give the same answers       |
-| Single-flight (§8.1)                      | Per process                  | At most one Postgres query per key **per replica**: harmless      |
-| Metrics, rolling percentiles, status (P5) | Per process                  | Each replica reports its own numbers (see below)                  |
+| State                   | Lives in                     | With two replicas                                                 |
+| ----------------------- | ---------------------------- | ----------------------------------------------------------------- |
+| Cache entries           | Redis                        | Shared; a hit on one replica is a hit on both                     |
+| Rate-limit windows (P4) | Redis, one atomic Lua script | Shared; two replicas cannot both admit the request over the limit |
+| Telemetry salt (P3)     | Redis `SET NX`               | Whoever creates it first wins; both use the same salt             |
+| GeoIP data (P3)         | Per process, read-only       | Same files in the same image, so both give the same answers       |
+| Single-flight (§8.1)    | Per process                  | At most one Postgres query per key **per replica**: harmless      |
+| Metrics (P5)            | Per process                  | Prometheus reads each replica directly (see below)                |
 
 Per-process numbers: Prometheus scrapes each replica directly (`api-1:4000`, `api-2:4000`), never
 through Caddy, which would hand it a random replica each time (§15.2), and the dashboard reads
@@ -2175,8 +2161,8 @@ Development runs the same Prometheus image: `npm run monitoring:check` fails oth
   percentile inside the bucket it falls in, so with a first bucket of 5 ms every fast response
   read as "about 2.5 ms".
 
-Visitor traffic in PromQL leaves out the monitors, the routes the rolling window ignores
-(§7.7): `{job="api", route!~"/health|/health/live|/metrics|/api/v1/admin/.*"}`.
+Visitor traffic in PromQL leaves out the monitors (health checks, Prometheus's own reads, the
+owner routes): `{job="api", route!~"/health|/health/live|/metrics|/api/v1/admin/.*"}`.
 
 ### 15.3 Alerts
 
@@ -2305,18 +2291,20 @@ Prometheus already reads every replica and adds them up, so `/admin` stops doing
 
 - **In Phase 7** (the web server only, done in 7e): asking each replica (`API_REPLICA_URLS`,
   `getReplicaStatuses`, `combineReplicas`) and the chart history kept by the browser.
-- **In the next release** (the API's contract): the status report's per-process numbers
-  (`instance`, `uptimeSeconds`, `http`, `cache`) and the rolling latency window
-  (`infra/rolling-latency.ts`). Expand → contract, as for migrations (§14.4): in Phase 7 the web
-  reads the status with those fields omitted (`dashboardStatusSchema` in `lib/status.ts`), so it
-  neither needs nor uses them; the release after removes them from the shared schema and the
-  API. Removing them at once would break the old web server during the rolling update, which
-  replaces the API first.
+- **In the next release** (the API's contract, done 2026-11-24): the status report's per-process
+  numbers (`instance`, `uptimeSeconds`, `http`, `cache`) and the rolling latency window
+  (`infra/rolling-latency.ts`, with its unit tests). Expand → contract, as for migrations
+  (§14.4): in Phase 7 the web read the status with those fields omitted, so it neither needed
+  nor used them; the release after removed them from the shared schema and the API, and the web
+  now uses the shared schema as is. Removing them at once would have broken the old web server
+  during the rolling update, which replaces the API first. Still safe the other way round: a
+  Zod object ignores keys it doesn't name, so the new web reads the old API's answer.
 
 ### 15.7 Cost
 
-Measured on the desktop's stack (2026-11-24, a few minutes after start): Grafana 261 MB,
-Prometheus 33 MB (it grows with the 30 days kept), Alertmanager 12 MB, node-exporter 10 MB:
-about 320 MB more, the whole stack about 800 MB of the VM's 6 GB. Grafana's image takes
-1.9 GB of disk, Prometheus's data at most 2 GB. CPU: next to none (a few small pages every 15 s).
-The server's own numbers are taken in 7f.
+Measured on the server (2026-11-24, after the deploy): Grafana 561 MB, Prometheus 38 MB (it
+grows with the 30 days kept), Alertmanager 11 MB, node-exporter 8 MB: about 620 MB more, the
+whole stack about 1.22 GB, 21 % of the VM's 5.76 GB. Grafana took twice what it did on the
+desktop's stack (261 MB); if memory ever gets tight, `GOMEMLIMIT` (the Go runtime's soft limit)
+can hold it lower at the cost of more garbage collection. Grafana's image takes 1.9 GB of disk,
+Prometheus's data at most 2 GB. CPU: next to none (a few small pages every 15 s).

@@ -8,21 +8,9 @@ export function renderSystemStatus(status: SystemStatus): DataResponseBody<Syste
   return {
     data: {
       generatedAt: status.generatedAt,
-      instance: status.instance,
-      uptimeSeconds: status.uptimeSeconds,
       dependencies: Object.fromEntries(
         Object.entries(status.dependencies).map(([name, health]) => [name, toDependency(health)]),
       ),
-      http: {
-        windowSeconds: status.http.windowSeconds,
-        requestCount: status.http.requestCount,
-        latencyMs: { p50: status.http.latencyMs.p50, p95: status.http.latencyMs.p95 },
-      },
-      cache: {
-        hits: status.cache.hits,
-        misses: status.cache.misses,
-        hitRatio: status.cache.hitRatio,
-      },
       analytics: { pageViewsLast24h: status.analytics.pageViewsLast24h },
       queues: status.queues && {
         telemetryBuffer: status.queues.telemetryBuffer,

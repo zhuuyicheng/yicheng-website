@@ -1,14 +1,15 @@
 import {
   queueItemsSchema,
+  systemStatusSchema,
   visitorSummarySchema,
   type QueueItems,
   type QueueName,
+  type SystemStatus,
   type VisitorSummary,
 } from '@portfolio/shared';
 import { z } from 'zod';
 import { ApiUnavailableError } from './api';
 import { adminToken, serverApiBaseUrl } from './config';
-import { dashboardStatusSchema, type DashboardStatus } from './status';
 
 /** Owner API reads (DESIGN.md §7.8) with ADMIN_TOKEN. Server only: it never reaches a browser. */
 async function getOwnerData<T extends z.ZodType>(
@@ -49,8 +50,8 @@ const STATUS_TIMEOUT_MS = 3_000;
  * The API's status for the dashboard (DESIGN.md §15.5), through Caddy like every owner read: its
  * dependencies, queues and page views are the same whichever replica answers.
  */
-export function getSystemStatus(): Promise<DashboardStatus> {
-  return getOwnerData('/api/v1/admin/system-status', dashboardStatusSchema, {
+export function getSystemStatus(): Promise<SystemStatus> {
+  return getOwnerData('/api/v1/admin/system-status', systemStatusSchema, {
     signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
   });
 }

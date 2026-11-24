@@ -1,11 +1,11 @@
+import type { SystemStatus } from '@portfolio/shared';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { ApiUnavailableError } from '@/lib/api';
 import { describeProblem, readDashboardData } from '@/lib/dashboard-data';
-import type { DashboardStatus } from '@/lib/status';
 import type { SystemMetrics } from '@/lib/system-metrics';
 
-const STATUS: DashboardStatus = {
+const STATUS: SystemStatus = {
   generatedAt: '2026-11-24T12:00:00.000Z',
   dependencies: { postgres: { status: 'up', latencyMs: 2 }, redis: { status: 'up', latencyMs: 1 } },
   analytics: { pageViewsLast24h: 2 },

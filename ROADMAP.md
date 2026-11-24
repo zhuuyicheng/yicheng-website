@@ -11,7 +11,7 @@ into `main` before the next phase starts. Design details live in [DESIGN.md](DES
 | 4     | `feat/contact-rate-limiter`  | C      | ✅ Done                     |
 | 5     | `feat/metrics-and-dashboard` | D      | ✅ Done                     |
 | 6     | `feat/continuous-delivery`   | —      | ✅ Live (backups to set up) |
-| 7     | `feat/prometheus-monitoring` | D      | 🚧 In progress              |
+| 7     | `feat/prometheus-monitoring` | D      | ✅ Live                     |
 
 ---
 
@@ -360,8 +360,15 @@ asking each replica, with the custom code that fed them removed; Grafana at
       part (a problem there is a warning, never a rollback). Tried on the desktop's stack: a
       deploy in 46 s; a broken Alertmanager file stopped the next one before any change. Guides:
       [MONITORING.md](docs/MONITORING.md) (new), CD, START-HERE, PROJECT-GUIDE, DATA-TOOLS §7.8
-- [ ] PR merged and deployed ([MONITORING.md §5](docs/MONITORING.md#5-switching-it-on-the-phase-7-deploy-once)):
-      `GRAFANA_ADMIN_PASSWORD` in the server's `deploy/.env` first, one backup by hand, the
-      server's memory measured
-- [ ] Follow-up release (the contract step, DESIGN.md §15.6): the API drops the status report's
-      per-replica numbers and its rolling latency window
+- [x] PR merged and deployed (2026-11-24, [MONITORING.md §5](docs/MONITORING.md#5-switching-it-on-the-phase-7-deploy-once)).
+      Memory on the server (`docker stats`): about 1.22 GB for the whole stack, 21 % of the VM's
+      5.76 GB. The app's containers about 600 MB as before; the monitoring about 620 MB, of which
+      Grafana 561 MB (twice what it used on the desktop), Prometheus 38 MB, Alertmanager 11 MB,
+      node-exporter 8 MB
+- [ ] One backup by hand on the server, so `BackupStale` has its starting point
+- [x] Follow-up release (the contract step, DESIGN.md §15.6): the API drops the status report's
+      per-replica numbers (`instance`, `uptimeSeconds`, `http`, `cache`) and its rolling latency
+      window; the web uses the shared schema as is, and still reads an older API's answer
+- [x] `prom-client` → `@prometheus-io/client` 0.16 (the same library, renamed when it became a
+      Prometheus project; prom-client is deprecated). Its breaking changes (Node 22+, cluster
+      messages, subclassed metrics, exemplars) touch nothing here; `/metrics` reads the same
