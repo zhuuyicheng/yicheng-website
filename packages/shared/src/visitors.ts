@@ -59,7 +59,13 @@ export const visitorSummarySchema = z.object({
       lastSeenAt: z.string(),
     }),
   ),
+  /** The site's pages: `/` and each published project's. */
   pages: z.array(z.object({ path: z.string(), views: count, visits: count })),
+  /**
+   * Addresses that showed "Page not found" (a typo, an old or broken link). Empty from an API
+   * older than this field, so a web server deployed with it still reads that API's answer.
+   */
+  missingPages: z.array(z.object({ path: z.string(), views: count, visits: count })).default([]),
   devices: z.array(z.object({ deviceType: text, visits: count })),
   browsers: z.array(z.object({ browser: text, visits: count })),
   clicks: z.array(z.object({ name: z.string(), clicks: count })),

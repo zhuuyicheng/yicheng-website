@@ -48,6 +48,13 @@
     background-color: color-mix(in oklab, var(--color-brand) 25%, transparent);
   }
 
+  /* Tailwind 4 gives buttons the arrow cursor; anything clickable shows the hand. A disabled
+     one keeps its own (the contact form's wait cursor while sending). */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
   /* Sections reached through the sticky header's links should not hide under it. */
   section[id] {
     scroll-margin-top: 5rem;

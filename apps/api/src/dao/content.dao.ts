@@ -1,4 +1,11 @@
-import type { ProfileLink, ProjectSection } from '../schema/content.schema.js';
+import type { ProjectSection } from '../schema/content.schema.js';
+
+/** One entry of `profile.links` as the seed stored it; older seeds have no `text`. */
+export interface StoredLink {
+  label: string;
+  url: string;
+  text?: string;
+}
 
 /**
  * Content tables (migrations 0001, 0002, 0006, 0008), column for column. DATE columns are
@@ -13,7 +20,7 @@ export interface ProfileRow {
   summary: string;
   location: string | null;
   /** JSONB, parsed by pg. */
-  links: ProfileLink[];
+  links: StoredLink[];
   updated_at: Date;
   /** When any content last changed: the home page's "Last updated". */
   content_updated_at: Date;

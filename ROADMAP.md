@@ -374,3 +374,20 @@ asking each replica, with the custom code that fed them removed; Grafana at
 - [x] `prom-client` → `@prometheus-io/client` 0.16 (the same library, renamed when it became a
       Prometheus project; prom-client is deprecated). Its breaking changes (Node 22+, cluster
       messages, subclassed metrics, exemplars) touch nothing here; `/metrics` reads the same
+
+### Owner feedback after Phase 7 (2026-11-24)
+
+- [x] Mistyped addresses (`/amdin`) no longer crowd `/admin`'s "Pages": the site's pages (`/`
+      and published projects) are listed as before, the rest folded under "Pages that don't
+      exist" (still recorded: a repeated one can be a broken link you shared). Tests: the
+      manager asks for both lists; the summary splits them against published projects
+- [x] "1 visits" → "1 visit" (and "1 clicks", "1 hits", "1 misses"): `countOf` in
+      `lib/format.ts`, with a test
+- [x] Buttons show the hand cursor (the photo arrows and dots, the menu, the send button…):
+      Tailwind 4 gives buttons the arrow; one base rule in `globals.css`
+- [x] The contact form says "Character limit reached." at 5000 characters (the box already
+      stopped there, silently); tested in `contact.test.ts`
+- [x] The About sidebar's LinkedIn link reads "View my LinkedIn profile" (logo before it, link to
+      the same profile): a link's optional `"text"` in `portfolio.json`, else its address. No
+      migration (the links are JSONB); tests for the content file, the API through Postgres and
+      the web's `linkText`

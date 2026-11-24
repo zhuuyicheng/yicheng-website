@@ -50,6 +50,11 @@ describe('content API with live Postgres and Redis', () => {
 
     const profile = first.json<DataResponseBody<Profile>>().data;
     expect(profile.fullName).toBe('Ada Lovelace');
+    // A link's own text, or null (the page then shows the address).
+    expect(profile.links).toEqual([
+      { label: 'GitHub', url: 'https://github.com/example', text: 'See my code' },
+      { label: 'Website', url: 'https://example.com', text: null },
+    ]);
     expect(profile.experiences.map((experience) => experience.company)).toEqual([
       'Analytical Engine Ltd',
       'Difference Engine Co',

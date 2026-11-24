@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { share } from '@/lib/visitors';
 
 export interface RankedRow {
@@ -14,6 +15,8 @@ export function RankedList(props: {
   description?: string;
   rows: readonly RankedRow[];
   empty: string;
+  /** Shown below the rows, e.g. what was left out of them. */
+  children?: ReactNode;
 }) {
   const max = Math.max(0, ...props.rows.map((row) => row.value));
   return (
@@ -45,6 +48,7 @@ export function RankedList(props: {
           ))}
         </ol>
       )}
+      {props.children}
     </section>
   );
 }

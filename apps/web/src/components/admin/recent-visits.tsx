@@ -1,4 +1,5 @@
 import type { Visit } from '@portfolio/shared';
+import { countOf } from '@/lib/format';
 import {
   campaignLabel,
   deviceLabel,
@@ -54,7 +55,9 @@ export function RecentVisits({ visits, now }: { visits: readonly Visit[]; now: n
                 <td className="px-4 py-3 text-muted">{deviceLabel(visit)}</td>
                 <td className="px-4 py-3 text-muted">
                   <span className="text-ink tabular-nums">{visit.pageViews}</span>
-                  {visit.clicks > 0 && <span className="text-muted"> · {visit.clicks} clicks</span>}
+                  {visit.clicks > 0 && (
+                    <span className="text-muted"> · {countOf(visit.clicks, 'click')}</span>
+                  )}
                   <span className="mt-0.5 block text-xs break-all text-muted">
                     {pagesLabel(visit.paths)}
                   </span>

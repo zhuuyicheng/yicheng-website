@@ -13,7 +13,7 @@ import { SectionHeading } from '@/components/section-heading';
 import { TrackedLink } from '@/components/tracked-link';
 import { PHOTOS } from '@/content/photos';
 import { getProfile, getProjects } from '@/lib/api';
-import { paragraphs } from '@/lib/format';
+import { linkText, paragraphs } from '@/lib/format';
 import { trackName } from '@/lib/telemetry';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -71,9 +71,9 @@ export default async function HomePage() {
                     <TrackedLink
                       href={link.url}
                       track={trackName(link.label)}
-                      className="break-all text-ink underline-offset-4 hover:text-brand hover:underline"
+                      className="text-ink underline-offset-4 wrap-anywhere hover:text-brand hover:underline"
                     >
-                      {link.url.replace(/^https?:\/\/(www\.)?/, '')}
+                      {linkText(link)}
                     </TrackedLink>
                   </dd>
                 </div>

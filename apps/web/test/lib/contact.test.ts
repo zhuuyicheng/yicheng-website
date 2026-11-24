@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   formatWait,
   interpretContactResponse,
+  messageCounter,
   rateLimitedMessage,
   sendContact,
   sentMessage,
@@ -127,5 +128,13 @@ describe('what the form says about the spam limit', () => {
     expect(rateLimitedMessage(30, null)).toBe(
       'Too many messages for now. Please try again in 30 seconds.',
     );
+  });
+});
+
+describe('messageCounter', () => {
+  it('counts towards 5000, and says when the box takes no more', () => {
+    expect(messageCounter(0)).toEqual({ text: '0/5000', atLimit: false });
+    expect(messageCounter(4999)).toEqual({ text: '4999/5000', atLimit: false });
+    expect(messageCounter(5000)).toEqual({ text: '5000/5000', atLimit: true });
   });
 });

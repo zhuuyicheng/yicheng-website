@@ -11,6 +11,7 @@ import {
   type DashboardData,
   type Health,
 } from '@/lib/status';
+import { countOf } from '@/lib/format';
 import { CHART_STEP_SECONDS, CHART_WINDOW_MS, type SystemMetrics } from '@/lib/system-metrics';
 import { CacheCard } from './admin/cache-card';
 import { QueueCard } from './admin/queue-card';
@@ -136,7 +137,7 @@ export function StatusDashboard() {
           {...(metrics === null
             ? {}
             : {
-                note: `${String(Math.round(metrics.cacheHits))} hits · ${String(Math.round(metrics.cacheMisses))} misses`,
+                note: `${countOf(Math.round(metrics.cacheHits), 'hit')} · ${countOf(Math.round(metrics.cacheMisses), 'miss', 'misses')}`,
               })}
           description="Share of content reads in the last 24 hours answered from Redis without asking the database. Explained below."
         />
