@@ -391,3 +391,31 @@ asking each replica, with the custom code that fed them removed; Grafana at
       the same profile): a link's optional `"text"` in `portfolio.json`, else its address. No
       migration (the links are JSONB); tests for the content file, the API through Postgres and
       the web's `linkText`
+
+## Possible future features
+
+Ideas talked through but not scheduled. Nothing here is built.
+
+- [ ] "Hide my visits from the dashboard" (talked through 2026-11-24). Today's "Don't count my
+      visits" only stops a browser sending from now on; this would also hide what a browser
+      sent _before_, and on every browser's `/admin`, not just its own. The catch: no column
+      ties a stored visit to one browser (`session_id` is per tab and forgotten when it closes,
+      `visitor_hash` is salted daily on purpose, an IP is shared by every browser on the same
+      network). Plan if picked up:
+  - the page-view beacon also keeps the tab ids it creates in that browser's `localStorage`
+    (the newest ~500); visitors send exactly what they send today, the list never leaves the
+    browser by itself
+  - `/admin` hands that list to an owner-only endpoint, which stores the ids in a new
+    `hidden_sessions` table (expand-only migration); the shared `COUNTED` condition in
+    `visitor-insights.dal.ts` skips them, so every number and list follows. Hidden, not
+    deleted: turning it off brings them back. Being in Postgres is what makes it work across
+    browsers
+  - rejected: a permanent id per browser sent with every event (would link every stranger's
+    visits across weeks, which the daily-salted hash exists to prevent), and hiding by IP
+    (hides everyone on that network, misses other networks)
+  - limits: only visits after it ships (older tab ids are gone); private windows and clearing
+    browser data lose the list
+  - to decide: a toggle per browser (plus a "Hidden: Firefox on Windows, 12 visits" line to undo
+    one from another browser) or one server-side switch that hides every browser that has
+    opened `/admin`; and whether to add a "Hide" button per row of the newest-visits table for
+    visits already recorded
