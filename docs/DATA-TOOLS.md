@@ -394,16 +394,16 @@ With `npm run dev:api` running:
 
 2. **A histogram is a row of counters.**
    `curl -s localhost:4000/metrics | grep 'duration_seconds_bucket.*route="/api/v1/projects"'`
-   prints one line per bucket: `le="0.005"` counts requests that took at most 5 ms, `le="0.01"`
-   at most 10 ms, up to `le="+Inf"` (all of them). Each bucket includes the smaller ones, which
+   prints one line per bucket: `le="0.001"` counts requests that took at most 1 ms,
+   `le="0.0025"` at most 2.5 ms, and so on up to `le="+Inf"` (all of them). Each bucket includes the smaller ones, which
    is how Prometheus estimates a p95 later (`histogram_quantile`). The first request, a cache
    miss that went to Postgres, may land in a slower bucket than the cache hits after it.
 
 3. **Templates, not URLs.** `curl -s localhost:4000/api/v1/projects/nope` and
    `curl -s localhost:4000/wp-login.php`, then `grep http_requests_total` again: you get
    `route="/api/v1/projects/:slug"` and `route="unmatched"`, never `nope` or `wp-login.php`.
-   Every distinct label value is a separate series that Prometheus stores forever, so a bot
-   trying a million URLs must not create a million series.
+   Every distinct label value is a separate series that Prometheus must store (for 30 days
+   here), so a bot trying a million URLs must not create a million series.
 
 4. **A gauge is a current value.** `curl -s localhost:4000/metrics | grep queue_depth` lists
    five queues. Stop the worker, send an event (§7.1 step 2) and re-run:

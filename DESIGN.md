@@ -60,13 +60,14 @@ diagrams: [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md).
 
 ### 2.1 Process model
 
-| Process    | Entrypoint                         | Responsibilities                                                                          |
-| ---------- | ---------------------------------- | ----------------------------------------------------------------------------------------- |
-| API        | `apps/api/src/main.ts`             | HTTP routes, cache-aside, ingestion enqueue, contact + rate limit, `/metrics`             |
-| Worker     | `apps/api/src/worker.ts` (Phase 3) | Telemetry batch flusher; (P4) notification consumer, delayed-job promoter, reconciler     |
-| Web        | `apps/web` (Phase 5)               | Renders pages from the API per request; serves the browser code (beacon, form, dashboard) |
-| Migrations | `apps/api/src/cli/migrate.ts`      | Applies SQL migrations; run as a deploy step, **never** on API boot                       |
-| Other CLIs | `apps/api/src/cli/*.ts`            | `content:seed` (P2), `dlq:replay` and `geoip:download` (P3): one-off commands, then exit  |
+| Process    | Entrypoint                          | Responsibilities                                                                                                        |
+| ---------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| API        | `apps/api/src/main.ts`              | HTTP routes, cache-aside, ingestion enqueue, contact + rate limit, `/metrics`                                           |
+| Worker     | `apps/api/src/worker.ts` (Phase 3)  | Telemetry batch flusher; (P4) notification consumer, delayed-job promoter, reconciler; (P7) `GET /metrics` on port 4001 |
+| Monitoring | `deploy/compose.prod.yml` (Phase 7) | Prometheus, Alertmanager, node-exporter, Grafana: off-the-shelf images, configured from `deploy/` (§15)                 |
+| Web        | `apps/web` (Phase 5)                | Renders pages from the API per request; serves the browser code (beacon, form, dashboard)                               |
+| Migrations | `apps/api/src/cli/migrate.ts`       | Applies SQL migrations; run as a deploy step, **never** on API boot                                                     |
+| Other CLIs | `apps/api/src/cli/*.ts`             | `content:seed` (P2), `dlq:replay` and `geoip:download` (P3): one-off commands, then exit                                |
 
 The API and worker share one codebase but run as separate processes, so a slow webhook or
 flush never competes with request latency.
@@ -290,7 +291,8 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │       │                                 (beacon), contact, status, carousel, scroll-spy,
 │       │                                 section-scroll, project-page, format, config,
 │       │                                 (P6) admin-auth, admin-api, visitors, owner-fetch,
-│       │                                 queue-items
+│       │                                 queue-items, (P7) prometheus, system-metrics,
+│       │                                 dashboard-data
 │       └── test/lib/                     unit tests mirroring src/lib
 └── packages/
     └── shared/                           (P5) the API contract: Zod schemas for every public
@@ -349,6 +351,8 @@ built, so changing one means rebuilding.
 
 Docker Compose additionally reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
 `POSTGRES_PORT`, `REDIS_PORT`, `PROMETHEUS_PORT` (all with local-dev defaults).
+The production stack's `deploy/.env` adds `SITE_HOST`, `GRAFANA_ADMIN_PASSWORD` (Phase 7) and
+the release the deploy writes (`API_IMAGE`, `WEB_IMAGE`): §14.4, docs/CD.md §2.2.
 
 ---
 
@@ -1550,7 +1554,9 @@ matters most for deploys: the old worker empties the buffer before the new one s
   classification, timeout and payload (mentions off, truncation); consumer and periodic loops
   with a fake `sleep`; shutdown steps receive the time left.
 - (P5) System status manager (5 s cache, single-flight, unreadable sources → `null` + metric,
-  queue gauges reset when Redis is down); CORS origin and metrics token config.
+  queue gauges reset when Redis is down); CORS origin and metrics token config. (P7) The
+  worker's `/metrics` app (its counters in Prometheus's format, the token, no log line per
+  scrape); `WORKER_METRICS_PORT`.
 - (P6) Visitor-insights manager (ranking, day filling); the content file's rules for project
   sections. (After launch) Queue-items manager: each queue's items in the DAL's order, dead
   letters with their reason and error, unreadable entries as clipped text (logged by
@@ -1586,10 +1592,17 @@ compose, run serially):
   reconciler; promoter; `dlq:replay -- notifications`; **real worker process** sends a queued
   notification and stops on `SIGTERM` without waiting out `BLMOVE`.
 - (P5) The system status endpoint (`/api/v1/admin/system-status` since P6) with live
-  datastores (traffic excluding monitors, page views, queues, 5 s cache) and with Redis down;
+  datastores (page views, queues, 5 s cache; since the contract release no per-process
+  numbers) and with Redis down;
   `/metrics` (route templates, `unmatched`, queue gauges, histogram buckets); bearer token
   401/200; Helmet headers; CORS preflight (not rate-limited), exposed rate-limit headers,
   other origins refused.
+- (P7) The real worker process serves `/metrics` (on any free port, read from its log), with
+  the counters only it updates.
+- (P7) `npm run monitoring:check`: both Prometheus configs and both Alertmanager files through
+  the images' own `promtool` and `amtool`, every alert rule against made-up samples
+  (`alerts.test.yml`; each test checked by breaking its rule on purpose), and the dashboard's
+  JSON and data sources.
 - (P6) Owner endpoints: 401 without the token, 200 with it, 404 when `ADMIN_TOKEN` is unset,
   answers match the contract; the visitor summary's aggregation (bots, `/admin` and older
   events left out); `/health/live`; a project's detail with and without sections. (After
@@ -1641,6 +1654,13 @@ Other measures:
   routes from outside the server (§7.8, §8.7, §14.5).
 - Datastore ports: in development Docker publishes them on `127.0.0.1` only (Redis has no
   password locally); in production they publish none (§14.5).
+- (P7) Monitoring: `/metrics` needs `METRICS_TOKEN`, which reaches Prometheus as a Compose
+  secret file. Prometheus, Alertmanager and node-exporter publish no port; node-exporter runs
+  as `nobody` with `/` read-only. Grafana's login page is public: one admin account, a 5-try
+  lockout per account (none per IP, since every visitor arrives from Caddy's address), no
+  sign-up or guests, secure cookies, no calls to grafana.com. Grafana reads only Prometheus,
+  whose labels hold route templates, never paths or IP addresses: no visitor detail is
+  reachable from it (§15.4).
 - Logs redact `authorization` and `cookie` headers.
 - Error responses never leak internal messages or stack traces.
 - (P5) `@fastify/helmet` security headers on every response, and an explicit CORS allow-list

@@ -235,8 +235,9 @@ Both jobs are required checks for `main` ([CI.md §4](CI.md#4-protecting-main)).
 3. Empty makes browsers call `/api/...` on the page's own address, so one image works under
    any hostname. `NEXT_PUBLIC_*` values are written into the JavaScript files during
    `next build`; by the time the container runs, they are fixed text in those files.
-4. The worker and the CLIs use the same image and serve no HTTP, so an image-wide check would
-   mark them unhealthy. The API service gets its check in compose (6b).
+4. The worker (which serves only `/metrics`, since Phase 7) and the CLIs use the same image
+   and answer no `/health`, so an image-wide check would mark them unhealthy. The API service
+   gets its check in compose (6b).
 5. `/health` answers 503 when Postgres or Redis is down, on every replica at once. Caddy would
    remove them all and the site would be fully down, although content could still be served.
    `/health/live` only says "this process can answer" (DESIGN.md §14.5, tested in

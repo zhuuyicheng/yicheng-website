@@ -57,7 +57,8 @@ section before changing behaviour, and update it in the same change when a desig
   shapes (buffered events, jobs, the content file) to themselves.
 - **Composition root**: `src/main.ts` (API) and `src/worker.ts` (worker) build infra clients;
   `src/app.ts` wires DAL → managers → controllers, `worker.ts` wires DAL → managers → worker
-  loops. No module-level singletons.
+  loops, and `src/worker-app.ts` the worker's one HTTP route (`GET /metrics`). No module-level
+  singletons.
 - **Errors**: throw `AppError` (`src/errors/app-error.ts`) for expected failures. The error
   handler renders `{ error: { code, message, requestId } }` via `views/error.view.ts`.
 - **Success responses** are `{ data: ... }` (except `/health` and `/metrics`).

@@ -11,16 +11,17 @@ from the **repository root** unless stated otherwise.
 nvm use                      # switch to Node 24 (reads .nvmrc); Vitest 5 needs Node ≥ 22.12
 npm install                  # install all workspaces
 cp .env.example .env         # only if you don't have a .env yet
-npm run infra:up             # start Postgres + Redis in Docker and wait until healthy
+npm run infra:up             # start Postgres, Redis and Prometheus in Docker, wait until healthy
 ```
 
 Check the containers are healthy:
 
 ```bash
 docker compose ps
-# NAME                   STATUS
-# portfolio-postgres-1   Up 2 minutes (healthy)
-# portfolio-redis-1      Up 2 minutes (healthy)
+# NAME                     STATUS
+# portfolio-postgres-1     Up 2 minutes (healthy)
+# portfolio-prometheus-1   Up 2 minutes (healthy)
+# portfolio-redis-1        Up 2 minutes (healthy)
 ```
 
 > `nvm use` only affects the current terminal. Run it in every new terminal, or make Node 24
@@ -57,14 +58,21 @@ Three techniques worth knowing when you read the tests:
 - **Real processes.** Some integration tests start an entrypoint exactly as `npm run` would
   (`node --import tsx src/…`) and talk to it the way the outside world does: HTTP, signals
   (`SIGTERM`), exit codes and its JSON log lines. `api-process.test.ts` and
-  `worker-process.test.ts` cover graceful shutdown; `seed-content.test.ts` and
-  `replay-dlq.test.ts` cover the CLIs.
+  `worker-process.test.ts` cover graceful shutdown (and the worker's `/metrics`);
+  `seed-content.test.ts` and `replay-dlq.test.ts` cover the CLIs.
 - **Injected time.** Code that waits (the worker's flush loop) or reads the clock (the daily
   salt) takes `sleep` / `now` as optional dependencies. Unit tests pass fakes, so "back off for
   30 seconds" is checked instantly: see `test/unit/workers/telemetry-flusher.worker.test.ts`.
 - **Fixture files.** `test/fixtures/geoip/` holds MaxMind's tiny public test databases, so the
   IP lookup is tested with real `.mmdb` files without downloading the production ones. The IP
   addresses they know are listed in `test/helpers/geoip-fixtures.ts`.
+
+**The monitoring has tests too** (Phase 7), run by `npm run monitoring:check` (Docker needed,
+not Postgres): Prometheus's own `promtool` checks both its configuration files and runs every
+alert rule against made-up samples in `deploy/prometheus/alerts.test.yml` ("down for 90 s: no
+alert; for 3 min: `TargetDown`, with this text"); `amtool` checks Alertmanager's files; and the
+Grafana dashboard's JSON is parsed. Each rule's test was checked by breaking the rule on purpose
+and watching it fail. `npm run check` and CI run it.
 
 ---
 
@@ -94,17 +102,17 @@ A passing run ends like this:
  ✓  unit  test/unit/config/env.test.ts (17 tests) 20ms
  ✓  integration  test/integration/health.test.ts (9 tests) 122ms
  ...
- Test Files  45 passed (45)
-      Tests  305 passed (305)
+ Test Files  49 passed (49)
+      Tests  323 passed (323)
  ...
  ✓ test/lib/contact.test.ts (11 tests) 36ms
- Test Files  10 passed (10)
-      Tests  74 passed (74)
+ Test Files  16 passed (16)
+      Tests  108 passed (108)
 ```
 
 The first block is the API: the coloured `unit` or `integration` label says which Vitest
 project a file belongs to (configured in `apps/api/vitest.config.ts`). The second block is the
-website. (Counts as of 2026-11-20; they grow with every feature.)
+website. (Counts as of 2026-11-24; they grow with every feature.)
 
 A failing test prints the test name, the assertion that failed, and the expected vs received
 values with the exact file and line:
