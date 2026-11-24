@@ -1,7 +1,5 @@
 # System Design Specification: Personal Portfolio & Live Telemetry Platform
 
-Progress and per-phase checklists live in [ROADMAP.md](ROADMAP.md).
-
 ---
 
 ## 1. Overview & Goals
@@ -55,8 +53,7 @@ flowchart LR
 ```
 
 That is production (§14.5). In development there is no Caddy: the site runs on `:3000`, the
-API on `:4000`, and the browser calls the API directly. A walkthrough of every flow, with
-diagrams: [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md).
+API on `:4000`, and the browser calls the API directly.
 
 ### 2.1 Process model
 
@@ -128,8 +125,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 ├── .prettierrc.json / .prettierignore
 ├── CLAUDE.md                             contributor / agent guide
 ├── DESIGN.md                             this document
-├── ROADMAP.md                            phases, branches, progress checklists
-├── docs/                                 the guides (PROJECT-GUIDE.md first; README.md lists them all)
+├── docs/                                 the guides (README.md lists them all)
 │   └── sql/                              read-only queries for the VS Code PostgreSQL extension
 │                                         (content.sql, (P3) telemetry.sql, (P4) contact.sql)
 ├── deploy/                               (P6) the production stack (docs/PRODUCTION-STACK.md):
@@ -280,6 +276,7 @@ Items marked `(P2)`…`(P6)` arrive in that phase; everything else exists after 
 │       │   │   ├── page.tsx              home: hero, about, experience, projects, outside work, contact
 │       │   │   ├── [slug]/               one project, at /<slug> (old /projects/* links redirect)
 │       │   │   ├── admin/                (P6) owner dashboard + its status and queue routes (password)
+│       │   │   ├── privacy/              the privacy notice (§12)
 │       │   │   ├── error.tsx             "This page couldn't load" + Try again
 │       │   │   ├── not-found.tsx
 │       │   │   ├── icon.svg, apple-icon.png   browser-tab and home-screen icons
@@ -541,7 +538,7 @@ value from the user-agent parser must not make inserts fail.
 
 ### 5.3c `0007_analytics_ip_address.sql` (Phase 6)
 
-The visitor's IP address, kept with each event at the owner's request (§12). Expand-only.
+The visitor's IP address, kept with each event so `/admin` can show it (§12). Expand-only.
 
 ```sql
 ALTER TABLE analytics_events ADD COLUMN ip_address INET;
@@ -1283,7 +1280,8 @@ renders `error.tsx` with a retry button. Projects live at `/<slug>` (`app/[slug]
 routes such as `/admin` take precedence, the content file refuses slugs that would collide
 with them (`admin`, `projects`, `privacy`), a path that cannot be a slug is a 404 without
 asking the API, and `next.config.ts` redirects the old `/projects` and `/projects/<slug>`
-addresses permanently (and the removed `/privacy` to the home page). There is no separate
+addresses permanently. `/privacy` is the privacy notice (§12), a static page linked from the
+footer and the contact form. There is no separate
 projects list: the home page's Projects section is the list. Links to the home page (the
 header's name and section links, the footer, "Back to projects", the 404 page) and to a
 project (the cards, "Next project") do not prefetch (`prefetch={false}`): for a page rendered
@@ -1406,8 +1404,7 @@ viewer's clock, a 2 px line that breaks where data is missing, crosshair and too
 touch. Below: dependencies, the content cache card and queue lengths (a non-empty dead-letter
 queue is flagged "needs attention"), and a line listing every process Prometheus reads, each
 marked answering or not. Until Phase 7 the route asked each replica at its own address and the
-page added their numbers up, and the charts only covered the time the page had been open
-(ROADMAP.md, "two chart fixes").
+page added their numbers up, and the charts only covered the time the page had been open.
 Nothing on the public site links to it.
 
 ### 8.7 The owner area (`/admin`, Phase 6)
@@ -1649,20 +1646,28 @@ event stores what the visitor's link, browser and IP address reveal (§8.2): cam
 (`ref`, `utm_*`), browser, OS, device type, language, time zone, and the country, city and
 organisation of the IP address. Full user-agent strings are neither stored nor logged, only
 what is derived from them, plus a daily-salted visitor hash (unlinkable across days) for
-counting unique visitors. **IP addresses are stored since Phase 6** (`ip_address`, §5.3c): the
-owner chose to see them on `/admin`, reversing the Phase 3 choice not to. They are personal
-data under the GDPR. **Retention: kept indefinitely, with no notice to visitors** (the owner's
-decision, 2026-11-19; nothing deletes them). They are never written to logs, and they are in
-the database backups. Referrers keep their host, which is nearly all browsers send (§8.2).
-Contact-form emails are not linked to browsing sessions (on hold).
+counting unique visitors. **IP addresses are stored since Phase 6** (`ip_address`, §5.3c), so
+`/admin` can show them, reversing the Phase 3 choice not to. They are personal data under the
+GDPR. **Retention: kept indefinitely** (decided 2026-11-19; nothing deletes them), and the
+privacy notice says so. They are never written to logs, and they are in the database backups.
+Referrers keep their host, which is nearly all browsers send (§8.2). Contact-form emails are
+not linked to browsing sessions (on hold).
+
+**The privacy notice** (`/privacy`, `app/privacy/page.tsx`; removed in P6, back since
+2026-11-25) tells visitors all of the above in plain words: what each page view and click
+records, that the IP address is stored and kept until removed, what the contact form stores and
+that messages pass through Discord, who can see it (the owner, on `/admin`) and that backups
+hold it, and how to ask for a copy or deletion (the contact form). Every page's footer and the
+contact form link to it. It is a static page, so it never depends on the API. It changes in the
+same change as anything that alters what is collected. No redirect may name it: `next.config.ts`
+redirects run before pages, so one would hide it (`test/next-config.test.ts`).
 
 Consequences:
 
 - Derived details such as organisation and city still count as personal data under the GDPR
-  (for EU/UK visitors) and similar laws. A privacy notice (`/privacy`) existed from P5 until
-  the owner removed it in P6; GDPR expects visitors to be told what is collected, so bring one
-  back before targeting EU/UK audiences. The DB-IP attribution (CC BY 4.0) is shown wherever
-  the data is displayed: on `/admin` only, since nothing about visitors is public.
+  (for EU/UK visitors) and similar laws; the notice tells visitors what is collected. The
+  DB-IP attribution (CC BY 4.0) is shown wherever the data is: on `/admin` and in the notice's
+  credits.
 - Visitor details are for the site owner only: on the password-protected `/admin` page (§8.7)
   or with SQL (`docs/sql/telemetry.sql`). Nothing about visitors, and since Phase 6 nothing
   about the system's health or queues, is shown publicly.
@@ -1707,8 +1712,6 @@ Other measures:
 | 5     | `feat/metrics-and-dashboard` | Module D: `/metrics`, system status API, Next.js portfolio + live dashboard                                                                                             |
 | 6     | `feat/continuous-delivery`   | Docker images, GHCR, deploy with approval gate, two API replicas behind Caddy, rolling update, smoke test, rollback, backups, pause switch (§14); the owner area (§8.7) |
 | 7     | `feat/prometheus-monitoring` | Prometheus (30 days), Alertmanager → Discord, Grafana at `/grafana`, the worker's `/metrics`; `/admin` reads Prometheus (§15)                                           |
-
-Detailed checklists and current status: [ROADMAP.md](ROADMAP.md).
 
 ---
 
@@ -1864,7 +1867,7 @@ monitoring of §15. It is an ordinary
 Linux server, so it mirrors local development, keeps Redis configuration under our control (§14.4),
 and costs nothing. The deploy job connects over SSH (key stored as an Environment secret),
 copies `deploy/` and runs `deploy/deploy.sh`, which pulls the new tag and does the rolling
-update below (§14.3). Setup steps: [docs/HOSTING.md](docs/HOSTING.md).
+update below (§14.3).
 
 What the free tier implies:
 
@@ -1880,19 +1883,19 @@ What the free tier implies:
   network and memory use all stay below 20 % for 7 days. A quiet portfolio has low CPU and
   network use (CPU ~5 %), so memory has to stay above the line. 6 GB was chosen for an
   estimated 2 GB; the stack measured ~0.6 GB, and Oracle's Memory utilization metric reads
-  ~22 % for the whole VM (2026-11-20): above the line by a small margin. Open (ROADMAP.md):
+  ~22 % for the whole VM (2026-11-20): above the line by a small margin. Open:
   watch the 7-day metric; if it falls under 20 %, resize to 3 GB (~1.3 GB in use is over 40 %).
 - **The VM is replaceable.** Images live in GHCR, configuration in Git, secrets in a password
   manager (the deploy key in GitHub), and Caddy re-issues certificates by itself; the database
   is the only data that exists solely on the VM, and it is to be backed up off the host weekly
-  (§14.6; not switched on yet). Losing the VM costs a rebuild from docs/HOSTING.md plus
+  (§14.6; not switched on yet). Losing the VM costs a rebuild of the server plus
   pointing the hostname at the new IP.
 
 **Hostname: one free hostname, no purchased domain.** `<name>.duckdns.org` (DuckDNS, ready in
 minutes) serves the site (live since 2026-11-20). `<name>.is-a.dev` is to replace it: it was waiting
-for a live site, because is-a.dev only approves finished ones. Its terms also forbid AI-written
-requests, so the owner writes that pull request. Both are plain A records pointing at the VM's
-public IP, so Caddy gets Let's Encrypt certificates the usual way (HTTP-01 challenge on port 80).
+for a live site, because is-a.dev only approves finished ones. Both are plain A
+records pointing at the VM's public IP, so Caddy gets Let's Encrypt certificates the usual way
+(HTTP-01 challenge on port 80).
 The hostname is not in Git: it is `SITE_HOST` in the host's env file and a GitHub Environment
 variable, so switching hostnames is a configuration change, not a rebuild.
 

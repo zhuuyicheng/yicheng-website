@@ -249,8 +249,8 @@ Drilled on the desktop's stack (2026-11-22): back up (2 visits, 1 message), add 
 message, delete the first message by mistake, restore (2 and 1), copy: 5 visits and both
 messages, the deleted one included; a second copy changed nothing.
 
-**From your desktop to a new server** (the VM was lost): rebuild it with
-[HOSTING.md](HOSTING.md) and deploy, then send the newest copy up and restore it:
+**From your desktop to a new server** (the VM was lost): rebuild it and deploy,
+then send the newest copy up and restore it:
 
 ```bash
 scp ~/portfolio-backups/portfolio-<date>.dump{,.sha256} portfolio:

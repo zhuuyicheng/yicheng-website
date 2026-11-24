@@ -8,12 +8,12 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   // From the repository root, so @portfolio/shared (outside apps/web) is included.
   outputFileTracingRoot: path.join(import.meta.dirname, '../..'),
-  // Old /projects/<slug> links keep working; the removed privacy page goes home.
+  // Old /projects/<slug> links keep working. Redirects run before pages, so none may name a
+  // page that exists (test/next-config.test.ts).
   redirects: () =>
     Promise.resolve([
       { source: '/projects', destination: '/#projects', permanent: true },
       { source: '/projects/:slug', destination: '/:slug', permanent: true },
-      { source: '/privacy', destination: '/', permanent: true },
     ]),
 };
 

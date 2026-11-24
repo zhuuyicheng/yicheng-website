@@ -2,6 +2,7 @@
 
 import { CONTACT_LIMITS } from '@portfolio/shared';
 import { Send } from 'lucide-react';
+import Link from 'next/link';
 import { useState, type ReactNode, type SubmitEvent } from 'react';
 import { PUBLIC_API_BASE_URL } from '@/lib/config';
 import {
@@ -124,7 +125,13 @@ export function ContactForm() {
         </Field>
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted">Your message comes straight to me.</p>
+          <p className="text-xs text-muted">
+            Your message comes straight to me. See the{' '}
+            <Link href="/privacy" prefetch className="underline underline-offset-2 hover:text-body">
+              privacy notice
+            </Link>
+            .
+          </p>
           <button
             type="submit"
             disabled={status.kind === 'sending'}
