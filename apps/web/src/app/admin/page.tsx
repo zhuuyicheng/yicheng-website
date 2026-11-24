@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { DailyVisitorsChart } from '@/components/admin/daily-visitors-chart';
 import { Explainer } from '@/components/admin/explainer';
+import { MissingPages } from '@/components/admin/missing-pages';
 import { OwnerBrowserToggle } from '@/components/admin/owner-browser-toggle';
 import { PeriodPicker } from '@/components/admin/period-picker';
 import { RankedList } from '@/components/admin/ranked-list';
@@ -12,6 +13,7 @@ import { StatusDashboard } from '@/components/status-dashboard';
 import { checkOwner } from '@/lib/admin-auth';
 import { getVisitorSummary } from '@/lib/admin-api';
 import { adminToken } from '@/lib/config';
+import { countOf } from '@/lib/format';
 import {
   campaignLabel,
   capitalise,
@@ -174,15 +176,17 @@ export default async function AdminPage(props: AdminPageProps) {
         <div className="grid gap-4 md:grid-cols-2">
           <RankedList
             title="Pages (views)"
-            description="How many times each page was opened; underneath, how many different visits opened it."
+            description="How many times each of the site's pages was opened; underneath, how many different visits opened it. Addresses that don't exist are counted apart, below."
             empty="No page views yet."
             rows={summary.pages.map((row) => ({
               key: row.path,
               label: row.path,
-              detail: `${String(row.visits)} visits`,
+              detail: countOf(row.visits, 'visit'),
               value: row.views,
             }))}
-          />
+          >
+            <MissingPages pages={summary.missingPages} />
+          </RankedList>
           <RankedList
             title="Link clicks"
             description="Which links to other sites were clicked, and how many times."

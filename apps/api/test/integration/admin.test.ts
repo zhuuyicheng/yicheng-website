@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildApp } from '../../src/app.js';
 import { createAnalyticsEventDal } from '../../src/dal/analytics-event.dal.js';
 import { createContactMessageDal } from '../../src/dal/contact-message.dal.js';
+import { createContentDal } from '../../src/dal/content.dal.js';
 import { createEventBufferDal, TELEMETRY_BUFFER_KEYS } from '../../src/dal/event-buffer.dal.js';
 import {
   createNotificationQueueDal,
@@ -20,6 +21,7 @@ import {
 } from '../../src/schema/analytics-event.schema.js';
 import type { ErrorResponseBody } from '../../src/views/error.view.js';
 import { notificationJobJson } from '../helpers/contact-messages.js';
+import { SAMPLE_CONTENT } from '../helpers/sample-content.js';
 import { bufferedEventJson } from '../helpers/telemetry-events.js';
 import { createTestDependencies, type TestDependencies } from '../helpers/test-dependencies.js';
 
@@ -104,6 +106,8 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
   });
 
   it('summarises visits: referrer and tagged link from the first page; bots, /admin and older events left out', async () => {
+    // Published projects decide which addresses are the site's pages (`/note-g` is one).
+    await createContentDal(deps.postgres).replaceAll(SAMPLE_CONTENT);
     const acme = {
       sessionId: 'visit-from-acme-0001',
       visitorHash: 'a'.repeat(64),
@@ -120,9 +124,17 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
         campaign: { ref: 'acme', utmSource: null, utmMedium: null, utmCampaign: null },
         receivedAt: minutesAgo(30),
       }),
-      event({ ...acme, path: '/projects/bowling-buddy', receivedAt: minutesAgo(29) }),
+      event({ ...acme, path: '/note-g', receivedAt: minutesAgo(29) }),
       event({ ...acme, type: 'interaction', name: 'click:linkedin', receivedAt: minutesAgo(28) }),
-      // A direct visit on a phone.
+      // A direct visit on a phone, which mistyped an address first.
+      event({
+        sessionId: 'direct-on-phone-0002',
+        visitorHash: 'b'.repeat(64),
+        path: '/amdin',
+        network: { countryCode: 'US', city: null, organization: 'Google LLC' },
+        device: { browser: 'Safari', os: 'iOS', type: 'mobile', language: null, timezone: null },
+        receivedAt: minutesAgo(11),
+      }),
       event({
         sessionId: 'direct-on-phone-0002',
         visitorHash: 'b'.repeat(64),
@@ -142,9 +154,9 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
 
     const summary = await getSummary(7);
 
-    expect(summary.totals).toEqual({ pageViews: 3, visits: 2, clicks: 1 });
+    expect(summary.totals).toEqual({ pageViews: 4, visits: 2, clicks: 1 });
     expect(summary.daily).toHaveLength(7);
-    expect(summary.daily.reduce((total, day) => total + day.pageViews, 0)).toBe(3);
+    expect(summary.daily.reduce((total, day) => total + day.pageViews, 0)).toBe(4);
     expect(summary.referrers).toEqual(
       expect.arrayContaining([
         { referrer: 'www.linkedin.com', visits: 1 },
@@ -158,10 +170,12 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
       'Acme Pte Ltd',
       'Google LLC',
     ]);
+    // The site's pages, and apart from them the address that doesn't exist.
     expect(summary.pages).toEqual([
       { path: '/', views: 2, visits: 2 },
-      { path: '/projects/bowling-buddy', views: 1, visits: 1 },
+      { path: '/note-g', views: 1, visits: 1 },
     ]);
+    expect(summary.missingPages).toEqual([{ path: '/amdin', views: 1, visits: 1 }]);
     expect(summary.clicks).toEqual([{ name: 'click:linkedin', clicks: 1 }]);
 
     // Newest first: the phone visit, then the tagged one.
@@ -169,7 +183,7 @@ describe('owner endpoints (/api/v1/admin/*) with live Postgres and Redis', () =>
     expect(summary.recentVisits[1]).toMatchObject({
       pageViews: 2,
       clicks: 1,
-      paths: ['/', '/projects/bowling-buddy'],
+      paths: ['/', '/note-g'],
       referrer: 'www.linkedin.com',
       ref: 'acme',
       organization: 'Acme Pte Ltd',

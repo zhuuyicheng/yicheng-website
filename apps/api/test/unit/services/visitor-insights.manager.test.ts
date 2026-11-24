@@ -43,6 +43,27 @@ function fakeDal(visits: Visit[], calls: { since?: Date } = {}): VisitorInsights
 }
 
 describe('visitor insights manager', () => {
+  it("lists the site's pages and the addresses that don't exist apart", async () => {
+    const asked: boolean[] = [];
+    const manager = createVisitorInsightsManager({
+      insightsDal: {
+        ...fakeDal([]),
+        topPages: (_since, _limit, existing) => {
+          asked.push(existing);
+          const path = existing ? '/' : '/amdin';
+          return Promise.resolve([{ path, views: 2, visits: 2 }]);
+        },
+      },
+      now: () => NOW,
+    });
+
+    const summary = await manager.getSummary(7, log);
+
+    expect(asked.sort()).toEqual([false, true]);
+    expect(summary.pages).toEqual([{ path: '/', views: 2, visits: 2 }]);
+    expect(summary.missingPages).toEqual([{ path: '/amdin', views: 2, visits: 2 }]);
+  });
+
   it('counts whole UTC days back from today, with zero for days without visits', async () => {
     const calls: { since?: Date } = {};
     const manager = createVisitorInsightsManager({

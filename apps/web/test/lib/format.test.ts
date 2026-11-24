@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  countOf,
+  linkText,
   formatDay,
   formatDuration,
   formatMonth,
@@ -48,5 +50,23 @@ describe('paragraphs', () => {
 
   it('returns nothing for blank text', () => {
     expect(paragraphs('  \n\n ')).toEqual([]);
+  });
+});
+
+describe('countOf', () => {
+  it('says "1 visit", never "1 visits"', () => {
+    expect(countOf(1, 'visit')).toBe('1 visit');
+    expect(countOf(0, 'visit')).toBe('0 visits');
+    expect(countOf(15, 'visit')).toBe('15 visits');
+    expect(countOf(1, 'miss', 'misses')).toBe('1 miss');
+    expect(countOf(2, 'miss', 'misses')).toBe('2 misses');
+  });
+});
+
+describe('linkText', () => {
+  it("shows a link's own text, else its address without https://www.", () => {
+    const url = 'https://www.linkedin.com/in/someone01';
+    expect(linkText({ url, text: 'View my LinkedIn profile' })).toBe('View my LinkedIn profile');
+    expect(linkText({ url, text: null })).toBe('linkedin.com/in/someone01');
   });
 });

@@ -34,6 +34,7 @@ function createFakeDal(): ContentDal & { content: PortfolioContent | null } {
 function toProfile(content: PortfolioContent): Profile {
   return {
     ...content.profile,
+    links: content.profile.links.map((link) => ({ ...link, text: link.text ?? null })),
     experiences: content.experiences.map((experience, index) => ({
       ...experience,
       id: `experience-${String(index)}`,

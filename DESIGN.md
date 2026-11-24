@@ -832,7 +832,7 @@ Failure reasons are **logged** (with `requestId`), never returned; they can cont
     "headline": "Backend Engineer",
     "summary": "…",
     "location": "…",
-    "links": [{ "label": "GitHub", "url": "https://github.com/…" }],
+    "links": [{ "label": "GitHub", "url": "https://github.com/…", "text": null }],
     "experiences": [
       {
         "id": "uuid",
@@ -857,6 +857,11 @@ Failure reasons are **logged** (with `requestId`), never returned; they can cont
   }
 }
 ```
+
+A link's `text` is what the About sidebar shows instead of the address (`null`: the address
+without `https://www.`). It is optional in `portfolio.json` and stored in the same JSONB column,
+so it needed no migration; the shared schema defaults it to `null`, so a web server deployed
+with it still reads an older API's answer, and profiles seeded before it read as `null`.
 
 `contentUpdatedAt` (since migration 0008): when the seed last changed any content, projects
 included (§5.2d). The home page's "Last updated" date.
@@ -998,6 +1003,7 @@ constant-time check as `/metrics`) and answers `Cache-Control: no-store`. Withou
 | `campaigns[]`                    | `{ ref, utmSource, utmMedium, utmCampaign, visits }` for tagged visits               |
 | `locations[]`, `organizations[]` | `{ countryCode, city, visits }`; `{ organization, countryCode, visits, lastSeenAt }` |
 | `pages[]`, `clicks[]`            | `{ path, views, visits }`; `{ name, clicks }`                                        |
+| `missingPages[]`                 | `{ path, views, visits }` for addresses that showed "Page not found" (below)         |
 | `devices[]`, `browsers[]`        | `{ deviceType, visits }`; `{ browser, visits }`                                      |
 | `recentVisits[]`                 | the 50 newest visits, each with every field above and its `ipAddress`                |
 | `truncated`                      | `true` if the period had more than 20,000 visits (the newest are used)               |
@@ -1312,7 +1318,10 @@ from the `X-RateLimit-*` headers ("… the form accepts 3 messages per person ev
 so you can send 2 more in that time"), `400` puts the API's field details under each field,
 `429` gives the rule and the wait from `Retry-After` (rounded up), and `503` and network
 failures each have their own message. The wording lives in `lib/contact.ts`
-(`sentMessage`, `rateLimitedMessage`).
+(`sentMessage`, `rateLimitedMessage`). The message box takes at most 5000 characters
+(`maxLength`); typing past that does nothing, so at the limit the counter turns amber and
+"Character limit reached." appears under the box in a live region, read out once by screen
+readers (`messageCounter`).
 
 **Look.** Warm and personal rather than technical: a light "paper" background, white cards,
 warm grey text, and a terracotta accent taken from the photos, with a soft green for
@@ -1429,6 +1438,17 @@ links, organisations (with when each was last seen), places, devices, browsers, 
 clicks; a table of the 50 newest visits (when, came from, where and which network, device,
 pages in order); then the system dashboard.
 
+**Pages that don't exist** (2026-11-24). The page-view beacon runs in the root layout, so it
+also reports the "Page not found" page: a typed `/amdin` reached the "Pages" list. They are
+still recorded (a repeated one can be a broken link the owner shared), but the summary splits
+them: `pages` holds the site's pages, `/` and `/<slug>` of each project published now (one SQL
+condition against `projects`, so a removed project's old address counts as missing), and
+`missingPages` the rest, each list its own top 10. `/admin` folds the second into a closed
+`<details>` under "Pages" ("Pages that don't exist: 1 address"), which opens without
+JavaScript. `missingPages` defaults to `[]` in the shared schema, so a web server deployed with
+it still reads an older API's answer during the rolling update. Counts are worded with
+`countOf` (`lib/format.ts`): "1 visit", never "1 visits".
+
 **Every number says what it means.** The page is read rarely, so its terms must not need
 remembering. Each total and status tile has a one-line plain-English description; each ranked
 list says what it measures, and section notes say the lists count visits. A closed
@@ -1460,7 +1480,8 @@ leaves `/admin` paths out of every summary.
 **Devices.** Mobile-first Tailwind: one column on phones, the header's links collapse into a
 menu below `md`, project cards go 1 → 2 → 3 columns (`sm`, `lg`), the timeline puts dates
 beside entries from `md`, and a project page's contents list appears from `lg`. Tap targets
-are at least 24 px; the main buttons are 44 px tall.
+are at least 24 px; the main buttons are 44 px tall. Every enabled button shows the hand cursor
+(one base rule in `globals.css`: Tailwind 4 gives buttons the arrow).
 
 ---
 

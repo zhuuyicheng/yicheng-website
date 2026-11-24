@@ -119,7 +119,7 @@ function toProfile(
     headline: row.headline,
     summary: row.summary,
     location: row.location,
-    links: row.links,
+    links: row.links.map((link) => ({ label: link.label, url: link.url, text: link.text ?? null })),
     experiences: experiences.map(toExperience),
     education: education.map(toEducation),
     contentUpdatedAt: row.content_updated_at.toISOString(),

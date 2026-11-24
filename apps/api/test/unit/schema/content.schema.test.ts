@@ -104,6 +104,22 @@ describe('portfolioContentSchema (content/portfolio.json)', () => {
     expect(content.education[0]).toMatchObject({ endDate: null, highlights: [] });
   });
 
+  it('takes an optional text for a link, never an empty one', () => {
+    const withText = (text: string) =>
+      portfolioContentSchema.parse({
+        ...MINIMAL_CONTENT,
+        profile: {
+          ...MINIMAL_CONTENT.profile,
+          links: [{ label: 'LinkedIn', url: 'https://www.linkedin.com/in/x', text }],
+        },
+      });
+
+    expect(withText(' View my LinkedIn profile ')).toMatchObject({
+      profile: { links: [{ text: 'View my LinkedIn profile' }] },
+    });
+    expect(() => withText('  ')).toThrow();
+  });
+
   it('rejects non-http links and malformed slugs', () => {
     const result = problems({
       ...MINIMAL_CONTENT,

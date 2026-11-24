@@ -17,7 +17,7 @@ export function renderProfile(profile: Profile): DataResponseBody<Profile> {
       headline: profile.headline,
       summary: profile.summary,
       location: profile.location,
-      links: profile.links.map((link) => ({ label: link.label, url: link.url })),
+      links: profile.links.map((link) => ({ label: link.label, url: link.url, text: link.text })),
       experiences: profile.experiences.map(toExperience),
       education: profile.education.map(toEducation),
       contentUpdatedAt: profile.contentUpdatedAt,

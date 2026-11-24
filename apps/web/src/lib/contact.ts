@@ -1,4 +1,5 @@
 import {
+  CONTACT_LIMITS,
   contactAcceptedSchema,
   contactRequestSchema,
   errorResponseSchema,
@@ -151,4 +152,13 @@ function numberHeader(headers: Pick<Headers, 'get'>, name: string): number | nul
   const value = headers.get(name);
   const parsed = value === null ? Number.NaN : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * The message box's counter. The box takes no more than the limit (`maxLength`), so typing past
+ * it does nothing: `atLimit` says so out loud instead of silently.
+ */
+export function messageCounter(length: number): { text: string; atLimit: boolean } {
+  const max = CONTACT_LIMITS.message;
+  return { text: `${String(length)}/${String(max)}`, atLimit: length >= max };
 }

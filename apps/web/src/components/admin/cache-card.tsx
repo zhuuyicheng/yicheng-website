@@ -1,3 +1,4 @@
+import { countOf } from '@/lib/format';
 import { formatRatio } from '@/lib/status';
 
 /** Content cache lookups in the last 24 hours, both replicas (Prometheus, DESIGN.md §15.5). */
@@ -17,7 +18,7 @@ export function CacheCard({ cache }: { cache: CacheNumbers }) {
         <p className="font-mono text-sm text-ink tabular-nums">
           {formatRatio(cache.hitRatio)}
           <span className="ml-2 text-xs text-muted">
-            {cache.hits} hits · {cache.misses} misses
+            {countOf(cache.hits, 'hit')} · {countOf(cache.misses, 'miss', 'misses')}
           </span>
         </p>
       </div>

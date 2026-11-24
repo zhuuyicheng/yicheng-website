@@ -33,10 +33,11 @@ export function createVisitorInsightsManager(
       const generatedAt = now();
       const since = new Date(startOfUtcDay(generatedAt).getTime() - (days - 1) * DAY_MS);
 
-      const [visits, daily, pages, clicks] = await Promise.all([
+      const [visits, daily, pages, missingPages, clicks] = await Promise.all([
         insightsDal.listVisits(since, maxVisits),
         insightsDal.dailyCounts(since),
-        insightsDal.topPages(since, TOP),
+        insightsDal.topPages(since, TOP, true),
+        insightsDal.topPages(since, TOP, false),
         insightsDal.topClicks(since, TOP),
       ]);
       const truncated = visits.length >= maxVisits;
@@ -65,6 +66,7 @@ export function createVisitorInsightsManager(
         locations: rank(visits, (visit) => ({ countryCode: visit.countryCode, city: visit.city })),
         organizations: rankOrganizations(visits),
         pages,
+        missingPages,
         devices: rank(visits, (visit) => ({ deviceType: visit.deviceType })),
         browsers: rank(visits, (visit) => ({ browser: visit.browser })),
         clicks,

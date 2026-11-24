@@ -32,7 +32,8 @@ const text = (max: number) => z.string().trim().min(1).max(max);
 const webUrl = z.url({ protocol: /^https?$/ });
 const isoDate = z.iso.date(); // YYYY-MM-DD
 
-const contentLinkSchema = z.object({ label: text(50), url: webUrl });
+/** `text`: what the page shows instead of the address (e.g. "View my LinkedIn profile"). */
+const contentLinkSchema = z.object({ label: text(50), url: webUrl, text: text(80).optional() });
 
 /** For anything with a date range (mirrors the SQL `*_dates_ordered` CHECKs). */
 const datesInOrder = {

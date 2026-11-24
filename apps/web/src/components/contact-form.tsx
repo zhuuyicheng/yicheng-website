@@ -5,6 +5,7 @@ import { Send } from 'lucide-react';
 import { useState, type ReactNode, type SubmitEvent } from 'react';
 import { PUBLIC_API_BASE_URL } from '@/lib/config';
 import {
+  messageCounter,
   rateLimitedMessage,
   sendContact,
   sentMessage,
@@ -28,6 +29,7 @@ export function ContactForm() {
   const [values, setValues] = useState<Record<ContactField, string>>(EMPTY);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const messageCount = messageCounter(values.message.length);
 
   const update = (field: ContactField, value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
@@ -102,7 +104,9 @@ export function ContactForm() {
         <Field
           label="message"
           error={errors.message}
-          aside={`${String(values.message.length)}/${String(CONTACT_LIMITS.message)}`}
+          aside={messageCount.text}
+          asideWarn={messageCount.atLimit}
+          status={messageCount.atLimit ? 'Character limit reached.' : ''}
         >
           <textarea
             id="contact-message"
@@ -173,11 +177,20 @@ function Field({
   label,
   error,
   aside,
+  asideWarn = false,
+  status,
   children,
 }: {
   label: ContactField;
   error: string | undefined;
   aside?: string;
+  /** The aside in amber, e.g. a counter at its limit. */
+  asideWarn?: boolean;
+  /**
+   * A note under the box, read out by screen readers when it changes (an empty string keeps the
+   * live region in place, so the first note is announced too).
+   */
+  status?: string;
   children: ReactNode;
 }) {
   return (
@@ -186,9 +199,18 @@ function Field({
         <label htmlFor={`contact-${label}`} className="text-body">
           {LABELS[label]}
         </label>
-        {aside !== undefined && <span className="text-xs text-faint tabular-nums">{aside}</span>}
+        {aside !== undefined && (
+          <span className={`text-xs tabular-nums ${asideWarn ? 'text-amber-700' : 'text-faint'}`}>
+            {aside}
+          </span>
+        )}
       </div>
       {children}
+      {status !== undefined && (
+        <p role="status" className="text-xs text-amber-700 empty:hidden">
+          {status}
+        </p>
+      )}
       {error !== undefined && (
         <p id={`contact-${label}-error`} className="mt-1.5 text-xs text-rose-700">
           {LABELS[label]} {error}

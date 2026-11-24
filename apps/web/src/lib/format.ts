@@ -54,3 +54,13 @@ export function paragraphs(text: string): string[] {
     .map((paragraph) => paragraph.trim())
     .filter((paragraph) => paragraph.length > 0);
 }
+
+/** `1, 'visit'` → `1 visit`, `3, 'visit'` → `3 visits`; pass the plural when an "s" won't do. */
+export function countOf(count: number, singular: string, plural = `${singular}s`): string {
+  return `${String(count)} ${count === 1 ? singular : plural}`;
+}
+
+/** A profile link as the page shows it: its own text, else the address without `https://www.`. */
+export function linkText(link: { url: string; text: string | null }): string {
+  return link.text ?? link.url.replace(/^https?:\/\/(www\.)?/, '');
+}

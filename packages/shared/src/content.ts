@@ -11,7 +11,15 @@ export const projectSlugSchema = z
   .max(100)
   .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'must be lowercase letters/digits separated by hyphens');
 
-export const linkSchema = z.object({ label: z.string(), url: z.string() });
+/**
+ * `text`: what the page shows instead of the address; `null` shows the address. Defaults to
+ * `null`, so a web server deployed with this field still reads an older API's answer.
+ */
+export const linkSchema = z.object({
+  label: z.string(),
+  url: z.string(),
+  text: z.string().nullable().default(null),
+});
 
 export const experienceSchema = z.object({
   id: z.string(),

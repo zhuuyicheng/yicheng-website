@@ -10,8 +10,11 @@ export interface VisitorInsightsDal {
   listVisits: (since: Date, limit: number) => Promise<Visit[]>;
   /** Page views and unique visitors per UTC day; days without events are missing. */
   dailyCounts: (since: Date) => Promise<DailyCount[]>;
-  /** Most viewed pages, with how many visits viewed each. */
-  topPages: (since: Date, limit: number) => Promise<PageCount[]>;
+  /**
+   * Most viewed pages, with how many visits viewed each: the site's pages (`/` and each
+   * published project's), or with `existing: false` the addresses that showed "Page not found".
+   */
+  topPages: (since: Date, limit: number, existing: boolean) => Promise<PageCount[]>;
   /** Most clicked tracked links (`interaction` events), by name. */
   topClicks: (since: Date, limit: number) => Promise<ClickCount[]>;
 }
@@ -112,15 +115,18 @@ export function createVisitorInsightsDal(pool: PostgresPool): VisitorInsightsDal
       }));
     },
 
-    async topPages(since, limit) {
+    async topPages(since, limit, existing) {
+      // The site's pages are `/` and `/<slug>` of each project now published, so a removed
+      // project's old address counts as missing.
       const result = await pool.query<{ path: string; views: number; visits: number }>(
         `SELECT path, count(*)::int AS views, count(DISTINCT session_id)::int AS visits
            FROM analytics_events
           WHERE ${COUNTED} AND event_type = 'page_view'
+            AND (path = '/' OR path IN (SELECT '/' || slug FROM projects)) = $3
           GROUP BY path
           ORDER BY views DESC, path
           LIMIT $2`,
-        [since, limit],
+        [since, limit, existing],
       );
       return result.rows;
     },

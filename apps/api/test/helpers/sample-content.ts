@@ -7,7 +7,10 @@ export const SAMPLE_CONTENT: PortfolioContent = {
     headline: 'Analytical Engine Programmer',
     summary: 'Writes the first algorithms.',
     location: 'London',
-    links: [{ label: 'GitHub', url: 'https://github.com/example' }],
+    links: [
+      { label: 'GitHub', url: 'https://github.com/example', text: 'See my code' },
+      { label: 'Website', url: 'https://example.com' },
+    ],
   },
   experiences: [
     {

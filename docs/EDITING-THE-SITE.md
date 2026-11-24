@@ -30,20 +30,20 @@ Have the site running while you edit (three terminals): `npm run infra:up` once,
 
 **Which field appears where**
 
-| Field                            | On the site                                                                                                                 |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `profile.fullName`               | The big name in the hero, and the home page's browser-tab title                                                             |
-| `profile.headline`               | The line under your name, and the browser-tab title                                                                         |
-| `profile.summary`                | The About section. A blank line (`\n\n`) starts a new paragraph. Its first 160 characters are the search-engine description |
-| `profile.location`               | About sidebar; `null` hides it                                                                                              |
-| `profile.links`                  | Buttons in the hero and links in the About sidebar, in file order                                                           |
-| `experiences`, `education`       | The Experience & education timeline, in file order. `"endDate": null` shows "present"                                       |
-| `projects[].title`, `.summary`   | The project cards                                                                                                           |
-| `projects[].description`         | The overview at the top of the project's own page, `/<slug>`. A blank line (`\n\n`) starts a new paragraph                  |
-| `projects[].sections`            | The rest of the project's page, in file order: see below                                                                    |
-| `projects[].techStack`           | Tags on the card and the project's page, and the technology filter above the cards                                          |
-| `projects[].featured`            | `true` lists the project first, with a "Featured" badge; the others follow in file order                                    |
-| `projects[].repoUrl`, `.liveUrl` | Buttons on the project's page (never on the card); `null` hides them                                                        |
+| Field                            | On the site                                                                                                                                                                                          |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `profile.fullName`               | The big name in the hero, and the home page's browser-tab title                                                                                                                                      |
+| `profile.headline`               | The line under your name, and the browser-tab title                                                                                                                                                  |
+| `profile.summary`                | The About section. A blank line (`\n\n`) starts a new paragraph. Its first 160 characters are the search-engine description                                                                          |
+| `profile.location`               | About sidebar; `null` hides it                                                                                                                                                                       |
+| `profile.links`                  | Buttons in the hero and links in the About sidebar, in file order. The sidebar shows the address, or `"text"` if a link has one (`"text": "View my LinkedIn profile"`); the link still goes to `url` |
+| `experiences`, `education`       | The Experience & education timeline, in file order. `"endDate": null` shows "present"                                                                                                                |
+| `projects[].title`, `.summary`   | The project cards                                                                                                                                                                                    |
+| `projects[].description`         | The overview at the top of the project's own page, `/<slug>`. A blank line (`\n\n`) starts a new paragraph                                                                                           |
+| `projects[].sections`            | The rest of the project's page, in file order: see below                                                                                                                                             |
+| `projects[].techStack`           | Tags on the card and the project's page, and the technology filter above the cards                                                                                                                   |
+| `projects[].featured`            | `true` lists the project first, with a "Featured" badge; the others follow in file order                                                                                                             |
+| `projects[].repoUrl`, `.liveUrl` | Buttons on the project's page (never on the card); `null` hides them                                                                                                                                 |
 
 **Project sections** give a project page its structure. Each one becomes a heading (also
 listed under "On this page" on wide screens), then its `body` as paragraphs, then its `points`
