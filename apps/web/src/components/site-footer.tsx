@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { SectionLink } from './section-link';
 
 const LINKS = [
@@ -6,7 +7,7 @@ const LINKS = [
   { id: 'contact', label: 'Contact' },
 ] as const;
 
-/** Links back to the home page's sections. */
+/** Links back to the home page's sections, and the privacy notice. */
 export function SiteFooter() {
   return (
     <footer className="border-t border-line">
@@ -22,6 +23,12 @@ export function SiteFooter() {
               </SectionLink>
             </li>
           ))}
+          <li>
+            {/* A static page whose title needs no API request, so prefetching it is free. */}
+            <Link href="/privacy" prefetch className="hover:text-body">
+              Privacy
+            </Link>
+          </li>
         </ul>
       </nav>
     </footer>

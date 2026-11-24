@@ -38,7 +38,8 @@ command (`backup.sh`, `restore.sh`, `docker compose … up`) uses the same image
 ## 2. One-time setup (about 20 minutes)
 
 Done on 2026-11-20. Repeat it only for a new server or a new repository. You need the server
-from [HOSTING.md](HOSTING.md) (Steps 1–9).
+running first: an Arm VM with Docker, reachable over SSH
+([DESIGN.md §14.5](../DESIGN.md#145-hosting-oracle-cloud-free-tier-one-hostname)).
 
 ### 2.1 A key for GitHub (laptop)
 
@@ -243,7 +244,7 @@ grep _IMAGE ~/portfolio/deploy/.env    # the release the server considers curren
 | `deploy/prometheus/ is invalid` (or `alertmanager/`)                                | The line above names the mistake; `npm run monitoring:check` finds it on your computer                                |
 | `WARNING: …` under `monitoring:`                                                    | The release is live; only the monitoring needs a look ([MONITORING.md §6](MONITORING.md#6-when-something-goes-wrong)) |
 | `ROLLBACK FAILED`                                                                   | Both releases fail: `$C ps`, `$C logs` (§6); likely the database or disk                                              |
-| "Check from the internet" fails                                                     | The server works but isn't reachable: DNS or Oracle's firewall ([HOSTING.md](HOSTING.md))                             |
+| "Check from the internet" fails                                                     | The server works but isn't reachable: DNS or Oracle's firewall                                                        |
 | The site shows "Back soon"                                                          | It is paused: `ssh portfolio 'rm ~/portfolio/deploy/caddy/paused'` (§5)                                               |
 
 **A new deploy key**: make one (§2.1), set the secret again (§2.3 step 3), then delete the old

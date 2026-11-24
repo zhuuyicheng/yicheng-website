@@ -7,24 +7,15 @@ approval, with automatic rollback. Prometheus watches it (unit-tested alert rule
 Discord) and Grafana shows 30 days of history. Live since 2026-11-20; monitored since
 2026-11-24.
 
-**Coming back, or wondering how to do something? [docs/START-HERE.md](docs/START-HERE.md)**:
-from "I want to…" to the command and the guide.
-**How it all works: [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md)**, the whole project on one
-page (architecture, code flows with diagrams, using and editing the site, reading the data,
-interview notes).
-
 | Guide                                                                   | For                                    |
 | ----------------------------------------------------------------------- | -------------------------------------- |
-| [Start here](docs/START-HERE.md)                                        | "How do I…?": every task, where to go  |
 | [DESIGN.md](DESIGN.md)                                                  | The full specification                 |
-| [ROADMAP.md](ROADMAP.md)                                                | Progress, phase by phase               |
-| [Guided tour](docs/GUIDED-TOUR.md)                                      | Hands-on: try every feature locally    |
 | [Editing the site](docs/EDITING-THE-SITE.md)                            | Text, page wording, photos             |
 | [Content & cache](docs/CONTENT-AND-CACHE.md)                            | The content API and its Redis cache    |
 | [Data tools](docs/DATA-TOOLS.md)                                        | Postgres and Redis in VS Code          |
 | [Testing](docs/TESTING.md) · [CI](docs/CI.md)                           | Tests and GitHub Actions               |
 | [Docker](docs/DOCKER.md) · [Production stack](docs/PRODUCTION-STACK.md) | Images; the real stack on your laptop  |
-| [Hosting](docs/HOSTING.md) · [Releasing](docs/CD.md)                    | The server; deploying, pausing         |
+| [Releasing](docs/CD.md)                                                 | Deploying, rolling back, pausing       |
 | [Backups](docs/BACKUPS.md)                                              | Weekly backups and restoring           |
 | [Monitoring](docs/MONITORING.md)                                        | Grafana, alerts on Discord, Prometheus |
 

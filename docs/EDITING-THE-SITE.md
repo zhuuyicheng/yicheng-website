@@ -78,8 +78,7 @@ anything, a project included. Seeding (or deploying) an unchanged file moves not
   per project at most 20 sections, a section heading 120, its body 2,000, each point 500.
 
 If anything is wrong, the seed lists **every** problem with its location and writes nothing,
-so the site never shows half an edit. Try it on purpose:
-[Guided Tour, Station 5](GUIDED-TOUR.md#station-5-edit-your-content-and-break-it-on-purpose).
+so the site never shows half an edit.
 
 ---
 

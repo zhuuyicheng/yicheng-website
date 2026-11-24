@@ -180,7 +180,7 @@ means one of them isn't running); nothing is sent.
    wait for Sunday). Until a backup records its time, "Last backup" shows "—".
 5. **If you like, the test message** from section 3.
 6. **Reload `/admin`** if it was open during the deploy: the old page can't read the new answer.
-7. **Memory**: `docker stats --no-stream`, then note the total in ROADMAP.md (Phase 7).
+7. **Memory**: `docker stats --no-stream`, and note the total.
 
 ---
 
