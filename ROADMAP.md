@@ -195,11 +195,12 @@ Design: [DESIGN.md §14](DESIGN.md#14-deployment--continuous-delivery-phase-6). 
       shortcut `C="docker compose -f ~/…"` in the docs (a quoted `~` is not expanded: `$HOME`)
 - [ ] Oracle idle rule: Oracle's Memory utilization reads about 22 % (2026-11-20, first hour),
       just above the 20 % line; CPU about 5 %. Recheck the 7-day view in a week; resize to
-      3 GB if memory falls under 20 % ([HOSTING.md](docs/HOSTING.md#check-yourself), question 3)
+      3 GB if memory falls under 20 % ([HOSTING.md](docs/HOSTING.md#check-yourself), question 3).
+      Phase 7 raised it: since 2026-11-24 the stack alone uses 1.22 GB, 21 % of the VM
 - [x] Protect `main` (2026-11-20, ruleset "Protect main"): pull request required, checks
       `check`, `image (api)` and `image (web)` required, no force push or deletion, no bypass
       ([CI.md §4](docs/CI.md#4-protecting-main))
-- [ ] Per-replica metrics in a Prometheus server: Phase 7, below
+- [x] Per-replica metrics in a Prometheus server: Phase 7, below (live 2026-11-24)
 - [ ] Switch to `<name>.is-a.dev`, possible now that the site is live (you write the request by
       hand: their terms forbid AI-written pull requests)
 - [ ] Later: remove the approval gate (continuous **deployment**) once releases are routine
@@ -368,7 +369,8 @@ asking each replica, with the custom code that fed them removed; Grafana at
 - [ ] One backup by hand on the server, so `BackupStale` has its starting point
 - [x] Follow-up release (the contract step, DESIGN.md §15.6): the API drops the status report's
       per-replica numbers (`instance`, `uptimeSeconds`, `http`, `cache`) and its rolling latency
-      window; the web uses the shared schema as is, and still reads an older API's answer
+      window; the web uses the shared schema as is, and still reads an older API's answer.
+      Merged and deployed with the next item as #19 (2026-11-24)
 - [x] `prom-client` → `@prometheus-io/client` 0.16 (the same library, renamed when it became a
       Prometheus project; prom-client is deprecated). Its breaking changes (Node 22+, cluster
       messages, subclassed metrics, exemplars) touch nothing here; `/metrics` reads the same

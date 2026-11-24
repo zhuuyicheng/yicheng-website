@@ -103,7 +103,8 @@ apps/api/src          the API and the worker (one codebase, two processes)
 apps/api/migrations   numbered SQL files, applied in order, never edited once applied
 apps/api/content      portfolio.json: all the text about you
 apps/web/src          the website (app/ = pages, components/, lib/ = logic with unit tests)
-deploy/               production: compose file, Caddyfile, deploy/backup/restore scripts
+deploy/               production: compose file, Caddyfile, deploy/backup/restore scripts,
+                      prometheus/, alertmanager/, grafana/ (the monitoring, §4.7)
 .github/workflows     ci.yml (tests on every PR), deploy.yml (release to the server)
 docs/                 the guides (§11)
 ```
@@ -128,8 +129,9 @@ flowchart LR
 | Middleware   | [middleware/](../apps/api/src/middleware)                      | Request ids, errors, metrics, rate limit, tokens                  |
 
 Why: each layer changes for one reason, managers are unit-tested with fake DALs, and the
-composition roots ([app.ts](../apps/api/src/app.ts), [worker.ts](../apps/api/src/worker.ts))
-wire everything explicitly (no global singletons).
+composition roots ([app.ts](../apps/api/src/app.ts), [worker.ts](../apps/api/src/worker.ts), and
+[worker-app.ts](../apps/api/src/worker-app.ts) for the worker's `/metrics`) wire everything
+explicitly (no global singletons).
 
 ---
 

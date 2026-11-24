@@ -5,6 +5,9 @@ something breaks, a message reaches the Discord channel your contact messages us
 the history at `https://<host>/grafana`, and `/admin` reads its system numbers from the same
 place. Design: [DESIGN.md §15](../DESIGN.md#15-monitoring-prometheus-alertmanager-grafana-phase-7).
 
+**Status**: live since 2026-11-24. On the server the whole stack uses about 1.22 GB of 5.76 GB,
+the monitoring about 620 MB of it (Grafana 561 MB).
+
 ```
                    every 15 s: GET /metrics
    prometheus ───────────────────────► api-1, api-2, worker, node-exporter (the server itself)

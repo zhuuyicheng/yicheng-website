@@ -3,7 +3,9 @@
 My portfolio website, built like a small production system: a Next.js site on a Fastify API
 with a Redis cache, an analytics pipeline with a batch worker, a rate-limited contact form with
 background notifications, and an owner dashboard. Releases go to an Oracle Cloud VM after my
-approval, with automatic rollback. Live since 2026-11-20.
+approval, with automatic rollback. Prometheus watches it (unit-tested alert rules post to
+Discord) and Grafana shows 30 days of history. Live since 2026-11-20; monitored since
+2026-11-24.
 
 **Coming back, or wondering how to do something? [docs/START-HERE.md](docs/START-HERE.md)**:
 from "I want to…" to the command and the guide.

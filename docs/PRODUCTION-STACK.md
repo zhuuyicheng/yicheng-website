@@ -107,7 +107,8 @@ the certificate itself (a real authority only certifies real domain names). Clic
 certificate and there is no warning.
 
 Then **https://localhost/admin**: any user name, password = `ADMIN_TOKEN` from `deploy/.env`.
-At the bottom, "answered by" alternates between `api-1` and `api-2`.
+At the bottom of the system status, the line lists each process Prometheus reads:
+`api-1 ●, api-2 ●, node-exporter ●, worker ●`.
 
 ```bash
 npm run stack:down     # stop and remove the containers; the data volumes stay

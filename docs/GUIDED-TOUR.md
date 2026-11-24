@@ -22,7 +22,7 @@ You'll want **three terminals** (VS Code: `Ctrl+Shift+5` splits the terminal) an
 ```bash
 # Terminal A: datastores + API
 nvm use
-npm run infra:up          # Postgres + Redis in Docker (waits until healthy)
+npm run infra:up          # Postgres, Redis and Prometheus in Docker (waits until healthy)
 npm run db:migrate        # creates/updates tables (safe to re-run)
 npm run content:seed      # loads apps/api/content/portfolio.json
 npm run dev:api           # leave running; this is where logs appear
@@ -362,16 +362,19 @@ curl -s -H "Authorization: Bearer $ADMIN_TOKEN" localhost:4000/api/v1/admin/syst
   page" list on a wide window.
 - Terminal C (`MONITOR`): your page view arriving (`evalsha` of the bounded enqueue), sent by
   the browser itself this time.
-- Terminal B: Prometheus counters labelled by route template, and the JSON status report.
+- Terminal B: Prometheus counters labelled by route template, and the JSON status report
+  (dependencies, queues, page views: what the datastores say).
 - http://localhost:3000/admin (log in with any username and `ADMIN_TOKEN` as the password):
-  who visited and how they found the site, then the same status report, live, polled every
-  5 s. Stop Redis and watch the banner turn amber within 5 s; start it again.
+  who visited and how they found the site, then the live system status, polled every 15 s:
+  the status report, plus requests, latency and charts from the development Prometheus that
+  `infra:up` started (start `dev:worker` too, or the bottom line marks it `✕`). Stop Redis and
+  watch the banner turn amber within 15 s; start it again.
 
 **Why**: the site is a client of the same API you have been calling with curl, and both sides
-use one contract (`packages/shared`), so they cannot disagree about a field. The API measures
-every request and reports it twice: as Prometheus text for machines, and as JSON for the
-dashboard. The status endpoint keeps answering when a datastore is down, because that is
-exactly when people look at it.
+use one contract (`packages/shared`), so they cannot disagree about a field. The API counts
+every request for Prometheus (`/metrics`), which keeps the numbers over time and adds the
+replicas up; the JSON status report says what only the datastores know. Both keep answering
+when a datastore is down, because that is exactly when people look.
 
 **Code**: [packages/shared/src](../packages/shared/src) (the contract) →
 [lib/api.ts](../apps/web/src/lib/api.ts) (server-side fetch) →
@@ -383,7 +386,9 @@ exactly when people look at it.
 
 **More experiments** (reading counters and histograms, the metrics token, CORS, a tagged
 link from a real browser, every device width, an outage on the dashboard):
-[DATA-TOOLS.md §7.3–7.5](DATA-TOOLS.md#73-phase-5-metrics-and-the-status-endpoint).
+[DATA-TOOLS.md §7.3–7.5](DATA-TOOLS.md#73-phase-5-metrics-and-the-status-endpoint); Prometheus,
+its alert rules and Grafana: [DATA-TOOLS.md §7.8](DATA-TOOLS.md#78-phase-7-the-monitoring)
+and [MONITORING.md](MONITORING.md).
 
 ---
 
