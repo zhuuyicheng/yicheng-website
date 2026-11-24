@@ -36,7 +36,7 @@ describe('observability and security with live Postgres and Redis', () => {
   beforeEach(async () => {
     await deps.redis.flushdb(); // Redis DB 1 (tests) only
     await deps.postgres.query('TRUNCATE analytics_events');
-    // Fresh metrics and app per test: counters, latency window and status cache start empty.
+    // Fresh metrics and app per test: counters and the status cache start empty.
     app = buildApp({ ...deps, metrics: createMetrics() });
     await app.ready();
   });
@@ -51,11 +51,7 @@ describe('observability and security with live Postgres and Redis', () => {
     return response.json<DataResponseBody<SystemStatus>>().data;
   }
 
-  it('GET /api/v1/admin/system-status reports health, traffic, page views and queues', async () => {
-    await app.inject({ method: 'GET', url: '/api/v1/projects' });
-    await app.inject({ method: 'GET', url: '/api/v1/projects' }); // a cache hit
-    await app.inject({ method: 'GET', url: '/does-not-exist' });
-    await app.inject({ method: 'GET', url: '/health/live' }); // the load balancer's: not counted
+  it('GET /api/v1/admin/system-status reports health, page views and queues', async () => {
     const pageView = bufferedEventSchema.parse(JSON.parse(bufferedEventJson()));
     await createAnalyticsEventDal(deps.postgres).insertBatch([pageView]);
     await deps.redis.rpush(TELEMETRY_BUFFER_KEYS.buffer, bufferedEventJson(), bufferedEventJson());
@@ -66,10 +62,6 @@ describe('observability and security with live Postgres and Redis', () => {
       postgres: { status: 'up', latencyMs: expect.any(Number) as unknown },
       redis: { status: 'up', latencyMs: expect.any(Number) as unknown },
     });
-    // The 3 visitor requests; the liveness check and this status request don't count.
-    expect(status.http.requestCount).toBe(3);
-    expect(status.http.latencyMs.p95).toBeGreaterThan(0);
-    expect(status.cache.hits).toBeGreaterThanOrEqual(1);
     expect(status.analytics.pageViewsLast24h).toBe(1);
     expect(status.queues).toEqual({
       telemetryBuffer: 2,
@@ -78,7 +70,10 @@ describe('observability and security with live Postgres and Redis', () => {
       notificationsDelayed: 0,
       notificationsDeadLetter: 0,
     });
-    expect(status.instance).not.toBe('');
+    // Per-process numbers are Prometheus's now (DESIGN.md §15.6): not in the report.
+    for (const gone of ['instance', 'uptimeSeconds', 'http', 'cache']) {
+      expect(status).not.toHaveProperty(gone);
+    }
   });
 
   it('serves the same status for 5 s (one refresh, however many viewers)', async () => {

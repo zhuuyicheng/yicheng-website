@@ -9,24 +9,12 @@ import { systemMetricsSchema } from './system-metrics';
  */
 
 /**
- * The API's status as the dashboard reads it: without its per-process numbers (`instance`,
- * `uptimeSeconds`, `http`, `cache`), which now come from Prometheus. The API still sends them
- * until the next release (DESIGN.md §15.6); an object schema just ignores keys it doesn't name.
- */
-export const dashboardStatusSchema = systemStatusSchema.omit({
-  instance: true,
-  uptimeSeconds: true,
-  http: true,
-  cache: true,
-});
-export type DashboardStatus = z.infer<typeof dashboardStatusSchema>;
-
-/**
  * What app/admin/system-status/route.ts answers: each source, or `null` with the reason it
- * couldn't be read, so one failing never hides the other.
+ * couldn't be read, so one failing never hides the other. An API still sending the per-process
+ * numbers it dropped (DESIGN.md §15.6) parses too: an object schema ignores keys it doesn't name.
  */
 export const dashboardDataSchema = z.object({
-  status: dashboardStatusSchema.nullable(),
+  status: systemStatusSchema.nullable(),
   statusProblem: z.string().nullable(),
   metrics: systemMetricsSchema.nullable(),
   metricsProblem: z.string().nullable(),

@@ -14,11 +14,10 @@ import {
   timeTicks,
   valueDepth,
   type DashboardData,
-  type DashboardStatus,
 } from '@/lib/status';
 import type { SystemMetrics } from '@/lib/system-metrics';
 
-const STATUS: DashboardStatus = {
+const STATUS: SystemStatus = {
   generatedAt: '2026-11-24T12:00:00.000Z',
   dependencies: { postgres: { status: 'up', latencyMs: 2 }, redis: { status: 'up', latencyMs: 1 } },
   analytics: { pageViewsLast24h: 41 },
@@ -65,9 +64,9 @@ describe('fetchDashboard', () => {
     expect(fetch).toHaveBeenCalledWith('/admin/system-status', { cache: 'no-store' });
   });
 
-  it("takes the API's status with or without its per-process numbers, and drops them", async () => {
-    // The API sends them until the next release (DESIGN.md §15.6); Prometheus has them now.
-    const old: SystemStatus = {
+  it("still reads the previous release's status, which had per-process numbers", async () => {
+    // During a rolling deploy the new web can meet the old API (DESIGN.md §15.6).
+    const old = {
       ...STATUS,
       instance: 'api-1',
       uptimeSeconds: 60,

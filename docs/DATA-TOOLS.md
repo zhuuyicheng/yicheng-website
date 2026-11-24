@@ -420,11 +420,10 @@ With `npm run dev:api` running:
    curl -s -H "Authorization: Bearer $ADMIN_TOKEN" localhost:4000/api/v1/admin/system-status | python3 -m json.tool
    ```
 
-   Uptime, Postgres and Redis latency, p50/p95 of the last 5 minutes, cache hits and misses,
-   page views in the last 24 h, and every queue's length. Run it twice within 5 s:
-   `generatedAt` is the same (served from the 5 s cache). Your status calls do not raise
-   `http.requestCount`: the monitors' own requests are left out, or watching would change what
-   is watched. Stop Postgres: still `200`, `postgres` is `down` and `pageViewsLast24h` is
+   Postgres and Redis latency, page views in the last 24 h, and every queue's length: what the
+   datastores say. (Requests, latency and cache hits are per process, so they are Prometheus's
+   since Phase 7: §7.8.) Run it twice within 5 s: `generatedAt` is the same (served from the
+   5 s cache). Stop Postgres: still `200`, `postgres` is `down` and `pageViewsLast24h` is
    `null`.
 
 6. **Protect `/metrics`.** Restart with a token:

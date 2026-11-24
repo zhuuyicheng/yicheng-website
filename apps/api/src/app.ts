@@ -1,21 +1,11 @@
-import { hostname } from 'node:os';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import type { AppConfig } from './config/env.js';
-import {
-  ADMIN_QUEUE_ITEMS_PATH,
-  ADMIN_SYSTEM_STATUS_PATH,
-  ADMIN_VISITORS_PATH,
-  registerAdminController,
-} from './controllers/admin.controller.js';
+import { registerAdminController } from './controllers/admin.controller.js';
 import { registerContactController } from './controllers/contact.controller.js';
 import { registerContentController } from './controllers/content.controller.js';
 import { registerEventsController } from './controllers/events.controller.js';
-import {
-  HEALTH_PATH,
-  LIVENESS_PATH,
-  registerHealthController,
-} from './controllers/health.controller.js';
-import { METRICS_PATH, registerSystemController } from './controllers/system.controller.js';
+import { registerHealthController } from './controllers/health.controller.js';
+import { registerSystemController } from './controllers/system.controller.js';
 import { createAnalyticsEventDal } from './dal/analytics-event.dal.js';
 import { createContactMessageDal } from './dal/contact-message.dal.js';
 import { createContentCacheDal } from './dal/content-cache.dal.js';
@@ -32,7 +22,6 @@ import type { Logger } from './infra/logger.js';
 import type { Metrics } from './infra/metrics.js';
 import { pingPostgres, type PostgresPool } from './infra/postgres.js';
 import { pingRedis, type Redis } from './infra/redis.js';
-import { createRollingLatency } from './infra/rolling-latency.js';
 import { registerErrorHandlers } from './middleware/error-handler.js';
 import { registerHttpMetrics } from './middleware/http-metrics.js';
 import { REQUEST_ID_HEADER, resolveRequestId } from './middleware/request-id.js';
@@ -83,20 +72,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
 
   registerErrorHandlers(app);
   registerSecurityPlugins(app, { corsOrigins: config.cors.origins });
-  const latency = createRollingLatency();
-  registerHttpMetrics(app, {
-    metrics,
-    latency,
-    // Not visitor traffic, so kept out of p95.
-    latencyIgnoredRoutes: [
-      HEALTH_PATH,
-      LIVENESS_PATH,
-      METRICS_PATH,
-      ADMIN_SYSTEM_STATUS_PATH,
-      ADMIN_VISITORS_PATH,
-      ADMIN_QUEUE_ITEMS_PATH,
-    ],
-  });
+  registerHttpMetrics(app, metrics);
 
   // Wiring: DAL (data access) → manager (business rules) → controller (endpoints).
 
@@ -153,9 +129,7 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     healthManager,
     queueDepthDal: createQueueDepthDal(redis),
     analyticsEventDal: createAnalyticsEventDal(postgres),
-    latency,
     metrics,
-    instance: hostname(),
   });
   registerSystemController(app, systemStatusManager, { metricsToken: config.metrics.token });
 

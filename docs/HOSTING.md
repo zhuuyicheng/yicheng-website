@@ -259,13 +259,14 @@ because the rule looks at the 95th percentile), so memory must stay above 20 %.
 
 6 GB was chosen for an estimated 2 GB. Measured, the stack uses about 0.6 GB (`docker stats`)
 and Oracle shows about 22 % for the whole VM, system included (2026-11-20): above the line, by
-little. Phase 7's monitoring adds about 0.3 GB, lifting it further. What to do:
+little. Phase 7's monitoring added about 0.6 GB (2026-11-24: 1.22 GB for the stack), lifting it
+further. What to do:
 
 1. Once a week for a while: instance page → **Metrics** → **Memory utilization**, set to the
    last 7 days. Pausing the site doesn't change it: the containers keep running.
 2. If it falls under 20 %: **Edit** → shape → 1 OCPU, **3 GB**. The VM restarts once; Docker
-   starts the site again by itself. About 1.6 GB in use (monitoring included) is over 50 % of
-   3 GB.
+   starts the site again by itself. About 2 GB in use (monitoring and system included) is about
+   two thirds of 3 GB.
 
 </details>
 

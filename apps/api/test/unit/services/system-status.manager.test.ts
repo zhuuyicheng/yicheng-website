@@ -1,7 +1,6 @@
 import { pino } from 'pino';
 import { describe, expect, it } from 'vitest';
 import { createMetrics } from '../../../src/infra/metrics.js';
-import { createRollingLatency } from '../../../src/infra/rolling-latency.js';
 import type { HealthReport } from '../../../src/schema/health.schema.js';
 import type { QueueDepths } from '../../../src/schema/system-status.schema.js';
 import { createSystemStatusManager } from '../../../src/services/system-status.manager.js';
@@ -25,7 +24,6 @@ function setup(options: { queuesFail?: boolean; pageViewsFail?: boolean } = {}) 
   let clock = Date.parse('2026-11-18T12:00:00.000Z');
   const reads = { health: 0, queues: 0, pageViews: 0 };
   const metrics = createMetrics();
-  const latency = createRollingLatency({ now: () => clock });
   const manager = createSystemStatusManager({
     healthManager: {
       checkHealth: () => {
@@ -45,32 +43,22 @@ function setup(options: { queuesFail?: boolean; pageViewsFail?: boolean } = {}) 
         return options.pageViewsFail ? Promise.reject(OUTAGE) : Promise.resolve(412);
       },
     },
-    latency,
     metrics,
-    instance: 'api-1',
     now: () => clock,
-    uptimeSeconds: () => 86_400.7,
   });
   const advance = (ms: number) => {
     clock += ms;
   };
-  return { manager, reads, metrics, latency, advance };
+  return { manager, reads, metrics, advance };
 }
 
 describe('SystemStatusManager.getStatus', () => {
-  it('assembles health, latency, cache, page views and queues', async () => {
-    const { manager, metrics, latency } = setup();
-    for (const ms of [2, 4, 6, 8]) latency.record(ms);
-    metrics.cacheRequests.inc({ cache: 'projects', result: 'hit' }, 3);
-    metrics.cacheRequests.inc({ cache: 'profile', result: 'miss' });
+  it('assembles health, page views and queues: what the datastores say', async () => {
+    const { manager } = setup();
 
     expect(await manager.getStatus(log)).toEqual({
       generatedAt: '2026-11-18T12:00:00.000Z',
-      instance: 'api-1',
-      uptimeSeconds: 86_400,
       dependencies: HEALTHY.checks,
-      http: { windowSeconds: 300, requestCount: 4, latencyMs: { p50: 4, p95: 8 } },
-      cache: { hits: 3, misses: 1, hitRatio: 0.75 },
       analytics: { pageViewsLast24h: 412 },
       queues: DEPTHS,
     });
@@ -107,12 +95,6 @@ describe('SystemStatusManager.getStatus', () => {
     expect(status.analytics.pageViewsLast24h).toBeNull();
     expect(await counterValue(metrics.observabilityReadErrors, { source: 'queue_depths' })).toBe(1);
     expect(await counterValue(metrics.observabilityReadErrors, { source: 'page_views' })).toBe(1);
-  });
-
-  it('reports no hit ratio before the first cache lookup (not 0, not NaN)', async () => {
-    const { manager } = setup();
-
-    expect((await manager.getStatus(log)).cache).toEqual({ hits: 0, misses: 0, hitRatio: null });
   });
 });
 

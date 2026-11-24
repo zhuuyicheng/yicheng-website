@@ -1,4 +1,4 @@
-import type { Counter } from 'prom-client';
+import type { Counter } from '@prometheus-io/client';
 
 /** Current value of a counter, summed over every label set that matches `labels`. */
 export async function counterValue<Label extends string>(
